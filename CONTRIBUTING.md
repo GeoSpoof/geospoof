@@ -237,17 +237,13 @@ To generate credentials: go to the [AMO API Keys page](https://addons.mozilla.or
 | `EXT_CDN_BUCKET`          | CDN origin bucket                                     |
 | `EXT_CDN_DISTRIBUTION_ID` | CloudFront distribution to invalidate                 |
 
-### Self-hosted update path: an in-flight migration
+### Self-hosted update path: migrating off GitHub Pages
 
-The update manifest is currently published to **two** homes on purpose. This is a migration with a waiting period in the middle, so if you found this mid-way, here is the state and how to finish it.
+**Why this exists.** `update_url` is compiled into every shipped copy of the extension (`src/build/manifest.ts`). Firefox keeps polling whatever URL the installed copy carries, and [an existing install cannot be told about a new one](https://extensionworkshop.com/documentation/manage/updating-your-extension/). It historically pointed at `anthonysgro.github.io/geospoof/update.json`, which tied every self-hosted install's update path to a personal GitHub username — and a repo's github.io path does not survive a transfer to another owner. Moving this repo with that URL baked in would have stranded those installs on their current version, silently, since a failed update check is invisible to the user.
 
-**Why.** `update_url` is compiled into every shipped copy of the extension (`src/build/manifest.ts`). Firefox keeps polling whatever URL the installed copy carries, and [an existing install cannot be told about a new one](https://extensionworkshop.com/documentation/manage/updating-your-extension/). It historically pointed at `anthonysgro.github.io/geospoof/update.json`, which tied every self-hosted install's update path to a personal GitHub username — and GitHub does not redirect Pages when a repo is transferred. Moving this repo would therefore have stranded those installs on their current version, silently, since a failed update check is invisible to the user.
+**Where it stands now.** As of v2.2.1 the shipped `update_url` points at `https://cdn.geospoof.com/firefox/update.json`, a domain we own, and the release workflow publishes only there — the GitHub Pages publish was retired once the installed base had rolled forward (v2.2.1 and v2.2.2 shipped over roughly three weeks and the signed-asset downloads plateaued in the normal release band). Installs from v2.2.1 on poll the CDN and are unaffected by any repo move.
 
-**Where it stands.** As of v2.2.1, `update_url` points at `https://cdn.geospoof.com/firefox/update.json`, a domain we own. Both homes are published every release. The old Pages URL remains authoritative for anyone who installed before v2.2.1.
-
-**How installs migrate.** An older install polls the old URL, sees v2.2.1+, updates, and from then on polls the CDN. So the migration happens _through_ the old URL and cannot be rushed.
-
-**Measuring it.** Auto-updates download the XPI via `update_link`, so a release's signed-asset download count is the migration counter:
+**Measuring the rollout** (used before retiring Pages; kept for reference). Auto-updates download the XPI via `update_link`, so a release's signed-asset download count is the migration counter:
 
 ```bash
 # Note the camelCase: `gh release view --json` uses downloadCount, while the REST
@@ -256,11 +252,11 @@ gh release view v2.2.1 --json assets \
   --jq '.assets[] | select(.name|test("-signed")) | .downloadCount'
 ```
 
-Expect a fast climb, then a plateau. For scale, v2.1.5 reached 139.
+A fast climb then a plateau is a completed cycle. For scale, v2.1.5 reached ~141.
 
-**Finishing it**, once that count has plateaued across a release cycle or two:
+**Transfer checklist** — the Pages publish is already gone (step 1, done), so what remains is the move itself:
 
-1. Delete the `Stage GitHub Pages content` and `Deploy update manifest to GitHub Pages` steps from `.github/workflows/release.yml`, and the `pages: write` permission.
+1. ~~Remove the GitHub Pages publish steps and `pages: write` from `.github/workflows/release.yml`.~~ **Done.** The workflow now publishes the manifest only to the CDN.
 2. Transfer the repo to the `GeoSpoof` org.
 3. **Immediately** run the `CDN publish preflight` workflow. Transferring a repo flips GitHub's OIDC subject to the immutable id-based format, which breaks name-based trust policies — see `cdk/README.md`, "Who may publish". The publish role already trusts both forms, so this should pass; run it to be sure rather than finding out at the next release.
 4. In `cdk/lib/config/app.ts`, remove the now-dead legacy entry `"repo:anthonysgro/geospoof:*"` from `extensionUpdates.githubSubjectPatterns`, leaving only the immutable `"repo:*/geospoof@1170325630:*"`, and redeploy. Confirm the live value first with:
@@ -272,7 +268,7 @@ Expect a fast climb, then a plateau. For scale, v2.1.5 reached 139.
 
 **Do not** create anything at the old repo path after transferring. Published manifests point `update_link` at `github.com/anthonysgro/geospoof/releases/...`, and that redirect survives a transfer only while the old path stays unused.
 
-Whoever never opens Firefox during the migration stays on the old URL and will need a manual reinstall once Pages stops being published. AMO users are unaffected throughout — the listed build has `update_url` stripped.
+An install that never checked for updates between v2.2.1 shipping and the transfer stays pinned to the old github.io URL, which stops resolving once the repo moves; recovery is a manual reinstall. AMO users are unaffected throughout — the listed build has `update_url` stripped.
 
 **Releasing:**
 
