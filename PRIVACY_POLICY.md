@@ -193,7 +193,7 @@ GeoSpoof needs broad website access because its only job is to make every site y
 | Transmit data externally                                           | Sends nothing to the developer. The only outbound requests are the optional geocoding / VPN-sync API calls described above, and only when you actively use those features. |
 
 The extension is open source, so you can verify all of the above:
-[https://github.com/anthonysgro/geospoof](https://github.com/anthonysgro/geospoof)
+[https://github.com/GeoSpoof/geospoof](https://github.com/GeoSpoof/geospoof)
 
 **Which Safari permission option should you choose?**
 
@@ -261,13 +261,13 @@ If this privacy policy changes, the updated version will be posted in the extens
 For questions or concerns about this privacy policy:
 
 - Email: [support@geospoof.com](mailto:support@geospoof.com)
-- GitHub: [https://github.com/anthonysgro/geospoof](https://github.com/anthonysgro/geospoof)
+- GitHub: [https://github.com/GeoSpoof/geospoof](https://github.com/GeoSpoof/geospoof)
 
 ## Open Source
 
 GeoSpoof is open source. You can review the complete source code to verify these privacy practices:
 
-[https://github.com/anthonysgro/geospoof](https://github.com/anthonysgro/geospoof)
+[https://github.com/GeoSpoof/geospoof](https://github.com/GeoSpoof/geospoof)
 
 ## Important Disclaimers
 

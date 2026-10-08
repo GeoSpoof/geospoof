@@ -175,21 +175,17 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
     },
     // The extension repo publishes the Firefox self-hosted update manifest here,
     // so `update_url` names a domain we own rather than a github.io path that
-    // dies when the repo moves. Two patterns while the repo is still under
-    // `anthonysgro`:
-    //
-    //   - the NAME form is what GitHub presents today (that repo has not been
-    //     renamed or transferred, so it is still on the legacy subject format)
-    //   - the IMMUTABLE form, pinned to repo id 1170325630 with the owner
-    //     wildcarded, is what it will present the instant it is transferred
-    //
-    // Trusting both means the transfer needs no change here and has no window.
-    // Drop the name form once a release has published under the new owner. Verify
-    // which format is live with:
-    //   gh api repos/OWNER/geospoof/actions/oidc/customization/sub \
+    // dies when the repo moves. The repo now lives at GeoSpoof/geospoof and
+    // presents the IMMUTABLE subject format, which embeds the numeric repo id;
+    // the owner is wildcarded so a future transfer needs no change here (the
+    // repo id is immutable, the owner id is not). The legacy
+    // `repo:anthonysgro/geospoof:*` form was dropped after the transfer, having
+    // been verified dead — GitHub only ever presents the immutable form now.
+    // Verify the live value with:
+    //   gh api repos/GeoSpoof/geospoof/actions/oidc/customization/sub \
     //     --jq '{immutable:.use_immutable_subject,prefix:.sub_claim_prefix}'
     extensionUpdates: {
-      githubSubjectPatterns: ["repo:anthonysgro/geospoof:*", "repo:*/geospoof@1170325630:*"],
+      githubSubjectPatterns: ["repo:*/geospoof@1170325630:*"],
     },
   },
 };
