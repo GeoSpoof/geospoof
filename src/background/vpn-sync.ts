@@ -81,8 +81,7 @@ type IpGeoCacheStore = Record<string, IpGeoCacheEntry>;
 async function persistentCacheGet(ip: string): Promise<IpGeolocationResult | undefined> {
   try {
     const store = (await browser.storage.local.get(IP_GEO_CACHE_KEY))[IP_GEO_CACHE_KEY] as
-      | IpGeoCacheStore
-      | undefined;
+      IpGeoCacheStore | undefined;
     if (!store) return undefined;
     const entry = store[ip];
     if (!entry) return undefined;
@@ -100,8 +99,7 @@ async function persistentCacheGet(ip: string): Promise<IpGeolocationResult | und
 async function persistentCacheSet(ip: string, result: IpGeolocationResult): Promise<void> {
   try {
     const existing = (await browser.storage.local.get(IP_GEO_CACHE_KEY))[IP_GEO_CACHE_KEY] as
-      | IpGeoCacheStore
-      | undefined;
+      IpGeoCacheStore | undefined;
     const store: IpGeoCacheStore = existing ?? {};
     store[ip] = { result, cachedAt: Date.now() };
     await browser.storage.local.set({ [IP_GEO_CACHE_KEY]: store });

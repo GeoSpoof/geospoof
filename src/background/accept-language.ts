@@ -74,8 +74,7 @@ const RULE_ID = 8801;
 let cachedSettings: Settings | null = null;
 
 let beforeSendHeadersListener:
-  | ((details: AcceptLanguageRequestDetails) => BlockingResponse | undefined)
-  | null = null;
+  ((details: AcceptLanguageRequestDetails) => BlockingResponse | undefined) | null = null;
 
 /** The slice of the webRequest details object this module uses. */
 interface AcceptLanguageRequestDetails {

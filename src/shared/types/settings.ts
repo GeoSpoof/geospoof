@@ -140,9 +140,7 @@ export const MAX_PRECISION_RADIUS_M = 50000; // 50km defensive clamp
  * timezone, with no randomization.
  */
 export type LocaleSpoofing =
-  | { mode: "off" }
-  | { mode: "match" }
-  | { mode: "custom"; locale: string };
+  { mode: "off" } | { mode: "match" } | { mode: "custom"; locale: string };
 
 /** Default: report the real browser locale (pre-feature behavior). */
 export const DEFAULT_LOCALE_SPOOFING: LocaleSpoofing = { mode: "off" };

@@ -200,8 +200,7 @@ export function patchIframeWindow(iframeWindow: Window): void {
     const iframeGeo = iframeNav.geolocation;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframeGeolocationCtor = (iframeWindow as any).Geolocation as
-      | { prototype: object }
-      | undefined;
+      { prototype: object } | undefined;
     if (!iframeGeolocationCtor?.prototype) break geolocationSection;
 
     // Capture the iframe's own originals before we install the override,
@@ -237,12 +236,10 @@ export function patchIframeWindow(iframeWindow: Window): void {
     const iframeGeoRealm: GeolocationRealm = {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
       GeolocationCoordinates: (iframeWindow as any).GeolocationCoordinates as
-        | { prototype: object }
-        | undefined,
+        { prototype: object } | undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
       GeolocationPosition: (iframeWindow as any).GeolocationPosition as
-        | { prototype: object }
-        | undefined,
+        { prototype: object } | undefined,
     };
     installGeolocationObjectModel(iframeGeoRealm);
 
@@ -333,8 +330,7 @@ export function patchIframeWindow(iframeWindow: Window): void {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframePermissionStatusCtor = (iframeWindow as any).PermissionStatus as
-      | { prototype: object }
-      | undefined;
+      { prototype: object } | undefined;
 
     // Use the SAME builder as the top-level realm (see permissions.ts), so the
     // brand check, native-delegation-with-scrub, preserve-prompt gating, and
@@ -668,20 +664,17 @@ export function patchIframeWindow(iframeWindow: Window): void {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframeHTMLIFrameElementCtor = (iframeWindow as any).HTMLIFrameElement as
-      | { prototype: object }
-      | undefined;
+      { prototype: object } | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframeNodeCtor = (iframeWindow as any).Node as { prototype: object } | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframeElementCtor = (iframeWindow as any).Element as { prototype: object } | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframeMutationObserverCtor = (iframeWindow as any).MutationObserver as
-      | (new (cb: MutationCallback) => MutationObserver)
-      | undefined;
+      (new (cb: MutationCallback) => MutationObserver) | undefined;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframeDocumentFragmentCtor = (iframeWindow as any).DocumentFragment as
-      | (new () => DocumentFragment)
-      | undefined;
+      (new () => DocumentFragment) | undefined;
 
     // ── 7a. HTMLIFrameElement.prototype accessors ──────────────────────
     // So `nested.contentWindow` (read from inside the outer iframe)
@@ -982,8 +975,7 @@ export function patchIframeWindow(iframeWindow: Window): void {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
       const iframeDocumentCtor = (iframeWindow as any).Document as
-        | { prototype: object }
-        | undefined;
+        { prototype: object } | undefined;
       if (iframeDocumentCtor?.prototype) {
         iframeDocumentProto = iframeDocumentCtor.prototype;
         pathTaken = "window.Document";
@@ -1072,8 +1064,7 @@ export function patchIframeWindow(iframeWindow: Window): void {
   webrtcSection: try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
     const iframeRTC = (iframeWindow as any).RTCPeerConnection as
-      | typeof RTCPeerConnection
-      | undefined;
+      typeof RTCPeerConnection | undefined;
     if (!iframeRTC || typeof iframeRTC !== "function") break webrtcSection;
 
     // Install getStats scrubber on the iframe realm's prototype

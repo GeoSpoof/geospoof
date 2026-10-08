@@ -83,8 +83,7 @@ export interface PermissionsRealm {
   Permissions: (new () => object) | undefined;
   /** The realm's unbound native `query`, captured BEFORE the override is installed. */
   nativeQueryUnbound:
-    | ((this: unknown, descriptor?: PermissionDescriptor) => Promise<PermissionStatus>)
-    | undefined;
+    ((this: unknown, descriptor?: PermissionDescriptor) => Promise<PermissionStatus>) | undefined;
   /** The realm's original `query`, bound to its `navigator.permissions`. */
   boundQuery: (descriptor: PermissionDescriptor) => Promise<PermissionStatus>;
   /** The realm's `PermissionStatus` constructor, for a prototype-correct spoofed status. */
