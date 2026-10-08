@@ -18,16 +18,18 @@ vi.mock("browser-geo-tz", () => ({
   })),
 }));
 
-// Mock DOM for background module
-(globalThis as Record<string, unknown>).document = {
+// Mock DOM for background module. Use vi.stubGlobal rather than direct
+// assignment: under the jsdom bundled with vitest 5, `document` is a getter-only
+// property on the global, so `globalThis.document = {...}` throws a TypeError.
+vi.stubGlobal("document", {
   addEventListener: vi.fn(),
   dispatchEvent: vi.fn(),
-};
+});
 
-(globalThis as Record<string, unknown>).window = {
+vi.stubGlobal("window", {
   addEventListener: vi.fn(),
   dispatchEvent: vi.fn(),
-};
+});
 
 const background = await import("@/background");
 const { computeOffsets } = background;
