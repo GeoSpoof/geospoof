@@ -131,7 +131,7 @@ When you enable GeoSpoof in Safari, you'll see a prompt warning that the extensi
 Because GeoSpoof runs on every website to override the location, timezone, and date APIs before each page loads. Safari shows this same standard warning for _any_ extension that works across all sites — ad blockers, password managers, dark-mode tools. The websites Safari names in the prompt are just the tabs you have open right now; GeoSpoof has no special interest in them.
 
 **Does GeoSpoof actually read my pages, passwords, or browsing history?**
-No. GeoSpoof never reads form fields, passwords, page text, or your history, and it never sends any of that anywhere. Its script only replaces the values returned by the Geolocation, `Date`, `Intl`, and Temporal APIs. It's open source, so you can verify this: https://github.com/anthonysgro/geospoof
+No. GeoSpoof never reads form fields, passwords, page text, or your history, and it never sends any of that anywhere. Its script only replaces the values returned by the Geolocation, `Date`, `Intl`, and Temporal APIs. It's open source, so you can verify this: https://github.com/GeoSpoof/geospoof
 
 **Does it send any data to the developer?**
 No. The only outbound requests are the optional city-search and VPN-sync lookups, and only when you actively use those features. See [PRIVACY_POLICY.md](../PRIVACY_POLICY.md) for the full breakdown.
@@ -181,4 +181,4 @@ Spoofing your location only works if the extension can run on the sites you visi
 
 Found this useful? [Buy me a coffee ☕](https://buymeacoffee.com/sgro)
 
-Report issues on [GitHub](https://github.com/anthonysgro/geospoof)
+Report issues on [GitHub](https://github.com/GeoSpoof/geospoof)

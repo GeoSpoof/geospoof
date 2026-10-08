@@ -45,7 +45,7 @@ export function generateManifest(target: BrowserTarget, version: string): Record
     description: "__MSG_extensionDescription__",
     default_locale: "en",
     author: "GeoSpoof LLC",
-    homepage_url: "https://github.com/anthonysgro/geospoof",
+    homepage_url: "https://github.com/GeoSpoof/geospoof",
     incognito: "spanning",
     version,
     // `proxy` powers the VPN-sync auto-resync watcher: GeoSpoof observes

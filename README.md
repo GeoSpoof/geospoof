@@ -7,7 +7,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Website](https://img.shields.io/badge/Website-geospoof.com-4caf50.svg?logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABTElEQVQ4T41TS1LDMAyV3AXZsGPJJbgGC5qkoXG5Vi/AsAAS8uMi3AdmYiE5dRK7LoMzGSey9J70JCNcWLpNaSQDG1RA/FS7T4y5nhnL5oGQgxARiMjusuR7NAQfjz6QB6DbLQHgEnQ6Rba6NRqAuujnOA/g0GXWldiqFMDrdnI89IXwgwO6SW6T4/3xW85mAN1n5Bze8oVhXbcjEG3qkyYLAIvm2Kt8iAomAKKFZOh8Zsc918/SgWHFHXqouu6YhGmiAOWQk2KV1+mFAHMJ3Jk66yy53wXWwabIb5iFblJCNWW4LtED2FshufeSJu9VMfV87g7bzEZBnU7sZxmIwWkRDpKchexRADGWLJYI6ibRgcXaG22XbnZ3qMyXAxDVE7r+ec5frkJhowDi9DTwVHKkvQN8N+qs/d9l8iaPWysA71l8Mi9qEKb51/8vRNquEc5KgXwAAAAQZGVCRzg1RUVEM0EzRkYzNEI0MzTcy3bJAAAAAElFTkSuQmCC)](https://geospoof.com/?utm_source=github&utm_medium=readme)
-[![Version](https://img.shields.io/github/package-json/v/anthonysgro/geospoof?color=green)](https://github.com/anthonysgro/geospoof/releases)
+[![Version](https://img.shields.io/github/package-json/v/GeoSpoof/geospoof?color=green)](https://github.com/GeoSpoof/geospoof/releases)
 [![Firefox users](https://img.shields.io/amo/users/geo-spoof?logo=firefox-browser&label=Firefox%20users)](https://addons.mozilla.org/firefox/addon/geo-spoof/?utm_source=github&utm_medium=readme&utm_campaign=readme)
 [![Chrome users](https://img.shields.io/chrome-web-store/users/dgdbdodafgaeifgajaajohkjjgobcgje?logo=googlechrome&label=Chrome%20users)](https://chromewebstore.google.com/detail/geospoof/dgdbdodafgaeifgajaajohkjjgobcgje?utm_source=github&utm_medium=readme&utm_campaign=readme)
 [![App Store downloads](https://img.shields.io/badge/App%20Store%20downloads-30.8k-0071E3?logo=apple&logoColor=white)](https://apps.apple.com/app/apple-store/id6765719745?pt=128299974&ct=github&mt=8)
@@ -38,12 +38,12 @@ GeoSpoof now comes in two parts:
 
 ### Install
 
-|                                                                                                                                         Browser                                                                                                                                         | Store                                                                                                                                                          | Works on                                                                                  |
-| :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-|                                     [<img src="assets/store-listings/github/firefox.svg" alt="Get GeoSpoof for Firefox" height="55">](https://addons.mozilla.org/firefox/addon/geo-spoof/?utm_source=github&utm_medium=readme&utm_campaign=readme)                                      | [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/geo-spoof/?utm_source=github&utm_medium=readme&utm_campaign=readme)                                 | Firefox 140+ on desktop and Android                                                       |
-|                       [<img src="assets/store-listings/github/chrome.svg" alt="Get GeoSpoof for Chrome" height="55">](https://chromewebstore.google.com/detail/geospoof/dgdbdodafgaeifgajaajohkjjgobcgje?utm_source=github&utm_medium=readme&utm_campaign=readme)                       | [Chrome Web Store](https://chromewebstore.google.com/detail/geospoof/dgdbdodafgaeifgajaajohkjjgobcgje?utm_source=github&utm_medium=readme&utm_campaign=readme) | Chrome, Brave, Edge, Opera, and other Chromium browsers                                   |
-|                                                    [<img src="assets/store-listings/github/safari.svg" alt="Get GeoSpoof for Safari" height="55">](https://apps.apple.com/app/apple-store/id6765719745?pt=128299974&ct=github&mt=8)                                                     | [App Store](https://apps.apple.com/app/apple-store/id6765719745?pt=128299974&ct=github&mt=8)                                                                   | Safari on iOS, iPadOS, and macOS                                                          |
-| [<picture><source media="(prefers-color-scheme: dark)" srcset="assets/store-listings/github/github-dark.svg"><img src="assets/store-listings/github/github-light.svg" alt="Get GeoSpoof from GitHub Releases" height="55"></picture>](https://github.com/anthonysgro/geospoof/releases) | [GitHub Releases](https://github.com/anthonysgro/geospoof/releases)                                                                                            | Firefox self-hosted signed XPI — [setup below](#from-github-releases-firefox-self-hosted) |
+|                                                                                                                                       Browser                                                                                                                                        | Store                                                                                                                                                          | Works on                                                                                  |
+| :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+|                                    [<img src="assets/store-listings/github/firefox.svg" alt="Get GeoSpoof for Firefox" height="55">](https://addons.mozilla.org/firefox/addon/geo-spoof/?utm_source=github&utm_medium=readme&utm_campaign=readme)                                    | [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/geo-spoof/?utm_source=github&utm_medium=readme&utm_campaign=readme)                                 | Firefox 140+ on desktop and Android                                                       |
+|                     [<img src="assets/store-listings/github/chrome.svg" alt="Get GeoSpoof for Chrome" height="55">](https://chromewebstore.google.com/detail/geospoof/dgdbdodafgaeifgajaajohkjjgobcgje?utm_source=github&utm_medium=readme&utm_campaign=readme)                      | [Chrome Web Store](https://chromewebstore.google.com/detail/geospoof/dgdbdodafgaeifgajaajohkjjgobcgje?utm_source=github&utm_medium=readme&utm_campaign=readme) | Chrome, Brave, Edge, Opera, and other Chromium browsers                                   |
+|                                                   [<img src="assets/store-listings/github/safari.svg" alt="Get GeoSpoof for Safari" height="55">](https://apps.apple.com/app/apple-store/id6765719745?pt=128299974&ct=github&mt=8)                                                   | [App Store](https://apps.apple.com/app/apple-store/id6765719745?pt=128299974&ct=github&mt=8)                                                                   | Safari on iOS, iPadOS, and macOS                                                          |
+| [<picture><source media="(prefers-color-scheme: dark)" srcset="assets/store-listings/github/github-dark.svg"><img src="assets/store-listings/github/github-light.svg" alt="Get GeoSpoof from GitHub Releases" height="55"></picture>](https://github.com/GeoSpoof/geospoof/releases) | [GitHub Releases](https://github.com/GeoSpoof/geospoof/releases)                                                                                               | Firefox self-hosted signed XPI — [setup below](#from-github-releases-firefox-self-hosted) |
 
 <details>
 <summary><strong>Safari setup</strong> — enabling after install</summary>
@@ -61,7 +61,7 @@ After installing on Safari, tap the puzzle piece icon (or go to Safari Settings 
 
 Each release includes a self-hosted signed XPI alongside the AMO submission. The self-hosted XPI uses a 4-segment version (e.g., `1.18.0.42`) to avoid collisions with the AMO listing.
 
-1. Go to the [Releases](https://github.com/anthonysgro/geospoof/releases) page
+1. Go to the [Releases](https://github.com/GeoSpoof/geospoof/releases) page
 2. Download `geospoof-firefox-v<version>-signed.xpi` from the latest release
 3. In Firefox, open `about:addons`
 4. Click the gear icon (⚙) and select **Install Add-on From File…**
@@ -216,7 +216,7 @@ In each case, copies obtained under MIT before the directory was removed keep th
 - [How Browsers Track Location](docs/BACKGROUND.md)
 - [Privacy Policy](PRIVACY_POLICY.md)
 - [Contributing](CONTRIBUTING.md)
-- [Report Issues](https://github.com/anthonysgro/geospoof/issues)
+- [Report Issues](https://github.com/GeoSpoof/geospoof/issues)
 - [Buy me a coffee](https://buymeacoffee.com/sgro)
 
 ## Star History
@@ -242,6 +242,6 @@ In each case, copies obtained under MIT before the directory was removed keep th
 
 Thanks to everyone who has contributed to GeoSpoof.
 
-<a href="https://github.com/anthonysgro/geospoof/graphs/contributors">
+<a href="https://github.com/GeoSpoof/geospoof/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=anthonysgro/geospoof" alt="GeoSpoof contributors" />
 </a>

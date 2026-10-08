@@ -122,7 +122,7 @@ Install GeoSpoof, set a fake location, and decide exactly what the web sees abou
 
 Links:
 — geospoof.com
-— github.com/anthonysgro/geospoof
+— github.com/GeoSpoof/geospoof
 
 ---
 
@@ -185,7 +185,7 @@ Run it solo, or pair it with your VPN so your IP, location, and timezone all tel
 
 - Everything runs on your device — GeoSpoof never sends your real location to a server.
 - No account, no tracking, no analytics. Settings live locally.
-- _Open source_ — review exactly what it does on [GitHub](https://github.com/anthonysgro/geospoof).
+- _Open source_ — review exactly what it does on [GitHub](https://github.com/GeoSpoof/geospoof).
 - Turn protection off and your genuine coordinates return untouched.
 
 **💡 Who it's for**
@@ -220,7 +220,7 @@ Install GeoSpoof, set a fake location, and decide exactly what the web sees abou
 Links:
 
 - [geospoof.com](https://geospoof.com)
-- [GitHub](https://github.com/anthonysgro/geospoof)
+- [GitHub](https://github.com/GeoSpoof/geospoof)
 
 ---
 

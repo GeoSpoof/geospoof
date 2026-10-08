@@ -2,4 +2,4 @@
 
 Have a question? Not sure if your issue affects everyone reproducibly? The quickest way to get help is on GitHub Discussions.
 
-<https://github.com/anthonysgro/geospoof/discussions>
+<https://github.com/GeoSpoof/geospoof/discussions>

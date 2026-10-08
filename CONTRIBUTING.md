@@ -7,7 +7,7 @@ Node.js 18+, npm 9+, Firefox 140+ or any Chromium-based browser
 ## Quick Start
 
 ```bash
-git clone https://github.com/anthonysgro/geospoof.git
+git clone https://github.com/GeoSpoof/geospoof.git
 cd geospoof
 npm install
 cp .env.example .env
@@ -266,7 +266,7 @@ A fast climb then a plateau is a completed cycle. For scale, v2.1.5 reached ~141
    ```
 5. Update remaining `anthonysgro/geospoof` references.
 
-**Do not** create anything at the old repo path after transferring. Published manifests point `update_link` at `github.com/anthonysgro/geospoof/releases/...`, and that redirect survives a transfer only while the old path stays unused.
+**Do not** create anything at the old `anthonysgro/geospoof` path. Manifests published before the transfer point `update_link` at `github.com/anthonysgro/geospoof/releases/...`, and that redirect to the new location survives only while the old path stays unused.
 
 An install that never checked for updates between v2.2.1 shipping and the transfer stays pinned to the old github.io URL, which stops resolving once the repo moves; recovery is a manual reinstall. AMO users are unaffected throughout — the listed build has `update_url` stripped.
 
