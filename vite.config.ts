@@ -3,7 +3,17 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import { resolve } from "path";
 import { cpSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { build as esbuild } from "esbuild";
-import { generateManifest, resolveBrowserTarget, type BrowserTarget } from "./src/build/manifest";
+import {
+  generateManifest,
+  resolveBrowserTarget,
+  type BrowserTarget,
+} from "./src/build/manifest.ts";
+
+// Vite 8's forthcoming native config loader does not inject the CommonJS
+// `__dirname`. Derive it from `import.meta.dirname` (Node >= 20.11, which both
+// local dev and CI exceed) so the config is forward-compatible with
+// `configLoader: 'native'` without rewriting every path call below.
+const __dirname = import.meta.dirname;
 
 /**
  * Vite plugin that configures the build for a specific browser target.
@@ -210,7 +220,6 @@ export default defineConfig(({ mode }) => {
           chunkFileNames: "shared/[name]-[hash].js",
           assetFileNames: "[name].[ext]",
           format: "es",
-          inlineDynamicImports: false,
         },
       },
     },

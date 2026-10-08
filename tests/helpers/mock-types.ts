@@ -45,9 +45,20 @@ export interface MockDocument {
 /**
  * Helper to assign a value to a `global` property without `any`.
  * Usage: `assignGlobal("browser", mockBrowser);`
+ *
+ * Uses `Object.defineProperty` rather than plain assignment because some globals
+ * are getter-only accessors — under the jsdom bundled with vitest 5, `document`
+ * and `window` have no setter, so `globalThis.document = {...}` throws a
+ * TypeError. Defining the property writable + configurable overrides the accessor
+ * and keeps `deleteGlobal` (which uses `delete`) working.
  */
 export function assignGlobal<T>(key: string, value: T): void {
-  (globalThis as unknown as Record<string, T>)[key] = value;
+  Object.defineProperty(globalThis, key, {
+    value,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  });
 }
 
 /**
