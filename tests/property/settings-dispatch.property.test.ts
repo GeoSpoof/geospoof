@@ -183,8 +183,7 @@ describe("Settings Dispatch Round-Trip via CustomEvent", () => {
           // always takes the Chromium (direct-pass) path — which is the
           // correct runtime behavior for environments without cloneInto.
           const cloneIntoFn = (globalThis as Record<string, unknown>)["cloneInto"] as
-            | (<T>(obj: T, scope: typeof globalThis) => T)
-            | undefined;
+            (<T>(obj: T, scope: typeof globalThis) => T) | undefined;
           const detail =
             typeof cloneIntoFn === "function" ? cloneIntoFn(settings, window) : settings;
 

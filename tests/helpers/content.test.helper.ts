@@ -193,8 +193,13 @@ function setupContentScript(settings: ContentScriptSettings): ContentScriptTestI
     }
   );
 
-  // Store prototype method references via index access to avoid unbound-method lint errors.
-  // These are always invoked via .call(dateInstance) with the correct receiver.
+  // Capture the original Date prototype methods so the overrides below can delegate
+  // to them. These references are only ever invoked via .call(dateInstance), and the
+  // `this: Date` casts make that contract explicit, so the unbound-method rule does
+  // not apply here. (typescript-eslint 8.71 tightened the rule to also flag the
+  // methods shared with Object.prototype such as toString/toLocaleString, hence the
+  // block disable rather than relying on the index-access form alone.)
+  /* eslint-disable @typescript-eslint/unbound-method -- deliberate: originals are always called via .call() with an explicit `this: Date` receiver */
   const dateProto = Date.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
   const originalGetTimezoneOffset = dateProto["getTimezoneOffset"] as (this: Date) => number;
   const originalToString = dateProto["toString"] as (this: Date) => string;
@@ -223,6 +228,7 @@ function setupContentScript(settings: ContentScriptSettings): ContentScriptTestI
   const originalGetDay = dateProto["getDay"] as (this: Date) => number;
   const originalGetMonth = dateProto["getMonth"] as (this: Date) => number;
   const originalGetFullYear = dateProto["getFullYear"] as (this: Date) => number;
+  /* eslint-enable @typescript-eslint/unbound-method */
   const OriginalDateTimeFormat = Intl.DateTimeFormat;
 
   // Settings

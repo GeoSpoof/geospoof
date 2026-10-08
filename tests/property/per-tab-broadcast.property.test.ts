@@ -67,9 +67,7 @@ const LIST_DOMAINS = ["example.com", "test.org", "foo.net"];
 
 /** A specification for a tab's top-level URL: a real page, a restricted page, or none. */
 type UrlSpec =
-  | { kind: "http"; domain: string }
-  | { kind: "restricted"; value: string }
-  | { kind: "none" };
+  { kind: "http"; domain: string } | { kind: "restricted"; value: string } | { kind: "none" };
 
 const urlSpecArb: fc.Arbitrary<UrlSpec> = fc.oneof(
   fc.record({ kind: fc.constant("http" as const), domain: fc.constantFrom(...DOMAIN_POOL) }),

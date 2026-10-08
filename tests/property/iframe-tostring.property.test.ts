@@ -144,8 +144,7 @@ describe("Prototype Lie Detection Fix — Iframe ToString Properties", () => {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
         const iframeFnProto = (iframeWindow as any).Function?.prototype as
-          | { toString: AnyFunction; call: typeof Function.prototype.call }
-          | undefined;
+          { toString: AnyFunction; call: typeof Function.prototype.call } | undefined;
         if (!iframeFnProto) return false;
 
         const iframeOrigToString = iframeFnProto.toString;
