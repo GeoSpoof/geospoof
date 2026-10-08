@@ -20,9 +20,17 @@ updates:
       interval: daily
       timezone: Etc/UTC
     groups:
-      npm-dependencies:
+      # Split by semver so a single breaking major cannot hold a hundred safe
+      # updates hostage in one red PR (which is exactly what happened with the
+      # fast-check 3->4 bump). Patch and minor land together and should merge
+      # on green; majors arrive one PR per dependency, so each breaking change
+      # gets reviewed and migrated on its own.
+      npm-minor-patch:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
     allow:
       - dependency-type: all
     cooldown:
@@ -32,4 +40,11 @@ updates:
       # TypeScript 7 (its peer range currently caps at <6.1.0). Remove this
       # once the linter toolchain ships TS 7 support, then upgrade deliberately.
       - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Hold fast-check on v3. v4 removed fc.char()/fc.stringOf() (ported to
+      # fc.string({ unit })) AND changed fc.date() to emit Invalid Date by
+      # default, which silently flakes every property test that feeds a date
+      # into code assuming validity (~6 files). Migrate deliberately in its own
+      # PR with a shared valid-date helper, then remove this ignore.
+      - dependency-name: "fast-check"
         update-types: ["version-update:semver-major"]
