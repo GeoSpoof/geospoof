@@ -15,7 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pages: write
+      # No `pages: write`: the Firefox update manifest is served from
+      # cdn.geospoof.com, a domain we own, rather than this repo's GitHub Pages.
+      # Pages was retired ahead of transferring the repo to the GeoSpoof org,
+      # because a repo's github.io path does not survive a transfer — see the
+      # self-hosted update path section in CONTRIBUTING.md.
       id-token: write
     steps:
       - uses: actions/checkout@v7
@@ -108,39 +112,16 @@ jobs:
           files: release-assets/*
           generate_release_notes: true
 
-      # gh-pages only needs to serve the Firefox self-hosted update manifest
-      # (update.json, referenced by the extension's update_url at
-      # anthonysgro.github.io/geospoof/update.json) plus the Jekyll-bypass
-      # marker. Stage exactly those into a clean directory so the published
-      # branch never carries repo source.
+      # ── Update manifest: cdn.geospoof.com ──
       #
-      # No CNAME here on purpose: a CNAME=geospoof.com made GitHub Pages
-      # 301-redirect the github.io update URL to geospoof.com (served by Vercel,
-      # which has no /update.json), 404ing the manifest and breaking Firefox
-      # self-hosted auto-updates. geospoof.com belongs to Vercel; Pages serves
-      # only at the plain github.io path.
-      - name: Stage GitHub Pages content
-        run: |
-          mkdir -p pages-dist
-          cp update.json pages-dist/update.json
-          touch pages-dist/.nojekyll
-
-      # ── Update manifest, second home: cdn.geospoof.com ──
-      #
-      # WHY BOTH. `update_url` is compiled into every shipped copy of the
-      # extension, and Mozilla is explicit that an installed extension keeps
-      # polling the URL it was built with — an existing install cannot be told
-      # about a new one. Serving from anthonysgro.github.io ties every self-hosted
-      # install's update path to a personal GitHub username, and GitHub does NOT
-      # redirect Pages when a repo is transferred. So a repo move would strand
-      # those installs on their current version, silently, because a failed update
-      # check is invisible to the user.
-      #
-      # Publishing the identical manifest to a domain we own removes GitHub from
-      # the update path. Both homes are maintained on purpose during the
-      # migration: gh-pages stays authoritative for everyone already installed,
-      # while newly shipped builds point at the CDN. Once the installed base has
-      # rolled forward, the gh-pages steps above can go.
+      # `update_url` is compiled into every shipped copy of the extension, and
+      # Mozilla is explicit that an installed extension keeps polling the URL it
+      # was built with — an existing install cannot be told about a new one. The
+      # manifest is therefore served from cdn.geospoof.com, a domain we own, so
+      # the update path does not depend on where this repo lives. (It was briefly
+      # dual-published to this repo's GitHub Pages during the migration off that
+      # path; Pages was retired because a github.io URL does not survive a repo
+      # transfer. See CONTRIBUTING.md, "Self-hosted update path".)
       #
       # Publishing AFTER the GitHub Release step is deliberate: the manifest's
       # `update_link` points at that release's assets, so publishing earlier would
@@ -178,8 +159,7 @@ jobs:
           # A release that publishes two update manifests which disagree is worse
           # than one that publishes neither, so fail loudly here rather than let
           # half the installed base see a different version from the other half.
-          # Compares the CDN copy against what was just generated; gh-pages is
-          # checked on the next run, since Pages takes time to go live.
+          # Compares the CDN copy against what was just generated.
           for attempt in 1 2 3 4 5; do
             if curl -fsS "https://cdn.geospoof.com/firefox/update.json" -o cdn-update.json; then
               break
@@ -192,16 +172,3 @@ jobs:
             exit 1
           fi
           echo "CDN manifest matches the generated manifest"
-
-      - name: Deploy update manifest to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./pages-dist
-          publish_branch: gh-pages
-          # Publish ONLY the staged artifacts. The previous `publish_dir: .` +
-          # `keep_files: true` mirrored the entire repo onto gh-pages and never
-          # removed deleted files, leaving a stale, internally-inconsistent
-          # source tree that broke branch builds (e.g. Vercel previews). A clean
-          # minimal publish keeps gh-pages to just what GitHub Pages serves.
-          keep_files: false
