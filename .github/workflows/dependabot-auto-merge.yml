@@ -1,0 +1,46 @@
+name: Dependabot auto-merge
+
+# Enables auto-merge on Dependabot PRs for the ONE category where green CI is
+# sufficient on its own: patch-level bumps of devDependencies (build tooling and
+# test libraries). These cannot ship to users at runtime, and a patch is the
+# lowest-blast-radius change, so "all checks pass" is a reasonable gate without a
+# human reading the diff.
+#
+# DELIBERATELY NARROW. Everything else stays manual on purpose:
+#   - runtime `dependencies` (anything here ships to users of a privacy
+#     extension; a compromised-but-green minor should not reach them unreviewed)
+#   - any minor or major update (behaviour can change; majors are where
+#     fast-check v4 silently broke us despite passing install)
+#   - github-actions bumps (we SHA-pin precisely so each action change is
+#     consciously reviewed before it runs)
+#
+# Auto-merge does NOT bypass branch protection: the PR still cannot merge until
+# the required `Build & Test` check passes. This workflow only sets the
+# "merge when checks pass" flag; GitHub enforces the checks.
+
+on: pull_request
+
+permissions:
+  contents: write # enable auto-merge on the PR
+  pull-requests: write # (same) — set the auto-merge flag
+
+jobs:
+  auto-merge:
+    # Only react to Dependabot's own PRs.
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Classify the update
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for devDependency patch bumps only
+        if: >
+          steps.meta.outputs.update-type == 'version-update:semver-patch' &&
+          steps.meta.outputs.dependency-type == 'direct:development'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
