@@ -87,3 +87,88 @@ describe("GeoTzCdnStack (dev)", () => {
     expect(keys.some((k) => k.includes("GeoTzBaseUrl"))).toBe(true);
   });
 });
+
+describe("GeoTzCdnStack (prod) — CDN publish roles", () => {
+  // The publish roles exist only on prod (dev has no gpsRelease/extensionUpdates).
+  // These trust policies are the sole gate on who may write to the CDN bucket, so
+  // they are asserted here rather than left to be discovered at deploy time. The
+  // subjects are GitHub's IMMUTABLE OIDC format (repo id embedded, owner
+  // wildcarded) — a plain owner/repo name would silently never match.
+  const app = new cdk.App();
+  const env = environments.prod;
+  const stack = new GeoTzCdnStack(app, "ProdStack", {
+    envConfig: env,
+    env: { account: env.account, region: env.region },
+  });
+  const template = Template.fromStack(stack);
+
+  it("extension-updates role trusts only the immutable geospoof subject, via GitHub OIDC", () => {
+    template.hasResourceProperties("AWS::IAM::Role", {
+      Description: Match.stringLikeRegexp("extension update manifest"),
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: "sts:AssumeRoleWithWebIdentity",
+            Condition: {
+              StringEquals: {
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              },
+              StringLike: {
+                "token.actions.githubusercontent.com:sub": ["repo:*/geospoof@1170325630:*"],
+              },
+            },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it("gps-downloads role trusts only the immutable geospoof-gps subject, via GitHub OIDC", () => {
+    template.hasResourceProperties("AWS::IAM::Role", {
+      Description: Match.stringLikeRegexp("GPS DMG"),
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: "sts:AssumeRoleWithWebIdentity",
+            Condition: {
+              StringEquals: {
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              },
+              StringLike: {
+                "token.actions.githubusercontent.com:sub": ["repo:*/geospoof-gps@1291874641:*"],
+              },
+            },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it("extension-updates write access is scoped to the firefox/ prefix only", () => {
+    // The publish role must not be able to touch geo-tz data or GPS artifacts in
+    // the shared bucket. Assert the s3:PutObject grant targets firefox/* alone.
+    template.hasResourceProperties(
+      "AWS::IAM::Policy",
+      Match.objectLike({
+        PolicyDocument: Match.objectLike({
+          Statement: Match.arrayWith([
+            Match.objectLike({
+              Action: "s3:PutObject",
+              Resource: Match.objectLike({
+                "Fn::Join": Match.arrayWith([
+                  Match.arrayWith([Match.stringLikeRegexp("/firefox/\\*$")]),
+                ]),
+              }),
+            }),
+          ]),
+        }),
+      })
+    );
+  });
+
+  it("creates exactly one GitHub OIDC provider shared by both publish roles", () => {
+    // An account may hold only ONE provider for token.actions.githubusercontent.com,
+    // so the second publish role must import the first's — not create a duplicate.
+    template.resourceCountIs("Custom::AWSCDKOpenIdConnectProvider", 1);
+  });
+});
