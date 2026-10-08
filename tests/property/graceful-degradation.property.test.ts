@@ -274,7 +274,7 @@ describe("Property: Fallback Timezone Spoofing", () => {
           dstOffset: fc.constant(0),
           fallback: fc.constant(true),
         }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (fallbackTimezone, date) => {
           // Setup content script with fallback timezone
           const contentScript = setupContentScript({

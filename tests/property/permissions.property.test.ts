@@ -59,7 +59,7 @@ describe("Permissions Query Override Properties", () => {
   test("Property 2: Non-geolocation queries delegate to original when spoofing enabled", async () => {
     await fc.assert(
       fc.asyncProperty(
-        fc.stringOf(fc.char(), { minLength: 1 }).filter((s) => s !== "geolocation"),
+        fc.string({ unit: "binary-ascii", minLength: 1 }).filter((s) => s !== "geolocation"),
         async (permissionName) => {
           const contentScript = setupContentScript({
             enabled: true,
@@ -96,7 +96,7 @@ describe("Permissions Query Override Properties", () => {
           fc.constant("notifications"),
           fc.constant("camera"),
           fc.constant("microphone"),
-          fc.stringOf(fc.char(), { minLength: 1 })
+          fc.string({ unit: "binary-ascii", minLength: 1 })
         ),
         async (permissionName) => {
           const contentScript = setupContentScript({
