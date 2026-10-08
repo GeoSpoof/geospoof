@@ -73,7 +73,8 @@
     ]
   },
   "overrides": {
-    "serialize-javascript": "^7.0.3"
+    "serialize-javascript": "^7.0.3",
+    "shell-quote": "^1.11.0"
   },
   "dependencies": {
     "browser-geo-tz": "0.2.3",
