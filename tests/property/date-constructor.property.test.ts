@@ -698,7 +698,7 @@ describe("Date Constructor Spoofing Properties", () => {
     fc.assert(
       fc.property(
         timezoneArb,
-        fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
         (timezone, date) => {
           const cs = setupContentScript({
             enabled: true,

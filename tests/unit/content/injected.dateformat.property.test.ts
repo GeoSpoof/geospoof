@@ -55,7 +55,11 @@ function resolveRealOffset(date: Date, timezoneId: string): number {
 }
 
 /** Arbitrary for dates across a wide range including DST boundaries. */
-const arbDate = fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") });
+const arbDate = fc.date({
+  noInvalidDate: true,
+  min: new Date("2000-01-01"),
+  max: new Date("2030-12-31"),
+});
 
 /** Reference helper: get the long timezone name via Intl. */
 function referenceLongName(date: Date, timezoneId: string): string {

@@ -351,7 +351,7 @@ describe("Scoped resolvedOptions & Offset Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date({ min: new Date("1970-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("1970-01-01"), max: new Date("2030-12-31") }),
         (spoofedTz, date) => {
           const contentScript = setupContentScript({
             enabled: true,
@@ -439,7 +439,7 @@ describe("Scoped resolvedOptions & Offset Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date({ min: new Date("1970-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("1970-01-01"), max: new Date("2030-12-31") }),
         (spoofedTz, date) => {
           const contentScript = setupContentScript({
             enabled: true,
@@ -521,41 +521,44 @@ describe("Scoped resolvedOptions & Offset Properties", () => {
    */
   test("Feature: anti-fingerprint-hardening, Property 4: Date Getter Passthrough When Disabled", () => {
     fc.assert(
-      fc.property(fc.date({ min: new Date("1970-01-01"), max: new Date("2030-12-31") }), (date) => {
-        const contentScript = setupContentScript({
-          enabled: false,
-          location: null,
-          timezone: null,
-        });
+      fc.property(
+        fc.date({ noInvalidDate: true, min: new Date("1970-01-01"), max: new Date("2030-12-31") }),
+        (date) => {
+          const contentScript = setupContentScript({
+            enabled: false,
+            location: null,
+            timezone: null,
+          });
 
-        const testDate = new Date(date);
+          const testDate = new Date(date);
 
-        // All getters should match the originals when spoofing is disabled
-        expect(contentScript.Date.prototype.getHours.call(testDate)).toBe(
-          contentScript.originals.getHours.call(testDate)
-        );
-        expect(contentScript.Date.prototype.getMinutes.call(testDate)).toBe(
-          contentScript.originals.getMinutes.call(testDate)
-        );
-        expect(contentScript.Date.prototype.getSeconds.call(testDate)).toBe(
-          contentScript.originals.getSeconds.call(testDate)
-        );
-        expect(contentScript.Date.prototype.getMilliseconds.call(testDate)).toBe(
-          contentScript.originals.getMilliseconds.call(testDate)
-        );
-        expect(contentScript.Date.prototype.getDate.call(testDate)).toBe(
-          contentScript.originals.getDate.call(testDate)
-        );
-        expect(contentScript.Date.prototype.getDay.call(testDate)).toBe(
-          contentScript.originals.getDay.call(testDate)
-        );
-        expect(contentScript.Date.prototype.getMonth.call(testDate)).toBe(
-          contentScript.originals.getMonth.call(testDate)
-        );
-        expect(contentScript.Date.prototype.getFullYear.call(testDate)).toBe(
-          contentScript.originals.getFullYear.call(testDate)
-        );
-      }),
+          // All getters should match the originals when spoofing is disabled
+          expect(contentScript.Date.prototype.getHours.call(testDate)).toBe(
+            contentScript.originals.getHours.call(testDate)
+          );
+          expect(contentScript.Date.prototype.getMinutes.call(testDate)).toBe(
+            contentScript.originals.getMinutes.call(testDate)
+          );
+          expect(contentScript.Date.prototype.getSeconds.call(testDate)).toBe(
+            contentScript.originals.getSeconds.call(testDate)
+          );
+          expect(contentScript.Date.prototype.getMilliseconds.call(testDate)).toBe(
+            contentScript.originals.getMilliseconds.call(testDate)
+          );
+          expect(contentScript.Date.prototype.getDate.call(testDate)).toBe(
+            contentScript.originals.getDate.call(testDate)
+          );
+          expect(contentScript.Date.prototype.getDay.call(testDate)).toBe(
+            contentScript.originals.getDay.call(testDate)
+          );
+          expect(contentScript.Date.prototype.getMonth.call(testDate)).toBe(
+            contentScript.originals.getMonth.call(testDate)
+          );
+          expect(contentScript.Date.prototype.getFullYear.call(testDate)).toBe(
+            contentScript.originals.getFullYear.call(testDate)
+          );
+        }
+      ),
       { numRuns: 100 }
     );
   });

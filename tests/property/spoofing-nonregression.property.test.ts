@@ -116,7 +116,7 @@ describe("Prototype Lie Detection Fix — Spoofing Non-Regression Properties", (
     fc.assert(
       fc.property(
         ianaTimezoneArb,
-        fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
         (tzId, date) => {
           const timezone = buildTimezone(tzId);
           const cs = setupContentScript({
@@ -220,7 +220,7 @@ describe("Prototype Lie Detection Fix — Spoofing Non-Regression Properties", (
     fc.assert(
       fc.property(
         ianaTimezoneArb,
-        fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
         (tzId, date) => {
           const timezone = buildTimezone(tzId);
           const cs = setupContentScript({
@@ -260,7 +260,7 @@ describe("Prototype Lie Detection Fix — Spoofing Non-Regression Properties", (
     fc.assert(
       fc.property(
         ianaTimezoneArb,
-        fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
         (tzId, date) => {
           const timezone = buildTimezone(tzId);
           const cs = setupContentScript({
@@ -294,7 +294,7 @@ describe("Prototype Lie Detection Fix — Spoofing Non-Regression Properties", (
    */
   test("Feature: prototype-lie-detection-fix, Property 5: Spoofing Non-Regression — Date getter methods use spoofed timezone", () => {
     fc.assert(
-      fc.property(ianaTimezoneArb, fc.date(), (tzId, date) => {
+      fc.property(ianaTimezoneArb, fc.date({ noInvalidDate: true }), (tzId, date) => {
         const timezone = buildTimezone(tzId);
         const cs = setupContentScript({
           enabled: true,
@@ -355,7 +355,7 @@ describe("Prototype Lie Detection Fix — Spoofing Non-Regression Properties", (
    */
   test("Feature: prototype-lie-detection-fix, Property 5: Spoofing Non-Regression — disabled spoofing delegates to originals", () => {
     fc.assert(
-      fc.property(fc.date(), (date) => {
+      fc.property(fc.date({ noInvalidDate: true }), (date) => {
         const cs = setupContentScript({
           enabled: false,
           location: null,

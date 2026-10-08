@@ -192,7 +192,7 @@ describe("getTimezoneOffset Override Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
         (timezone, date) => {
           const contentScript = setupContentScript({
             enabled: true,
@@ -280,7 +280,7 @@ describe("getTimezoneOffset Override Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (timezone, date) => {
           const contentScript = setupContentScript({
             enabled: false, // Protection disabled
@@ -305,7 +305,7 @@ describe("getTimezoneOffset Override Properties", () => {
 
   test("Property 1: Timezone Offset Override - handles null timezone gracefully", () => {
     fc.assert(
-      fc.property(fc.date(), (date) => {
+      fc.property(fc.date({ noInvalidDate: true }), (date) => {
         const contentScript = setupContentScript({
           enabled: true,
           location: { latitude: 40.7128, longitude: -74.006, accuracy: 10 },
@@ -333,7 +333,7 @@ describe("getTimezoneOffset Override Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (timezone, date) => {
           const contentScript = setupContentScript({
             enabled: true,
@@ -458,7 +458,7 @@ describe("Timezone Offset Consistency with Intl.DateTimeFormat (Property 3)", ()
     fc.assert(
       fc.property(
         fc.constantFrom(...ALL_TEST_ZONES),
-        fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
         (timezoneId, date) => {
           const result = getIntlBasedOffset(date, timezoneId, 0);
           const expected = referenceOffset(date, timezoneId);
@@ -473,8 +473,8 @@ describe("Timezone Offset Consistency with Intl.DateTimeFormat (Property 3)", ()
     fc.assert(
       fc.property(
         fc.constantFrom(...NON_DST_ZONES),
-        fc.date({ min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
-        fc.date({ min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
         (timezoneId, dateA, dateB) => {
           const offsetA = getIntlBasedOffset(dateA, timezoneId, 0);
           const offsetB = getIntlBasedOffset(dateB, timezoneId, 0);
@@ -489,7 +489,7 @@ describe("Timezone Offset Consistency with Intl.DateTimeFormat (Property 3)", ()
     fc.assert(
       fc.property(
         fc.constantFrom(...SOUTHERN_HEMISPHERE_ZONES),
-        fc.date({ min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
         (timezoneId, date) => {
           const offset = getIntlBasedOffset(date, timezoneId, 0);
           expect(typeof offset).toBe("number");
@@ -509,8 +509,8 @@ describe("Timezone Offset Consistency with Intl.DateTimeFormat (Property 3)", ()
     fc.assert(
       fc.property(
         fc.constantFrom("America/Phoenix", "Pacific/Honolulu"),
-        fc.date({ min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
-        fc.date({ min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2020-01-01"), max: new Date("2026-12-31") }),
         (timezoneId, dateA, dateB) => {
           const offsetA = getIntlBasedOffset(dateA, timezoneId, 0);
           const offsetB = getIntlBasedOffset(dateB, timezoneId, 0);
@@ -525,7 +525,7 @@ describe("Timezone Offset Consistency with Intl.DateTimeFormat (Property 3)", ()
     fc.assert(
       fc.property(
         fc.constantFrom(...ALL_TEST_ZONES),
-        fc.date({ min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
+        fc.date({ noInvalidDate: true, min: new Date("2000-01-01"), max: new Date("2030-12-31") }),
         (timezoneId, date) => {
           const intlOffset = getIntlBasedOffset(date, timezoneId, 0);
           const simulatedGetTimezoneOffset = -intlOffset;
@@ -554,13 +554,14 @@ describe("Timezone Offset Consistency with Intl.DateTimeFormat (Property 3)", ()
     fc.assert(
       fc.property(
         fc
-          .stringOf(fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz"), {
+          .string({
+            unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz"),
             minLength: 1,
             maxLength: 20,
           })
           .filter((s) => !isResolvableTimeZone(s)),
         fc.integer({ min: -720, max: 840 }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (invalidTz, fallback, date) => {
           const result = getIntlBasedOffset(date, invalidTz, fallback);
           expect(result).toBe(fallback);
@@ -599,7 +600,8 @@ describe("Timezone Offset Consistency with Intl.DateTimeFormat (Property 3)", ()
     fc.assert(
       fc.property(
         fc
-          .stringOf(fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789 "), {
+          .string({
+            unit: fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789 "),
             minLength: 0,
             maxLength: 15,
           })
@@ -1195,7 +1197,7 @@ describe("Date Formatting Methods Override Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (timezone, date) => {
           const contentScript = setupContentScript({
             enabled: true,
@@ -1253,7 +1255,7 @@ describe("Date Formatting Methods Override Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (timezone, date) => {
           const contentScript = setupContentScript({
             enabled: false, // Protection disabled
@@ -1299,7 +1301,7 @@ describe("Date Formatting Methods Override Properties", () => {
 
   test("Property 6: Date Formatting handles null timezone gracefully", () => {
     fc.assert(
-      fc.property(fc.date(), (date) => {
+      fc.property(fc.date({ noInvalidDate: true }), (date) => {
         const contentScript = setupContentScript({
           enabled: true,
           location: { latitude: 40.7128, longitude: -74.006, accuracy: 10 },
@@ -1329,7 +1331,7 @@ describe("Date Formatting Methods Override Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         fc.constantFrom("en-US", "en-GB", "fr-FR", "de-DE"),
         (timezone, date, locale) => {
           const contentScript = setupContentScript({
@@ -1358,7 +1360,7 @@ describe("Date Formatting Methods Override Properties", () => {
           offset: fc.integer({ min: -720, max: 840 }),
           dstOffset: fc.integer({ min: 0, max: 120 }),
         }),
-        fc.date(),
+        fc.date({ noInvalidDate: true }),
         (timezone, date) => {
           const contentScript = setupContentScript({
             enabled: true,
