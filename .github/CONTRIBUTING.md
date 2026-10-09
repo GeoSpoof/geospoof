@@ -211,27 +211,42 @@ Produces `web-ext-artifacts/geospoof-chromium-v<version>.zip`.
 
 ## Release Pipeline
 
-A single `v*` tag push (e.g., `v1.18.0`) triggers the full release pipeline:
+A `v*` tag push (e.g. `v2.2.4`) runs `.github/workflows/release.yml`. It is split into three jobs by privilege, so third-party code never runs next to a credential that could publish:
 
-1. Build Firefox, package unsigned XPI and source zip
-2. Inject build version (`1.18.0.{run}`) → sign unlisted (self-hosted)
-3. Restore clean dist → strip `update_url` → sign listed (AMO) with source
-4. Build Chromium
-5. Create one GitHub Release with all artifacts (signed XPI, unsigned XPI, Chromium zip, source zip)
-6. Publish `update.json` to `cdn.geospoof.com/firefox/` **and** to GitHub Pages, then fail the release if the two disagree
+| Job       | Does                                                                                                                                              | Holds                                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `build`   | `npm ci`, `npm audit signatures`, Firefox + Chromium builds, source zip, CycloneDX SBOM                                                           | A read-only token. No secrets.                                                                              |
+| `sign`    | Signs the unlisted XPI and submits the listed build to AMO                                                                                        | The AMO secrets, through the `release` environment. Installs with `--ignore-scripts`, so only web-ext runs. |
+| `publish` | Creates the GitHub Release, attests provenance and SBOM, publishes `update.json` to `cdn.geospoof.com/firefox/`, then checks the CDN copy matches | `contents: write`, the OIDC token for the CDN role, attestation rights. Installs nothing from npm.          |
 
-The unlisted XPI uses a 4-segment version (e.g., `1.18.0.42`) while the AMO submission uses the clean 3-segment version (`1.18.0`). This avoids AMO's version uniqueness constraint across channels.
+No job restores the setup-node cache, because that cache is shared with PR runs. The tag must be `vX.Y.Z` and match `package.json`.
 
-**Required GitHub Actions secrets:**
+The unlisted XPI uses a 4-segment version (e.g. `2.2.4.42`) while the AMO submission uses the clean 3-segment version (`2.2.4`). This avoids AMO's version uniqueness constraint across channels.
+
+**Release assets:** signed XPI, unsigned XPI, Chromium zip, source zip, `geospoof-v<version>.cdx.json` (SBOM) and `geospoof-v<version>.intoto.jsonl` (provenance bundle).
+
+**Verifying a download:**
+
+```bash
+gh attestation verify geospoof-firefox-v2.2.4-signed.xpi --repo GeoSpoof/geospoof
+gh attestation verify geospoof-firefox-v2.2.4-signed.xpi --repo GeoSpoof/geospoof \
+  --predicate-type https://cyclonedx.org/bom
+```
+
+**Releases and tags are immutable.** The repo has immutable releases on, and a ruleset blocks moving or deleting `v*` tags. A published release can't be edited, and a tag can't be re-pointed. If a release is wrong, ship the next patch version; never re-tag. Re-running a failed `publish` job is safe: it finishes a draft release, or skips an already-published one, then continues to the CDN steps.
+
+**Secrets** live only in the `release` environment, which accepts deployments from `v*` tags only:
 
 | Secret           | Description              |
 | ---------------- | ------------------------ |
 | `AMO_JWT_ISSUER` | AMO API key (JWT issuer) |
 | `AMO_JWT_SECRET` | AMO API secret           |
 
-To generate credentials: go to the [AMO API Keys page](https://addons.mozilla.org/en-US/developers/addon/api/key/) and sign in with the Mozilla account that owns the extension listing.
+To generate credentials, go to the [AMO API Keys page](https://addons.mozilla.org/en-US/developers/addon/api/key/) and sign in with the Mozilla account that owns the listing. Set them with `gh secret set <NAME> --env release --repo GeoSpoof/geospoof`.
 
-**Required GitHub Actions variables** (not secrets — none of these authenticate anything; publishing uses OIDC with no stored credentials):
+The `publish` job deliberately has **no** environment. An environment would change its OIDC `sub` claim and break the CDN role's trust policy; see `cdk/README.md`, "Who may publish".
+
+**Repository variables** (not secrets; publishing uses OIDC with no stored credentials):
 
 | Variable                  | Description                                           |
 | ------------------------- | ----------------------------------------------------- |
@@ -239,48 +254,43 @@ To generate credentials: go to the [AMO API Keys page](https://addons.mozilla.or
 | `EXT_CDN_BUCKET`          | CDN origin bucket                                     |
 | `EXT_CDN_DISTRIBUTION_ID` | CloudFront distribution to invalidate                 |
 
-### Self-hosted update path: migrating off GitHub Pages
+### Self-hosted update path
 
-**Why this exists.** `update_url` is compiled into every shipped copy of the extension (`src/build/manifest.ts`). Firefox keeps polling whatever URL the installed copy carries, and [an existing install cannot be told about a new one](https://extensionworkshop.com/documentation/manage/updating-your-extension/). It historically pointed at `anthonysgro.github.io/geospoof/update.json`, which tied every self-hosted install's update path to a personal GitHub username — and a repo's github.io path does not survive a transfer to another owner. Moving this repo with that URL baked in would have stranded those installs on their current version, silently, since a failed update check is invisible to the user.
+`update_url` is compiled into every shipped copy of the extension (`src/build/manifest.ts`), and Firefox keeps polling whatever URL the installed copy carries; [an existing install cannot be told about a new one](https://extensionworkshop.com/documentation/manage/updating-your-extension/). It used to point at `anthonysgro.github.io/geospoof/update.json`, which a repo transfer would have broken.
 
-**Where it stands now.** As of v2.2.1 the shipped `update_url` points at `https://cdn.geospoof.com/firefox/update.json`, a domain we own, and the release workflow publishes only there — the GitHub Pages publish was retired once the installed base had rolled forward (v2.2.1 and v2.2.2 shipped over roughly three weeks and the signed-asset downloads plateaued in the normal release band). Installs from v2.2.1 on poll the CDN and are unaffected by any repo move.
+Since v2.2.1 it points at `https://cdn.geospoof.com/firefox/update.json`, a domain we own, and the release publishes only there. The repo now lives at `GeoSpoof/geospoof`, and the CDN role trusts only the immutable OIDC subject (`repo:*/geospoof@1170325630:*`). AMO users are unaffected: the listed build has `update_url` stripped.
 
-**Measuring the rollout** (used before retiring Pages; kept for reference). Auto-updates download the XPI via `update_link`, so a release's signed-asset download count is the migration counter:
+**Do not** create anything at the old `anthonysgro/geospoof` path. Manifests published before the transfer point `update_link` at `github.com/anthonysgro/geospoof/releases/...`, and that redirect survives only while the old path stays unused.
 
-```bash
-# Note the camelCase: `gh release view --json` uses downloadCount, while the REST
-# API uses download_count. Getting it wrong returns null rather than an error.
-gh release view v2.2.1 --json assets \
-  --jq '.assets[] | select(.name|test("-signed")) | .downloadCount'
-```
-
-A fast climb then a plateau is a completed cycle. For scale, v2.1.5 reached ~141.
-
-**Transfer checklist** — the Pages publish is already gone (step 1, done), so what remains is the move itself:
-
-1. ~~Remove the GitHub Pages publish steps and `pages: write` from `.github/workflows/release.yml`.~~ **Done.** The workflow now publishes the manifest only to the CDN.
-2. Transfer the repo to the `GeoSpoof` org.
-3. **Immediately** run the `CDN publish preflight` workflow. Transferring a repo flips GitHub's OIDC subject to the immutable id-based format, which breaks name-based trust policies — see `cdk/README.md`, "Who may publish". The publish role already trusts both forms, so this should pass; run it to be sure rather than finding out at the next release.
-4. In `cdk/lib/config/app.ts`, remove the now-dead legacy entry `"repo:anthonysgro/geospoof:*"` from `extensionUpdates.githubSubjectPatterns`, leaving only the immutable `"repo:*/geospoof@1170325630:*"`, and redeploy. Confirm the live value first with:
-   ```bash
-   gh api repos/GeoSpoof/geospoof/actions/oidc/customization/sub \
-     --jq '{immutable:.use_immutable_subject,prefix:.sub_claim_prefix}'
-   ```
-5. Update remaining `anthonysgro/geospoof` references.
-
-**Do not** create anything at the old `anthonysgro/geospoof` path. Manifests published before the transfer point `update_link` at `github.com/anthonysgro/geospoof/releases/...`, and that redirect to the new location survives only while the old path stays unused.
-
-An install that never checked for updates between v2.2.1 shipping and the transfer stays pinned to the old github.io URL, which stops resolving once the repo moves; recovery is a manual reinstall. AMO users are unaffected throughout — the listed build has `update_url` stripped.
-
-**Releasing:**
+**Releasing:** `main` is protected (PRs only, required checks), so the version bump goes through a PR:
 
 ```bash
 npm run validate
-npm version patch   # or minor/major
-git push origin main --tags
+git switch -c release-2.2.4
+npm version patch --no-git-tag-version   # or minor/major
+git commit -am "2.2.4" && git push -u origin release-2.2.4
+gh pr create --fill                      # merge once checks pass
+git switch main && git pull --ff-only
+git tag -s v2.2.4 -m "v2.2.4" && git push origin v2.2.4   # signed tag; starts the release
 ```
 
-`npm version` bumps package.json, commits, and creates the `v*` tag automatically.
+Then watch the run to the end. After it, publish to the Chrome Web Store as below.
+
+### Chrome Web Store upload
+
+The store has **verified CRX uploads** on: it rejects anything not signed with our private key, so a stolen Google login can't ship an update. CI never holds that key, so this step is manual and runs on your machine. Sign the exact zip CI built and attested, so the store gets the same bytes:
+
+```bash
+V=2.2.4
+gh release download "v$V" --repo GeoSpoof/geospoof -p "geospoof-chromium-v$V.zip"
+gh attestation verify "geospoof-chromium-v$V.zip" --repo GeoSpoof/geospoof
+unzip -q "geospoof-chromium-v$V.zip" -d "cws-v$V"
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --pack-extension="$PWD/cws-v$V" \
+  --pack-extension-key="$HOME/geospoof-cws-key/geospoof-cws-privatekey.pem"
+```
+
+Upload `cws-v$V.crx` with **Upload New Package** on the dashboard's Package tab. The store checks our signature, then re-signs with its own key, so the extension ID never changes. `*.crx` and `*.pem` are gitignored. The private key lives outside the repo, backed up in a password manager and offline; losing it means contacting Chrome Web Store support before you can update.
 
 **Local signing (testing):**
 

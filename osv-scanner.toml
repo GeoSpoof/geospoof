@@ -1,0 +1,12 @@
+# Vulnerabilities reviewed and accepted, read by OSV-Scanner and by OpenSSF
+# Scorecard's Vulnerabilities check. Every entry needs a reason and an expiry:
+# when ignoreUntil passes, the advisory reappears and must be re-reviewed.
+
+[[IgnoredVulns]]
+id = "GHSA-86w9-cpqp-85rv"
+ignoreUntil = 2027-01-15
+reason = """node-forge RSA PKCS#1 v1.5 signature verification. Dev-only and never \
+shipped: reached solely through web-ext -> @devicefarmer/adbkit (Android device \
+tooling we don't use), and nothing here verifies signatures with node-forge. \
+No patched version exists yet. Also dismissed as tolerable_risk in Dependabot. \
+Re-check on expiry: drop this entry once web-ext or adbkit moves to a fixed release."""
