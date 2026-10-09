@@ -1,0 +1,41 @@
+name: Workflow security
+
+# Static analysis of our GitHub Actions workflows with zizmor: template
+# injection, credential persistence, cache poisoning, spoofable bot checks,
+# over-broad permissions, unpinned actions. Workflows hold our release secrets
+# and the CDN publish role, so they get the same scrutiny CodeQL gives src/.
+#
+# Findings are uploaded to the Security tab (code scanning) rather than failing
+# the job, so a new zizmor rule shows up as an alert, not a surprise red PR.
+on:
+  pull_request:
+    paths:
+      - ".github/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zizmor-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: zizmor
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4

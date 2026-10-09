@@ -1,43 +1,142 @@
+# Dependabot version updates.
+#
+# Security updates are separate: they run whenever an advisory lands, scan every
+# manifest in the repo (cdk/ included), and ignore `schedule`, `cooldown`, and
+# version-update `groups`. Everything below only shapes routine version bumps.
+#
+# Group rules are first-match-wins, so order matters: lockstep families first,
+# then runtime deps, then the dev catch-alls. Anything that matches no group
+# (majors outside a family, and the two packages excluded from dev-minor) gets
+# its own PR, which is where breaking changes belong.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
+      day: monday
       timezone: Etc/UTC
+    cooldown:
+      default-days: 7
     groups:
+      # Actions are SHA-pinned, so every bump is reviewed. One weekly PR.
       github-actions:
         patterns:
           - "*"
-    allow:
-      - dependency-type: all
-    cooldown:
-      default-days: 7
 
+  # --- Extension (repo root) -------------------------------------------------
   - package-ecosystem: npm
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
+      day: monday
       timezone: Etc/UTC
+    cooldown:
+      default-days: 7
     groups:
-      # Split by semver so a single breaking major cannot hold a hundred safe
-      # updates hostage in one red PR (which is exactly what happened with the
-      # fast-check 3->4 bump). Patch and minor land together and should merge
-      # on green; majors arrive one PR per dependency, so each breaking change
-      # gets reviewed and migrated on its own.
-      npm-minor-patch:
+      # Lockstep families, all update types including majors. These have to move
+      # together or `npm ci` fails on a peer conflict, which is what happened when
+      # vitest 5 and vite 8 arrived as separate PRs.
+      vitest:
         patterns:
-          - "*"
+          - "vitest"
+          - "@vitest/*"
+          - "vite"
+      eslint:
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "eslint-*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+      # What ships inside the extension. Kept apart from dev tooling so a runtime
+      # change is always its own small, human-reviewed PR. Never auto-merged.
+      runtime:
+        dependency-type: production
         update-types:
           - "minor"
           - "patch"
-    allow:
-      - dependency-type: all
+      # Dev patches. This is the only group dependabot-auto-merge.yml merges on
+      # green, so keep it patch-only and development-only.
+      dev-patch:
+        dependency-type: development
+        update-types:
+          - "patch"
+      # Dev minors, reviewed by hand. Two packages are left out on purpose so a
+      # breaking change in one can't hold the rest of the group hostage:
+      #   esbuild:  still 0.x, where a minor is the breaking-change channel.
+      #   prettier: minors change formatting output and fail `format:check`;
+      #             that PR needs an `npm run format` commit of its own.
+      dev-minor:
+        dependency-type: development
+        update-types:
+          - "minor"
+        exclude-patterns:
+          - "esbuild"
+          - "prettier"
+    ignore:
+      # Types track the runtime, not the latest Node. engines and .nvmrc pin
+      # Node 24; types from a newer major would let code type-check against
+      # APIs that don't exist at runtime. Bump the major with the Node upgrade.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint's peer range is `>=4.8.4 <6.1.0`, so 6.0.x is allowed
+      # and 6.1+/7.x would break lint. Raise this bound when typescript-eslint
+      # widens its range.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
+
+  # --- CDK app (cdk/) --------------------------------------------------------
+  # A separate block rather than `directories: ["/", "/cdk"]`: with shared
+  # groups, one PR would span both projects, so a cdk failure would block
+  # extension updates. Separate blocks keep each PR gated by its own CI.
+  - package-ecosystem: npm
+    directory: "/cdk"
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: Etc/UTC
     cooldown:
       default-days: 7
+    groups:
+      # The CLI must understand the cloud assembly the library emits, so these
+      # move together. Majors (aws-cdk-lib v3, constructs v11) are deliberate
+      # migrations and arrive individually.
+      aws-cdk:
+        patterns:
+          - "aws-cdk"
+          - "aws-cdk-lib"
+          - "constructs"
+        update-types:
+          - "minor"
+          - "patch"
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      eslint:
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "eslint-*"
+          - "typescript-eslint"
+          - "@typescript-eslint/*"
+      # Not auto-merged: CDK CI is path-filtered and therefore not a required
+      # check, so "green" on a cdk PR would only mean the extension CI passed.
+      dev-minor-patch:
+        dependency-type: development
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "prettier"
     ignore:
-      # Hold TypeScript on its current major until typescript-eslint supports
-      # TypeScript 7 (its peer range currently caps at <6.1.0). Remove this
-      # once the linter toolchain ships TS 7 support, then upgrade deliberately.
-      - dependency-name: "typescript"
+      # Cross-repo contract. The installed geo-tz must equal the version in
+      # src/shared/geo-tz-data.json, and synth refuses to run on a mismatch
+      # (cdk/lib/util/geo-tz-data.ts). A bump spans this repo and geospoof-site;
+      # see docs/TIMEZONE_GEO_DATA.md. An advisory still shows as an alert.
+      - dependency-name: "geo-tz"
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
