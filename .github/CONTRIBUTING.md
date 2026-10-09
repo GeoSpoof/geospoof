@@ -119,14 +119,16 @@ tests/
 
 Two separate localization systems, because the extension and the native Safari app
 have different runtimes. Both ship the same 12 languages and must agree on
-terminology — the shared glossary is [`TRANSLATION.md`](TRANSLATION.md).
+terminology. The shared glossary (`TRANSLATION.md`) and the native app's catalog
+live in the private `geospoof-ios` repo; `_locales/` in this repo is the
+source of truth the app's translations are derived from.
 
 ### Extension popup
 
 Add the string to `_locales/en/messages.json` with a `message` and a
 `description`, then reference it from markup via `data-i18n` (or
 `data-i18n-placeholder` / `data-i18n-title` / `data-i18n-aria-label`) rather than
-hardcoding English. See [`_locales/README.md`](_locales/README.md).
+hardcoding English. See [`_locales/README.md`](../_locales/README.md).
 
 ### Native app
 
@@ -307,11 +309,11 @@ git log --oneline --decorate # see commits with tags
 
 ## License & Contribution Terms
 
-Everything in this repository — the browser extension, site, docs, and assets — is licensed under [MIT](LICENSE). The native iOS and macOS apps are developed separately, are proprietary, and are not part of this repository, so contributions here are MIT throughout.
+Everything in this repository — the browser extension, site, docs, and assets — is licensed under [MIT](../LICENSE). The native iOS and macOS apps are developed separately, are proprietary, and are not part of this repository, so contributions here are MIT throughout.
 
 By submitting a contribution (a pull request, patch, or any code, docs, or other material), you agree that:
 
-1. Your contribution is licensed under the [MIT License](LICENSE).
+1. Your contribution is licensed under the [MIT License](../LICENSE).
 2. You have the right to submit the work under that license, and you grant the maintainer the rights described below.
 3. You sign off on the [Developer Certificate of Origin](https://developercertificate.org/) for each commit (add a `Signed-off-by:` line with `git commit -s`), certifying you authored the contribution or otherwise have the right to submit it under these terms.
 
