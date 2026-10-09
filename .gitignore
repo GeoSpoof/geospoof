@@ -50,3 +50,8 @@ npm-debug.log*
 
 assets/Proton_Assets/*
 
+
+# Chrome Web Store signing: packed CRX output and any key material.
+# The verified-upload private key lives outside the repo; never commit one.
+*.crx
+*.pem
