@@ -35,7 +35,7 @@ concurrency:
 jobs:
   cdk:
     name: CDK lint, test, synth
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: cdk

@@ -1,0 +1,40 @@
+name: Dependency review
+
+# Gates PRs that add or change dependencies: blocks a pull request that would
+# introduce a package with a known vulnerability or a disallowed license, BEFORE
+# it merges. This complements Dependabot rather than duplicating it — Dependabot
+# scans what is already on main and opens fix PRs reactively; this stops a bad
+# dependency from getting in in the first place.
+#
+# PR-only: there is no dependency graph to diff on a plain push.
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-review-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Dependency review
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write # post the review summary as a PR comment
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          # Block on high+ severity vulnerabilities. Dependabot still catches
+          # anything lower after merge; this gate is for the serious ones.
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure

@@ -28,7 +28,7 @@ jobs:
   auto-merge:
     # Only react to Dependabot's own PRs.
     if: ${{ github.actor == 'dependabot[bot]' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write # enable auto-merge on the PR
       pull-requests: write # set the auto-merge flag
@@ -39,10 +39,21 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Root only: CDK CI is path-filtered, so it can't be a required check and
+      # "green" on a cdk/ PR wouldn't include it. Grouped PRs qualify only via
+      # the patch-only `dev-patch` group; per-dependency metadata on a mixed
+      # group isn't a safe signal on its own.
       - name: Enable auto-merge for devDependency patch bumps only
         if: >
-          steps.meta.outputs.update-type == 'version-update:semver-patch' &&
-          steps.meta.outputs.dependency-type == 'direct:development'
+          steps.meta.outputs.directory == '/' &&
+          (
+            steps.meta.outputs.dependency-group == 'dev-patch' ||
+            (
+              steps.meta.outputs.dependency-group == '' &&
+              steps.meta.outputs.update-type == 'version-update:semver-patch' &&
+              steps.meta.outputs.dependency-type == 'direct:development'
+            )
+          )
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
