@@ -6,6 +6,8 @@
 **Your VPN changes your IP address. Your device is still telling websites where you actually are.**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/GeoSpoof/geospoof/actions/workflows/ci.yml/badge.svg)](https://github.com/GeoSpoof/geospoof/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/GeoSpoof/geospoof/badge)](https://scorecard.dev/viewer/?uri=github.com/GeoSpoof/geospoof)
 [![Website](https://img.shields.io/badge/Website-geospoof.com-4caf50.svg?logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABTElEQVQ4T41TS1LDMAyV3AXZsGPJJbgGC5qkoXG5Vi/AsAAS8uMi3AdmYiE5dRK7LoMzGSey9J70JCNcWLpNaSQDG1RA/FS7T4y5nhnL5oGQgxARiMjusuR7NAQfjz6QB6DbLQHgEnQ6Rba6NRqAuujnOA/g0GXWldiqFMDrdnI89IXwgwO6SW6T4/3xW85mAN1n5Bze8oVhXbcjEG3qkyYLAIvm2Kt8iAomAKKFZOh8Zsc918/SgWHFHXqouu6YhGmiAOWQk2KV1+mFAHMJ3Jk66yy53wXWwabIb5iFblJCNWW4LtED2FshufeSJu9VMfV87g7bzEZBnU7sZxmIwWkRDpKchexRADGWLJYI6ibRgcXaG22XbnZ3qMyXAxDVE7r+ec5frkJhowDi9DTwVHKkvQN8N+qs/d9l8iaPWysA71l8Mi9qEKb51/8vRNquEc5KgXwAAAAQZGVCRzg1RUVEM0EzRkYzNEI0MzTcy3bJAAAAAElFTkSuQmCC)](https://geospoof.com/?utm_source=github&utm_medium=readme)
 [![Version](https://img.shields.io/github/package-json/v/GeoSpoof/geospoof?color=green)](https://github.com/GeoSpoof/geospoof/releases)
 [![Firefox users](https://img.shields.io/amo/users/geo-spoof?logo=firefox-browser&label=Firefox%20users)](https://addons.mozilla.org/firefox/addon/geo-spoof/?utm_source=github&utm_medium=readme&utm_campaign=readme)

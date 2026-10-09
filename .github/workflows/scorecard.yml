@@ -1,0 +1,57 @@
+name: Scorecard supply-chain security
+
+# OpenSSF Scorecard — the Linux Foundation's automated audit of ~18 repository
+# security practices (branch protection, pinned dependencies, CodeQL, signed
+# releases, token permissions, etc). Results are published to the Security tab as
+# code-scanning alerts and power the live badge in the README.
+#
+# Runs weekly (practices and the Scorecard checks themselves evolve), on pushes to
+# the default branch, and whenever a branch-protection rule changes — that last
+# trigger is why Scorecard asks for the elevated read token below.
+
+on:
+  branch_protection_rule:
+  schedule:
+    - cron: "0 8 * * 1" # Mondays 08:00 UTC
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Top-level token is read-only; the job escalates only to what each step needs.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload results to the Security tab (code scanning)
+      id-token: write # publish results so the badge can read them
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # publish_results powers the public badge and the OpenSSF API entry.
+          publish_results: true
+
+      # Keep the raw SARIF as a build artifact for 5 days for debugging, separate
+      # from the Security-tab upload below.
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: results.sarif
