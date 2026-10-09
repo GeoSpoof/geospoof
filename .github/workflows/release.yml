@@ -128,6 +128,14 @@ jobs:
     name: Sign (AMO)
     needs: build
     runs-on: ubuntu-24.04
+    # The AMO credentials are environment secrets on `release`, which only
+    # accepts deployments from v* tags. A workflow on any branch, including a
+    # PR, therefore can't read them.
+    #
+    # Only this job uses an environment. Putting `environment:` on `publish`
+    # would change its OIDC `sub` claim and break the CDN role's trust; see
+    # cdk/README.md, "Who may publish".
+    environment: release
     permissions:
       contents: read
     env:
