@@ -134,6 +134,14 @@ function padCoordinate(raw: number): number {
   // ±0.00000005 degrees ≈ ±5mm at the equator. Well below any GPS/Wi-Fi
   // accuracy value a user might set, so the reported position is
   // indistinguishable from the configured one to any practical consumer.
+  //
+  // Math.random() is deliberate and NOT a security weakness here: this jitter is
+  // cosmetic padding on a coordinate the user is intentionally faking, purely so
+  // the stringified value has a realistic decimal length. No security property
+  // depends on it being unpredictable — predicting the 8th decimal of a spoofed
+  // location grants an attacker nothing. crypto.getRandomValues would be pointless
+  // ceremony. CodeQL js/insecure-randomness is a false positive in this context.
+  // codeql[js/insecure-randomness]
   const jitter = (Math.random() - 0.5) * 1e-7;
   // Round to 8 decimals so the stringified form has a stable,
   // realistic-looking length (7-8 digits is the native range).
