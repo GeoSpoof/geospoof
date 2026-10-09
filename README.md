@@ -194,9 +194,9 @@ Using location spoofing may violate terms of service of streaming, financial, or
 
 ## License
 
-Everything in this repository — the browser extension, its docs, and its assets — is **MIT**. See [LICENSE](LICENSE). Use, modify, and redistribute freely, including commercially.
+Everything in this repository — the browser extension, its docs, and its assets — is **MIT**. See [LICENSE](LICENSE), and [NOTICE](NOTICE) for the scope of that grant. Use, modify, and redistribute freely, including commercially.
 
-Three GeoSpoof products are developed separately, are closed-source, and are not part of this repository:
+Three GeoSpoof products are developed separately, are not part of this repository, and are proprietary (all rights reserved by GeoSpoof LLC):
 
 - The **native iOS and macOS apps**. These previously lived in a `safari/` directory here, MIT-licensed until 2026-09-13. That history remains, tagged `pre-safari-extraction`.
 - The **geospoof.com website**, including its marketing copy, translations, and imagery. This previously lived in a `site/` directory here; that history remains, tagged `pre-site-extraction`.

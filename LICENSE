@@ -19,22 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-NOTE ON SCOPE: The MIT license above applies to everything in this repository.
-
-Three GeoSpoof products are developed separately and are not part of this
-repository. All are proprietary — all rights reserved by GeoSpoof LLC:
-
-  - the native iOS and macOS applications, including their marketing copies and assets;
-  - the GeoSpoof GPS desktop core;
-  - the geospoof.com website, including its marketing copy, translations,
-    and imagery.
-
-The applications previously lived in a `safari/` directory here, and the website
-in a `site/` directory. Those directories were MIT-licensed until they were
-removed, and copies obtained under MIT before then remain governed by the MIT
-license as to those copies; nothing
-here purports to revoke rights already granted. It is retained in this
-repository's history and remains reachable at the `pre-safari-extraction` tag.
