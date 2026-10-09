@@ -19,7 +19,7 @@ jobs:
       # cdn.geospoof.com, a domain we own, rather than this repo's GitHub Pages.
       # Pages was retired ahead of transferring the repo to the GeoSpoof org,
       # because a repo's github.io path does not survive a transfer — see the
-      # self-hosted update path section in CONTRIBUTING.md.
+      # self-hosted update path section in .github/CONTRIBUTING.md.
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -121,7 +121,7 @@ jobs:
       # the update path does not depend on where this repo lives. (It was briefly
       # dual-published to this repo's GitHub Pages during the migration off that
       # path; Pages was retired because a github.io URL does not survive a repo
-      # transfer. See CONTRIBUTING.md, "Self-hosted update path".)
+      # transfer. See .github/CONTRIBUTING.md, "Self-hosted update path".)
       #
       # Publishing AFTER the GitHub Release step is deliberate: the manifest's
       # `update_link` points at that release's assets, so publishing earlier would

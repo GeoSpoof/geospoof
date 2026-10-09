@@ -73,7 +73,7 @@ The signed XPI works on standard Firefox with no extra configuration. Once insta
 
 #### From source
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for build instructions.
 
 </details>
 
@@ -184,7 +184,7 @@ GeoSpoof runs no backend application and sends no data to the developer for coll
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, scripts, testing, and the release pipeline.
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup, scripts, testing, and the release pipeline.
 
 ## Legal
 
@@ -215,7 +215,7 @@ In each case, copies obtained under MIT before the directory was removed keep th
 - [VPN Sync & Auto-Resync](docs/VPN_SYNC.md)
 - [How Browsers Track Location](docs/BACKGROUND.md)
 - [Privacy Policy](PRIVACY_POLICY.md)
-- [Contributing](CONTRIBUTING.md)
+- [Contributing](.github/CONTRIBUTING.md)
 - [Report Issues](https://github.com/GeoSpoof/geospoof/issues)
 - [Buy me a coffee](https://buymeacoffee.com/sgro)
 
