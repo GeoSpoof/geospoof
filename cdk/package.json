@@ -1,6 +1,9 @@
 {
   "name": "cdk",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "tsc",
     "build:full": "npm run format:check && npm run lint && npm run test && npm run build",
