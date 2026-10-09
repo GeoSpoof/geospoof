@@ -45,5 +45,6 @@
   "overrides": {
     "brace-expansion": "^5.0.12",
     "fast-uri": "^3.1.8"
-  }
+  },
+  "license": "Apache-2.0"
 }
