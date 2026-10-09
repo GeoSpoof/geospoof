@@ -253,9 +253,11 @@ jobs:
       # attestation store. Anyone can run
       # `gh attestation verify <file> --repo GeoSpoof/geospoof` on a downloaded
       # XPI and confirm it came from our CI, not a tampered mirror.
+      # actions/attest with no predicate inputs produces SLSA build provenance;
+      # attest-build-provenance is now just a wrapper around it.
       - name: Attest build provenance
         id: attest
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.2.0
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: "release-assets/*"
 
