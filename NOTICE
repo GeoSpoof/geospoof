@@ -1,0 +1,36 @@
+GeoSpoof browser extension
+Copyright 2026 GeoSpoof LLC
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Trademarks: "GeoSpoof" and the GeoSpoof logo are trademarks of GeoSpoof LLC.
+As Section 6 of the license states, it grants no permission to use them,
+except as reasonably required to describe the origin of the work. Do not brand
+a fork or derivative product as "GeoSpoof".
+
+Versions up to and including v2.2.3 were released under the MIT License, and
+copies obtained under those terms keep them.
+
+This product includes contributions licensed under the MIT License:
+  - Dark mode styles in assets/popup.css and .github/FUNDING.yml,
+    Copyright (c) 2026 TotalCaesar659
+  - GitHub issue and pull request templates, SUPPORT.md, release.yml and the
+    stale workflow in .github/, Copyright (c) 2026 Braeden Slatyer
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.

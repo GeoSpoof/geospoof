@@ -82,5 +82,6 @@
     "tr46": "6.0.0",
     "urlpattern-polyfill": "10.1.0",
     "webextension-polyfill": "^0.12.0"
-  }
+  },
+  "license": "Apache-2.0"
 }

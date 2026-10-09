@@ -5,7 +5,7 @@
 
 **Your VPN changes your IP address. Your device is still telling websites where you actually are.**
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/GeoSpoof/geospoof/actions/workflows/ci.yml/badge.svg)](https://github.com/GeoSpoof/geospoof/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/GeoSpoof/geospoof/badge)](https://scorecard.dev/viewer/?uri=github.com/GeoSpoof/geospoof)
 [![Website](https://img.shields.io/badge/Website-geospoof.com-4caf50.svg?logo=data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABTElEQVQ4T41TS1LDMAyV3AXZsGPJJbgGC5qkoXG5Vi/AsAAS8uMi3AdmYiE5dRK7LoMzGSey9J70JCNcWLpNaSQDG1RA/FS7T4y5nhnL5oGQgxARiMjusuR7NAQfjz6QB6DbLQHgEnQ6Rba6NRqAuujnOA/g0GXWldiqFMDrdnI89IXwgwO6SW6T4/3xW85mAN1n5Bze8oVhXbcjEG3qkyYLAIvm2Kt8iAomAKKFZOh8Zsc918/SgWHFHXqouu6YhGmiAOWQk2KV1+mFAHMJ3Jk66yy53wXWwabIb5iFblJCNWW4LtED2FshufeSJu9VMfV87g7bzEZBnU7sZxmIwWkRDpKchexRADGWLJYI6ibRgcXaG22XbnZ3qMyXAxDVE7r+ec5frkJhowDi9DTwVHKkvQN8N+qs/d9l8iaPWysA71l8Mi9qEKb51/8vRNquEc5KgXwAAAAQZGVCRzg1RUVEM0EzRkYzNEI0MzTcy3bJAAAAAElFTkSuQmCC)](https://geospoof.com/?utm_source=github&utm_medium=readme)
@@ -194,17 +194,19 @@ Using location spoofing may violate terms of service of streaming, financial, or
 
 ## License
 
-Everything in this repository — the browser extension, its docs, and its assets — is **MIT**. See [LICENSE](LICENSE). Use, modify, and redistribute freely, including commercially.
+Everything in this repository (the browser extension, its docs, and its assets) is licensed under the **Apache License 2.0**. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Use, modify, and redistribute freely, including commercially. Keep the `NOTICE` file and mark files you change.
 
-Three GeoSpoof products are developed separately, are closed-source, and are not part of this repository:
+Releases up to and including v2.2.3 were MIT-licensed, and copies obtained under those terms keep them.
+
+Three GeoSpoof products are developed separately, are not part of this repository, and are proprietary (all rights reserved by GeoSpoof LLC):
 
 - The **native iOS and macOS apps**. These previously lived in a `safari/` directory here, MIT-licensed until 2026-09-13. That history remains, tagged `pre-safari-extraction`.
 - The **geospoof.com website**, including its marketing copy, translations, and imagery. This previously lived in a `site/` directory here; that history remains, tagged `pre-site-extraction`.
 - The **GeoSpoof GPS desktop core** (the Rust/Swift device product).
 
-In each case, copies obtained under MIT before the directory was removed keep those rights — nothing here revokes a grant already made.
+In each case, copies obtained under MIT before the directory was removed keep those rights. Nothing here revokes a grant already made.
 
-**Trademarks:** The MIT license covers the source code only, not the brand. **GeoSpoof™ is a trademark of GeoSpoof LLC.** You're free to use and fork the code under MIT, but the GeoSpoof name and logo aren't licensed with it — please don't brand a fork or derivative product as "GeoSpoof" in a way that could confuse users about its source.
+**Trademarks:** **GeoSpoof™ is a trademark of GeoSpoof LLC.** The license covers the code, not the brand; Section 6 of Apache 2.0 says so explicitly. You're free to fork the code, but don't brand a fork or derivative product as "GeoSpoof" in a way that could confuse users about its source.
 
 ## Links
 
