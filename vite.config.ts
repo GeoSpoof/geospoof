@@ -105,6 +105,13 @@ function browserTargetPlugin(target: BrowserTarget): Plugin {
         }
       }
 
+      // Ship LICENSE and NOTICE in every package. Apache 2.0 Section 4 requires
+      // both to travel with redistributed copies, and NOTICE carries the MIT
+      // notices for contributed code that ships in the popup.
+      for (const file of ["LICENSE", "NOTICE"]) {
+        cpSync(resolve(__dirname, file), resolve(__dirname, `dist/${file}`));
+      }
+
       // Copy icons directory
       const iconsSrc = resolve(__dirname, "icons");
       if (existsSync(iconsSrc)) {

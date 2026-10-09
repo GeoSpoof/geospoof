@@ -309,12 +309,12 @@ git log --oneline --decorate # see commits with tags
 
 ## License & Contribution Terms
 
-Everything in this repository — the browser extension, site, docs, and assets — is licensed under [MIT](../LICENSE). The native iOS and macOS apps are developed separately, are proprietary, and are not part of this repository, so contributions here are MIT throughout.
+Everything in this repository (the browser extension, docs, and assets) is licensed under the [Apache License 2.0](../LICENSE), with copyright held by GeoSpoof LLC. The native iOS and macOS apps, the GPS desktop core, and geospoof.com are developed separately, are proprietary, and are not part of this repository.
 
 By submitting a contribution (a pull request, patch, or any code, docs, or other material), you agree that:
 
-1. Your contribution is licensed under the [MIT License](../LICENSE).
-2. You have the right to submit the work under that license, and you grant the maintainer the rights described below.
+1. Your contribution is licensed under the [Apache License 2.0](../LICENSE) (Section 5 of the license makes this the default for anything you submit).
+2. You have the right to submit the work under that license, and you grant GeoSpoof LLC the rights described below.
 3. You sign off on the [Developer Certificate of Origin](https://developercertificate.org/) for each commit (add a `Signed-off-by:` line with `git commit -s`), certifying you authored the contribution or otherwise have the right to submit it under these terms.
 
-To allow the project's licensing to be maintained over time, you also grant the maintainer a perpetual, irrevocable, worldwide, royalty-free license to use, relicense, and sublicense your contribution as part of GeoSpoof. If you cannot agree to these terms for a particular contribution, note it in your pull request so it can be handled separately.
+To allow the project's licensing to be maintained over time, you also grant GeoSpoof LLC a perpetual, irrevocable, worldwide, royalty-free license to use, relicense, and sublicense your contribution as part of GeoSpoof. If you cannot agree to these terms for a particular contribution, note it in your pull request so it can be handled separately.
