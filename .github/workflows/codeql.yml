@@ -46,7 +46,9 @@ jobs:
           # query suite (security + maintainability); drop to `security-extended`
           # or `security` if quality findings prove too noisy to triage.
           languages: javascript-typescript
-          queries: security-and-quality
+          # config-file scopes the scan to shipped code (src/**) and excludes test
+          # fixtures + dev scripts whose findings are false by construction.
+          config-file: ./.github/codeql/codeql-config.yml
 
       # No manual build step: JS/TS is analyzed directly from source, so CodeQL's
       # autobuild is unnecessary and we skip straight to analysis.

@@ -1,0 +1,20 @@
+name: GeoSpoof CodeQL config
+
+# Scope CodeQL to the code that actually ships or runs in production. Test
+# fixtures and local developer scripts are deliberately excluded: scanning them
+# produces findings that are false by construction — e.g. `url.includes("...")`
+# inside a test's mock fetch router is response routing, not URL sanitization,
+# and `console.log` in a hand-run diagnostic script is not log injection into any
+# real system. Keeping them in scope trained reviewers to ignore the Security
+# tab, which is the opposite of what SAST is for.
+#
+# src/** stays fully in scope — that is the shipped extension.
+
+queries:
+  - uses: security-and-quality
+
+paths-ignore:
+  - tests/**
+  - scripts/**
+  - "**/*.test.ts"
+  - "**/*.property.test.ts"
