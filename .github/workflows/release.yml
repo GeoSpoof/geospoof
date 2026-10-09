@@ -10,17 +10,22 @@ on:
 # and their DMG live in the private geospoof-ios repo and release from there - do
 # not re-add a DMG build here.
 
+# Read-only by default; the release job escalates to exactly what it needs.
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # create the GitHub Release + upload assets
       # No `pages: write`: the Firefox update manifest is served from
       # cdn.geospoof.com, a domain we own, rather than this repo's GitHub Pages.
       # Pages was retired ahead of transferring the repo to the GeoSpoof org,
       # because a repo's github.io path does not survive a transfer — see the
       # self-hosted update path section in .github/CONTRIBUTING.md.
-      id-token: write
+      id-token: write # OIDC for the CDN publish + build provenance (Sigstore)
+      attestations: write # record build provenance for the release artifacts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -103,6 +108,19 @@ jobs:
           cp "web-ext-artifacts/geospoof-firefox-v${BASE_VERSION}-unsigned.xpi" release-assets/
           cp "web-ext-artifacts/geospoof-chromium-v${BASE_VERSION}.zip" release-assets/
           cp "geospoof-source-v${BASE_VERSION}.zip" release-assets/
+
+      # ── Build provenance ──
+      # Cryptographically attest that these artifacts were built by THIS workflow
+      # from THIS repo at this commit, signed via Sigstore and recorded in GitHub's
+      # attestation store. For a privacy/security extension this is a real trust
+      # signal: anyone can run `gh attestation verify <file> --repo GeoSpoof/geospoof`
+      # on a downloaded XPI and confirm it genuinely came from our CI, not a
+      # tampered mirror. Must run after the artifacts exist and before/around the
+      # release; attestation covers the exact bytes that get uploaded.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.2.0
+        with:
+          subject-path: "release-assets/*"
 
       # ── Single GitHub Release with all artifacts ──
       - name: Create GitHub Release
