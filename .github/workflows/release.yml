@@ -275,16 +275,34 @@ jobs:
       # ── Single GitHub Release with all artifacts ──
       # The gh CLI ships on the runner, so this needs no third-party action in
       # the job that holds the write token. gh creates the release as a draft,
-      # uploads every asset, then publishes, which also works with immutable
-      # releases. A re-run after a later step failed uploads over the existing
-      # release instead of failing here.
+      # uploads every asset, then publishes. That order is required because
+      # the repo has immutable releases on: once published, a release's assets
+      # and tag can't change.
+      #
+      # Re-runs (e.g. after a CDN hiccup) must still reach the CDN steps:
+      #   - no release yet: create it
+      #   - a draft left by an interrupted create: finish uploading, publish
+      #   - already published: it's immutable, so only check every asset is
+      #     there and move on
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          if IS_DRAFT=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$IS_DRAFT" = "true" ]; then
+              gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+              gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+            else
+              PUBLISHED=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+              for f in release-assets/*; do
+                grep -qxF "$(basename "$f")" <<<"$PUBLISHED" || {
+                  echo "::error::published release is missing $(basename "$f") and is immutable; ship a new patch version" >&2
+                  exit 1
+                }
+              done
+              echo "Release already published with every asset; continuing."
+            fi
           else
             gh release create "$GITHUB_REF_NAME" release-assets/* \
               --repo "$GITHUB_REPOSITORY" \
