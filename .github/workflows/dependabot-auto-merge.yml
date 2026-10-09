@@ -20,15 +20,18 @@ name: Dependabot auto-merge
 
 on: pull_request
 
+# Read-only by default; the one job escalates to the write scopes it needs.
 permissions:
-  contents: write # enable auto-merge on the PR
-  pull-requests: write # (same) — set the auto-merge flag
+  contents: read
 
 jobs:
   auto-merge:
     # Only react to Dependabot's own PRs.
     if: ${{ github.actor == 'dependabot[bot]' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # enable auto-merge on the PR
+      pull-requests: write # set the auto-merge flag
     steps:
       - name: Classify the update
         id: meta
