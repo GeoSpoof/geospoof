@@ -118,9 +118,21 @@ jobs:
       # tampered mirror. Must run after the artifacts exist and before/around the
       # release; attestation covers the exact bytes that get uploaded.
       - name: Attest build provenance
+        id: attest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.2.0
         with:
           subject-path: "release-assets/*"
+
+      # Attach the Sigstore provenance bundle to the release as an asset, in
+      # addition to GitHub's attestation store. The attestation API already makes
+      # this verifiable (`gh attestation verify ... --repo GeoSpoof/geospoof`), but
+      # a downloadable `.intoto.jsonl` lets anyone verify offline without a GitHub
+      # token, and is the form OpenSSF Scorecard's Signed-Releases check currently
+      # reads (it does not yet credit the attestation store — ossf/scorecard#4667).
+      # One bundle covers every artifact: the attestation lists them all as
+      # subjects, each bound to its own digest.
+      - name: Stage provenance bundle for release
+        run: cp "${{ steps.attest.outputs.bundle-path }}" "release-assets/geospoof-v${BASE_VERSION}.intoto.jsonl"
 
       # ── Single GitHub Release with all artifacts ──
       - name: Create GitHub Release
