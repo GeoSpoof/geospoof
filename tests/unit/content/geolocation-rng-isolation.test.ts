@@ -55,6 +55,19 @@ describe("geolocation randomness isolation", () => {
     expect(low).toBeLessThan(5_500);
   });
 
+  test("without crypto, randomUnit returns a constant and still never calls Math.random", async () => {
+    vi.resetModules();
+    vi.stubGlobal("crypto", undefined);
+    try {
+      const pageRandom = vi.spyOn(Math, "random");
+      const { randomUnit: isolated } = await import("@/content/injected/safe-random");
+      expect(isolated()).toBe(0.5);
+      expect(pageRandom).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   test("padded coordinates stay within ±5mm and carry 8 decimals", () => {
     const raw = { latitude: 48.8566, longitude: 2.3522 };
     const padded = getPaddedCoords(raw);

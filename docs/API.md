@@ -441,6 +441,12 @@ Anti-fingerprinting infrastructure. Key exports:
 - `stripConstruct(fn)` — Wrap in method shorthand to remove `[[Construct]]` and `prototype`
 - `installOverride(target, prop, overrideFn)` — Full install: register, disguise, define property. Auto-wraps function expressions via `stripConstruct`.
 
+#### safe-random.ts
+
+Randomness the page can't observe. Overrides must never call the page's `Math.random`: a page can wrap it and see calls native code never makes, and its xorshift128+ stream (V8, SpiderMonkey, JavaScriptCore) is predictable, so a consumed value shows as a skip.
+
+- `randomUnit()` — Uniform float in [0, 1) with 53 bits of entropy from `crypto.getRandomValues`, captured and bound at module load into a pre-allocated `Uint32Array`. Returns `0.5` if `crypto` is missing rather than falling back to `Math.random`.
+
 #### timezone-helpers.ts
 
 Pure utility functions (no side effects on globals):
@@ -459,6 +465,8 @@ Installs geolocation and position/coordinate overrides on `Geolocation.prototype
 
 - `installGeolocationOverrides()` — Installs `getCurrentPosition` / `watchPosition` / `clearWatch` on `Geolocation.prototype`, plus prototype-level accessor and `toJSON` installers so spoofed instances have zero own properties (matching native layout — `Object.getOwnPropertyNames(pos)` returns `[]`).
 - `getPaddedCoords(location)` — Returns a padded coordinate pair for the given raw spoofed location. Pads values with fewer than 7 decimal places by appending a ±5mm jitter (well below any accuracy a user could configure), caches per unique raw pair, and is shared with `iframe-patching.ts` so main-window and iframe paths emit identical values. Closes the "suspiciously round spoofed coordinates" detection vector.
+
+All randomness here (coordinate jitter, fix latency, watch intervals) comes from `safe-random.ts`, never the page's `Math.random`.
 
 Spoofed positions are allocated via `Object.create(GeolocationPosition.prototype)` with coordinate/timestamp values stored in a module-level `WeakMap<object, slots>`. Prototype getters consult the WeakMap for our instances and fall through to the native getters for pristine browser-allocated objects.
 

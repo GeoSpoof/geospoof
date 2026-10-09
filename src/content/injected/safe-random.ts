@@ -31,23 +31,24 @@ function captureFill(): Fill | null {
       return c.getRandomValues.bind(c);
     }
   } catch {
-    // Hardened profiles occasionally null out `crypto`; fall back below.
+    // Treated the same as a missing `crypto`; see randomUnit().
   }
   return null;
 }
 
 const fill = captureFill();
 const buffer = new Uint32Array(2);
-// Last resort only, if a hardened profile removed `crypto`: the pristine
-// Math.random, captured before page scripts can wrap it.
-const fallbackRandom = Math.random;
 
 /**
  * A uniform float in [0, 1) with 53 bits of entropy, drawn without touching
  * any page-patchable global.
  */
 export function randomUnit(): number {
-  if (fill === null) return fallbackRandom();
+  // getRandomValues ships in every browser we support, so this branch should
+  // never run. If it ever does, return the midpoint instead of falling back to
+  // Math.random: callers get zero jitter and mid-range delays, which is safe,
+  // whereas Math.random would reopen the leak this module exists to close.
+  if (fill === null) return 0.5;
   fill(buffer);
   // 27 high bits of the first word and 26 of the second give 53 bits, the full
   // precision of a double in [0, 1). Plain integer arithmetic, so the result is
