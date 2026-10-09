@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Firefox extension for geolocation spoofing and location privacy",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.15.0"
   },
   "scripts": {
     "build": "npm run build:prod",
@@ -55,7 +55,7 @@
     "eslint-config-prettier": "^10.1.8",
     "fast-check": "^4.10.2",
     "husky": "^9.1.7",
-    "jsdom": "^29.1.1",
+    "jsdom": "30.1.1",
     "lint-staged": "^17.6.0",
     "prettier": "^3.9.9",
     "typescript": "~5.9",
