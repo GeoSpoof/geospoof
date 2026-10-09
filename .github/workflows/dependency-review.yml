@@ -1,8 +1,8 @@
 name: Dependency review
 
 # Gates PRs that add or change dependencies: blocks a pull request that would
-# introduce a package with a known vulnerability or a disallowed license, BEFORE
-# it merges. This complements Dependabot rather than duplicating it — Dependabot
+# introduce a package with a known high+ severity vulnerability, BEFORE it
+# merges. This complements Dependabot rather than duplicating it — Dependabot
 # scans what is already on main and opens fix PRs reactively; this stops a bad
 # dependency from getting in in the first place.
 #
@@ -28,9 +28,8 @@ jobs:
       contents: read
       pull-requests: write # post the review summary as a PR comment
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+      # No checkout: on pull_request the action diffs the dependency graph
+      # through the API, so there is nothing to clone.
       - name: Dependency review
         uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:

@@ -2,9 +2,13 @@ name: Dependabot auto-merge
 
 # Enables auto-merge on Dependabot PRs for the ONE category where green CI is
 # sufficient on its own: patch-level bumps of devDependencies (build tooling and
-# test libraries). These cannot ship to users at runtime, and a patch is the
-# lowest-blast-radius change, so "all checks pass" is a reasonable gate without a
-# human reading the diff.
+# test libraries). A patch is the lowest-blast-radius change, so "all checks
+# pass" is a reasonable gate without a human reading the diff.
+#
+# Not zero-risk: build tools like esbuild write the bytes we ship, so a
+# compromised patch could reach users. The defence is the 7-day cooldown in
+# dependabot.yml. Malicious npm releases are typically caught and pulled within
+# hours, well before Dependabot would propose them.
 #
 # DELIBERATELY NARROW. Everything else stays manual on purpose:
 #   - runtime `dependencies` (anything here ships to users of a privacy
@@ -26,8 +30,11 @@ permissions:
 
 jobs:
   auto-merge:
-    # Only react to Dependabot's own PRs.
-    if: ${{ github.actor == 'dependabot[bot]' }}
+    # Only react to PRs Dependabot opened. `github.actor` is whoever triggered
+    # this run, which can be Dependabot on a PR someone else opened (e.g. after
+    # a rebase), so check the PR's author instead. This is GitHub's documented
+    # pattern.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-24.04
     permissions:
       contents: write # enable auto-merge on the PR

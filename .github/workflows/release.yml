@@ -9,6 +9,21 @@ on:
 # Chromium zip, and the self-hosted update manifest). The native macOS/iOS apps
 # and their DMG live in the private geospoof-ios repo and release from there - do
 # not re-add a DMG build here.
+#
+# Three jobs, split by privilege:
+#
+#   build    runs `npm ci` and the build. That means running third-party code
+#            (install scripts, vite, esbuild), so it gets no secrets and a
+#            read-only token.
+#   sign     holds the AMO credentials. It installs with --ignore-scripts, so
+#            the only third-party code that runs is web-ext, which is the tool
+#            that needs those credentials anyway.
+#   publish  holds the write token, the OIDC token for the CDN publish role, and
+#            attestation rights. It installs nothing from npm, so no dependency
+#            code ever runs next to them.
+#
+# None of the jobs use the setup-node cache. That cache is shared with PR CI
+# runs, so restoring it here would let a poisoned cache entry reach a release.
 
 # Serialize per-tag so a double tag-push can't run two releases over each other.
 # cancel-in-progress is FALSE on purpose: a release that has started signing or
@@ -17,12 +32,174 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# Read-only by default; the release job escalates to exactly what it needs.
+# Read-only by default; each job escalates to exactly what it needs.
 permissions:
   contents: read
 
 jobs:
-  release:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      base-version: ${{ steps.version.outputs.base-version }}
+      build-version: ${{ steps.version.outputs.build-version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The tag name flows into file names, URLs and the update manifest, so
+      # check its shape before anything uses it, then check it matches
+      # package.json.
+      - name: Verify tag and version
+        id: version
+        run: |
+          set -euo pipefail
+          BASE_VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' is not of the form vX.Y.Z" >&2
+            exit 1
+          fi
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$BASE_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version '$BASE_VERSION' does not match package.json version '$PKG_VERSION'" >&2
+            exit 1
+          fi
+          echo "base-version=${BASE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "build-version=${BASE_VERSION}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - run: npm ci
+      - run: npm audit signatures
+      - run: cp .env.example .env
+
+      # ── Firefox build + source archive ──
+      - run: npm run package:xpi
+      - run: npm run package:source
+
+      # ── Signing inputs: two variants of the same Firefox build ──
+      # Unlisted (self-hosted) gets the per-run build version; listed (AMO)
+      # keeps the clean version and drops update_url, since AMO handles updates.
+      - name: Stage signing inputs
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.build-version }}
+        run: |
+          set -euo pipefail
+          mkdir -p sign-input
+          cp -r dist sign-input/dist-unlisted
+          cp -r dist sign-input/dist-amo
+          jq --arg v "$BUILD_VERSION" '.version = $v' sign-input/dist-unlisted/manifest.json > m.tmp
+          mv m.tmp sign-input/dist-unlisted/manifest.json
+          jq 'del(.browser_specific_settings.gecko.update_url)' sign-input/dist-amo/manifest.json > m.tmp
+          mv m.tmp sign-input/dist-amo/manifest.json
+
+      # ── Chromium (rebuilds dist/, so it runs after the Firefox copies) ──
+      - run: npm run package:chromium
+
+      - name: Collect build outputs
+        env:
+          BASE_VERSION: ${{ steps.version.outputs.base-version }}
+        run: |
+          set -euo pipefail
+          mkdir -p build-output
+          cp "web-ext-artifacts/geospoof-firefox-v${BASE_VERSION}-unsigned.xpi" build-output/
+          cp "web-ext-artifacts/geospoof-chromium-v${BASE_VERSION}.zip" build-output/
+          cp "geospoof-source-v${BASE_VERSION}.zip" build-output/
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sign-input
+          path: sign-input/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-output
+          path: build-output/
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    name: Sign (AMO)
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      BASE_VERSION: ${{ needs.build.outputs.base-version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # Only web-ext is needed here. --ignore-scripts means no dependency's
+      # install script runs in a job that holds the AMO credentials.
+      - run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sign-input
+          path: sign-input
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output
+          path: build-output
+
+      # ── Unlisted (self-hosted) signing ──
+      - name: Sign XPI (unlisted)
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          rm -rf dist web-ext-artifacts
+          cp -r sign-input/dist-unlisted dist
+          bash scripts/sign-xpi.sh --channel unlisted
+
+      - name: Collect signed XPI
+        run: |
+          set -euo pipefail
+          SIGNED=$(find web-ext-artifacts -name '*.xpi' | head -1)
+          if [ -z "$SIGNED" ]; then
+            echo "::error::web-ext sign produced no XPI" >&2
+            exit 1
+          fi
+          mkdir -p signed
+          mv "$SIGNED" "signed/geospoof-firefox-v${BASE_VERSION}-signed.xpi"
+
+      # ── Listed (AMO) submission ──
+      # Best-effort: an AMO listing problem must not block the self-hosted
+      # release, whose signed XPI is already collected above.
+      - name: Sign XPI (listed/AMO)
+        continue-on-error: true
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          cp -r sign-input/dist-amo dist
+          bash scripts/sign-xpi.sh --channel listed --source "build-output/geospoof-source-v${BASE_VERSION}.zip"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-xpi
+          path: signed/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: [build, sign]
     runs-on: ubuntu-24.04
     permissions:
       contents: write # create the GitHub Release + upload assets
@@ -33,97 +210,49 @@ jobs:
       # self-hosted update path section in .github/CONTRIBUTING.md.
       id-token: write # OIDC for the CDN publish + build provenance (Sigstore)
       attestations: write # record build provenance for the release artifacts
+    env:
+      BASE_VERSION: ${{ needs.build.outputs.base-version }}
+      BUILD_VERSION: ${{ needs.build.outputs.build-version }}
     steps:
+      # Checked out only for scripts/generate-update-manifest.sh. Nothing from
+      # npm is installed in this job.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
-          cache: "npm"
-      - run: npm ci
-      - run: cp .env.example .env
+          persist-credentials: false
 
-      - name: Extract version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-output
+          path: release-assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-xpi
+          path: release-assets
+
+      - name: Check release assets
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          BASE_VERSION="${TAG#v}"
-          echo "BASE_VERSION=${BASE_VERSION}" >> "$GITHUB_ENV"
-          echo "BUILD_VERSION=${BASE_VERSION}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-
-      - name: Verify version match
-        run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          if [ "$BASE_VERSION" != "$PKG_VERSION" ]; then
-            echo "Error: Tag version '$BASE_VERSION' does not match package.json version '$PKG_VERSION'" >&2
-            exit 1
-          fi
-
-      # ── Build Firefox & package source ──
-      - run: npm run package:xpi
-      - run: npm run package:source
-
-      # ── Save clean dist for AMO signing later ──
-      - name: Backup dist for AMO
-        run: cp -r dist dist-amo
-
-      # ── Unlisted (self-hosted) signing ──
-      - name: Inject build version for unlisted
-        run: jq --arg v "$BUILD_VERSION" '.version = $v' dist/manifest.json > dist/manifest.tmp && mv dist/manifest.tmp dist/manifest.json
-
-      - name: Sign XPI (unlisted)
-        env:
-          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
-          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-        run: bash scripts/sign-xpi.sh --channel unlisted
-
-      - name: Rename signed XPI
-        run: |
-          SIGNED=$(find web-ext-artifacts -name '*.xpi' ! -name "geospoof-firefox-v${BASE_VERSION}-unsigned.xpi" | head -1)
-          if [ -n "$SIGNED" ]; then
-            mv "$SIGNED" "web-ext-artifacts/geospoof-firefox-v${BASE_VERSION}-signed.xpi"
-          fi
-
-      # ── Listed (AMO) signing ──
-      - name: Restore clean dist for AMO
-        run: rm -rf dist && mv dist-amo dist
-
-      - name: Strip update_url for AMO
-        run: jq 'del(.browser_specific_settings.gecko.update_url)' dist/manifest.json > dist/manifest.tmp && mv dist/manifest.tmp dist/manifest.json
-
-      - name: Sign XPI (listed/AMO)
-        continue-on-error: true
-        env:
-          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
-          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-        run: bash scripts/sign-xpi.sh --channel listed --source geospoof-source-v${BASE_VERSION}.zip
-
-      # ── Chromium ──
-      - name: Package Chromium
-        run: npm run package:chromium
+          set -euo pipefail
+          for f in \
+            "geospoof-firefox-v${BASE_VERSION}-signed.xpi" \
+            "geospoof-firefox-v${BASE_VERSION}-unsigned.xpi" \
+            "geospoof-chromium-v${BASE_VERSION}.zip" \
+            "geospoof-source-v${BASE_VERSION}.zip"; do
+            [ -f "release-assets/$f" ] || { echo "::error::missing release asset $f" >&2; exit 1; }
+          done
+          ls -la release-assets
 
       # ── Update manifest for self-hosted Firefox auto-updates ──
       - name: Generate update manifest
         run: |
-          REPO="${{ github.repository }}"
-          DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${GITHUB_REF_NAME}/geospoof-firefox-v${BASE_VERSION}-signed.xpi"
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/geospoof-firefox-v${BASE_VERSION}-signed.xpi"
           bash scripts/generate-update-manifest.sh "$BUILD_VERSION" "$DOWNLOAD_URL"
-
-      # ── Collect release artifacts ──
-      - name: Collect release artifacts
-        run: |
-          mkdir -p release-assets
-          cp "web-ext-artifacts/geospoof-firefox-v${BASE_VERSION}-signed.xpi" release-assets/
-          cp "web-ext-artifacts/geospoof-firefox-v${BASE_VERSION}-unsigned.xpi" release-assets/
-          cp "web-ext-artifacts/geospoof-chromium-v${BASE_VERSION}.zip" release-assets/
-          cp "geospoof-source-v${BASE_VERSION}.zip" release-assets/
 
       # ── Build provenance ──
       # Cryptographically attest that these artifacts were built by THIS workflow
       # from THIS repo at this commit, signed via Sigstore and recorded in GitHub's
-      # attestation store. For a privacy/security extension this is a real trust
-      # signal: anyone can run `gh attestation verify <file> --repo GeoSpoof/geospoof`
-      # on a downloaded XPI and confirm it genuinely came from our CI, not a
-      # tampered mirror. Must run after the artifacts exist and before/around the
-      # release; attestation covers the exact bytes that get uploaded.
+      # attestation store. Anyone can run
+      # `gh attestation verify <file> --repo GeoSpoof/geospoof` on a downloaded
+      # XPI and confirm it came from our CI, not a tampered mirror.
       - name: Attest build provenance
         id: attest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.2.0
@@ -131,23 +260,36 @@ jobs:
           subject-path: "release-assets/*"
 
       # Attach the Sigstore provenance bundle to the release as an asset, in
-      # addition to GitHub's attestation store. The attestation API already makes
-      # this verifiable (`gh attestation verify ... --repo GeoSpoof/geospoof`), but
-      # a downloadable `.intoto.jsonl` lets anyone verify offline without a GitHub
-      # token, and is the form OpenSSF Scorecard's Signed-Releases check currently
-      # reads (it does not yet credit the attestation store — ossf/scorecard#4667).
-      # One bundle covers every artifact: the attestation lists them all as
-      # subjects, each bound to its own digest.
+      # addition to GitHub's attestation store. A downloadable `.intoto.jsonl`
+      # lets anyone verify offline without a GitHub token, and is the form
+      # OpenSSF Scorecard's Signed-Releases check currently reads (it does not
+      # yet credit the attestation store — ossf/scorecard#4667). One bundle
+      # covers every artifact: each is a subject bound to its own digest.
       - name: Stage provenance bundle for release
-        run: cp "${{ steps.attest.outputs.bundle-path }}" "release-assets/geospoof-v${BASE_VERSION}.intoto.jsonl"
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: cp "$BUNDLE_PATH" "release-assets/geospoof-v${BASE_VERSION}.intoto.jsonl"
 
       # ── Single GitHub Release with all artifacts ──
+      # The gh CLI ships on the runner, so this needs no third-party action in
+      # the job that holds the write token. gh creates the release as a draft,
+      # uploads every asset, then publishes, which also works with immutable
+      # releases. A re-run after a later step failed uploads over the existing
+      # release instead of failing here.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          name: v${{ env.BASE_VERSION }}
-          files: release-assets/*
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "v${BASE_VERSION}" \
+              --generate-notes \
+              --verify-tag
+          fi
 
       # ── Update manifest: cdn.geospoof.com ──
       #
@@ -165,8 +307,10 @@ jobs:
       # briefly advertise a version whose download does not exist yet.
       #
       # No stored AWS credentials — this assumes an IAM role scoped to the
-      # `firefox/` prefix via the `id-token: write` permission above. See
-      # cdk/README.md, "Who may publish", before touching the role or its trust.
+      # `firefox/` prefix via the `id-token: write` permission above. The role
+      # trusts the OIDC `sub` claim; adding a GitHub `environment:` to this job
+      # would change that claim and break the trust. See cdk/README.md, "Who may
+      # publish", before touching the role, its trust, or this job's shape.
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
