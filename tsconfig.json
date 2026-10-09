@@ -25,8 +25,7 @@
     "skipLibCheck": true,
     "noEmit": true,
 
-    /* Path Aliases */
-    "baseUrl": ".",
+    /* Path Aliases (resolved relative to this file; TS 6 deprecates baseUrl) */
     "paths": {
       "@/*": ["./src/*"],
       "@/background/*": ["./src/background/*"],
