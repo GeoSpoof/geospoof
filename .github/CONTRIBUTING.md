@@ -274,7 +274,34 @@ git switch main && git pull --ff-only
 git tag -s v2.2.4 -m "v2.2.4" && git push origin v2.2.4   # signed tag; starts the release
 ```
 
-Then watch the run to the end. After it, publish to the Chrome Web Store as below.
+Then watch the run to the end. After it, add the release highlights (below), then publish to the Chrome Web Store.
+
+### Release notes: add a Highlights paragraph
+
+The workflow generates notes from merged PR titles. That list stays, but on its own it isn't
+enough. Every release also starts with a short human summary, so users can decide whether to
+upgrade and what it will change. The OpenSSF Best Practices badge requires this too.
+
+Write two or three sentences on what changed for users, then one line on the upgrade impact: what
+users need to do, or "None". Notes stay editable after publishing, even though releases are
+immutable (only the assets and tag are locked), so add them once the run finishes:
+
+```bash
+V=2.2.4
+cat > /tmp/highlights.md <<'EOF'
+## Highlights
+
+What changed for users, in plain words. Lead with anything they'll notice.
+
+**Upgrade impact:** None. Update normally.
+
+EOF
+gh release view "v$V" --repo GeoSpoof/geospoof --json body --jq .body >> /tmp/highlights.md
+gh release edit "v$V" --repo GeoSpoof/geospoof --notes-file /tmp/highlights.md
+```
+
+For a release with no user-visible change (dependencies, CI), say so: "Maintenance only; the
+extension behaves the same as the previous release."
 
 ### Chrome Web Store upload
 
