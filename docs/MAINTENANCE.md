@@ -91,4 +91,4 @@ Things that won't happen on their own. Check this list when you cut a release.
 
 ## Releasing
 
-The procedure, from the version-bump PR to the Chrome Web Store CRX upload, is in [CONTRIBUTING, Release Pipeline](../.github/CONTRIBUTING.md#release-pipeline). After each release, watch the run to the end, check that the CDN manifest matches, verify an asset's attestation, and smoke-test the XPI and the Chrome build on geospoof.com/test.
+The procedure, from the version-bump PR to the Chrome Web Store CRX upload, is in [CONTRIBUTING, Release Pipeline](../.github/CONTRIBUTING.md#release-pipeline). After each release, watch the run to the end, add the **Highlights** paragraph to the release notes ([CONTRIBUTING, Release notes](../.github/CONTRIBUTING.md#release-notes-add-a-highlights-paragraph)), check that the CDN manifest matches, verify an asset's attestation, and smoke-test the XPI and the Chrome build on geospoof.com/test.
