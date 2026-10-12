@@ -114,7 +114,10 @@ describe("GeoTzCdnStack (prod) — CDN publish roles", () => {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
               },
               StringLike: {
-                "token.actions.githubusercontent.com:sub": ["repo:*/geospoof@1170325630:*"],
+                "token.actions.githubusercontent.com:sub": [
+                  "repo:*/geospoof@1170325630:ref:refs/tags/v*",
+                  "repo:*/geospoof@1170325630:ref:refs/heads/main",
+                ],
               },
             },
           }),
@@ -135,7 +138,10 @@ describe("GeoTzCdnStack (prod) — CDN publish roles", () => {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
               },
               StringLike: {
-                "token.actions.githubusercontent.com:sub": ["repo:*/geospoof-gps@1291874641:*"],
+                "token.actions.githubusercontent.com:sub": [
+                  "repo:*/geospoof-gps@1291874641:ref:refs/tags/gps-v*",
+                  "repo:*/geospoof-gps@1291874641:ref:refs/heads/main",
+                ],
               },
             },
           }),
