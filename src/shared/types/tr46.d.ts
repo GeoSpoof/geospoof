@@ -8,7 +8,7 @@
  * only place `tr46`'s shape is described; runtime use is wrapped by
  * `src/shared/utils/idn.ts`.
  *
- * Signatures mirror `tr46@6.0.0` (`toASCII` returns `null` on failure).
+ * Signatures mirror `tr46@7.0.0` (`toASCII` returns `null` on failure).
  */
 declare module "tr46" {
   /**
