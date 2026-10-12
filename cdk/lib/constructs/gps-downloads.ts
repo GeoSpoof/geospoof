@@ -100,8 +100,8 @@ export class GpsDownloads extends Construct {
     this.oidcProvider = provider;
 
     const publishRole = new iam.Role(this, "PublishRole", {
-      // Tighten a pattern's trailing `:*` to `:ref:refs/tags/gps-v*` if you ever
-      // want tag-only publishes.
+      // Patterns are scoped to publishing refs (see `gpsRelease` in config/app.ts),
+      // not `:*`, so a workflow on an arbitrary branch cannot assume this role.
       assumedBy: githubActionsPrincipal("GpsDownloads", provider, props.githubSubjectPatterns),
       description: `GitHub Actions publish role for GPS DMG -> CDN (${props.githubSubjectPatterns.length} trusted subject pattern(s))`,
     });

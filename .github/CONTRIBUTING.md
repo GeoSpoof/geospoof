@@ -258,7 +258,7 @@ The `publish` job deliberately has **no** environment. An environment would chan
 
 `update_url` is compiled into every shipped copy of the extension (`src/build/manifest.ts`), and Firefox keeps polling whatever URL the installed copy carries; [an existing install cannot be told about a new one](https://extensionworkshop.com/documentation/manage/updating-your-extension/). It used to point at `anthonysgro.github.io/geospoof/update.json`, which a repo transfer would have broken.
 
-Since v2.2.1 it points at `https://cdn.geospoof.com/firefox/update.json`, a domain we own, and the release publishes only there. The repo now lives at `GeoSpoof/geospoof`, and the CDN role trusts only the immutable OIDC subject (`repo:*/geospoof@1170325630:*`). AMO users are unaffected: the listed build has `update_url` stripped.
+Since v2.2.1 it points at `https://cdn.geospoof.com/firefox/update.json`, a domain we own, and the release publishes only there. The repo now lives at `GeoSpoof/geospoof`, and the CDN role trusts only the immutable OIDC subject, and only from `v*` tags and `main` (`repo:*/geospoof@1170325630:ref:refs/tags/v*`, `...:ref:refs/heads/main`). AMO users are unaffected: the listed build has `update_url` stripped.
 
 **Do not** create anything at the old `anthonysgro/geospoof` path. Manifests published before the transfer point `update_link` at `github.com/anthonysgro/geospoof/releases/...`, and that redirect survives only while the old path stays unused.
 

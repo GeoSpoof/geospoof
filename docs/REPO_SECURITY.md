@@ -90,7 +90,7 @@ Supporting decisions:
 - **No npm cache** in any release job: the cache is shared with PR runs, so restoring it would let a poisoned entry reach a release.
 - **The tag is validated** as `vX.Y.Z` and must match `package.json` before anything uses it.
 - **`release` environment**: the AMO secrets exist only there, and it accepts deployments from `v*` tags only. No branch or PR workflow can read them.
-- **`publish` has no environment on purpose.** An environment changes the OIDC `sub` claim, which would break the CDN role's trust. The role trusts only the immutable subject `repo:*/geospoof@1170325630:*`; see `cdk/README.md`, "Who may publish".
+- **`publish` has no environment on purpose.** An environment changes the OIDC `sub` claim, which would break the CDN role's trust. The role trusts only the immutable subject on two refs, `repo:*/geospoof@1170325630:ref:refs/tags/v*` (releases) and `...:ref:refs/heads/main` (the CDN publish preflight), so a workflow on any other branch cannot assume it; see `cdk/README.md`, "Who may publish".
 - **No third-party action holds the write token**: the release is created with the runner's own `gh` CLI, as draft → upload → publish, which immutable releases require.
 - **Re-runs are safe**: the publish step finishes a draft, or checks a published release's assets, then continues to the CDN.
 

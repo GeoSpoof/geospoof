@@ -171,7 +171,19 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
       // Verify against the repo rather than editing this by hand:
       //   gh api repos/GeoSpoof/geospoof-gps/actions/oidc/customization/sub \
       //     --jq .sub_claim_prefix
-      githubSubjectPatterns: ["repo:*/geospoof-gps@1291874641:*"],
+      //
+      // Scoped to the refs that actually publish, not `:*`. With `:*`, a workflow
+      // pushed to ANY branch (e.g. with a stolen token) could overwrite latest.dmg,
+      // latest-Setup.exe and the update feeds. Publishing happens only from:
+      //   - a `gps-v*` tag push (the normal release; tags are ruleset-protected), and
+      //   - a `publish_release` workflow_dispatch from `main` (signed, ruleset-protected).
+      // The publish jobs deliberately have no `environment:`, so their `sub` is
+      // `...:ref:<ref>`. If a publish job ever gains an environment, add
+      // `...:environment:<name>` here in the same change.
+      githubSubjectPatterns: [
+        "repo:*/geospoof-gps@1291874641:ref:refs/tags/gps-v*",
+        "repo:*/geospoof-gps@1291874641:ref:refs/heads/main",
+      ],
     },
     // The extension repo publishes the Firefox self-hosted update manifest here,
     // so `update_url` names a domain we own rather than a github.io path that
@@ -184,8 +196,15 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
     // Verify the live value with:
     //   gh api repos/GeoSpoof/geospoof/actions/oidc/customization/sub \
     //     --jq '{immutable:.use_immutable_subject,prefix:.sub_claim_prefix}'
+    //
+    // Scoped to the refs that use the role, not `:*`: the release job runs on `v*`
+    // tag pushes (ruleset-protected), and the CDN publish preflight is dispatched
+    // from `main`. Any other branch can no longer write the update manifest.
     extensionUpdates: {
-      githubSubjectPatterns: ["repo:*/geospoof@1170325630:*"],
+      githubSubjectPatterns: [
+        "repo:*/geospoof@1170325630:ref:refs/tags/v*",
+        "repo:*/geospoof@1170325630:ref:refs/heads/main",
+      ],
     },
   },
 };

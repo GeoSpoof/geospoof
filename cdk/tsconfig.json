@@ -40,6 +40,7 @@
 
     // Type definition locations
     "typeRoots": ["./node_modules/@types"],
+    "types": ["node"],
     "experimentalDecorators": true
   },
   "exclude": ["node_modules", "cdk.out", "dist"]
