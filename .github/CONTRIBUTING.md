@@ -10,6 +10,7 @@ Node.js 18+, npm 9+, Firefox 140+ or any Chromium-based browser
 git clone https://github.com/GeoSpoof/geospoof.git
 cd geospoof
 npm install
+npx husky        # once per clone: .npmrc sets ignore-scripts, so `prepare` doesn't install hooks
 cp .env.example .env
 ```
 
