@@ -7,7 +7,7 @@ import { hostToASCII } from "@/shared/utils/idn";
  * Unicode hosts to their Punycode form, no-op on ASCII, round-trip pre-encoded
  * `xn--` hosts, and fail safe (return `null`, never throw) on invalid input.
  *
- * Expected A-label values are independently verified against `tr46@6.0.0` with
+ * Expected A-label values are independently verified against `tr46@7.0.0` with
  * the WHATWG-URL "domain to ASCII" option set, so this also pins the helper's
  * option choices.
  */
