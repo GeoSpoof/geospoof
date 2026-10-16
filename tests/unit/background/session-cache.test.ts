@@ -7,6 +7,7 @@
 import { describe, test, expect, vi } from "vitest";
 import {
   sessionGet,
+  sessionRead,
   sessionSet,
   sessionDelete,
   sessionGetAll,
@@ -41,6 +42,27 @@ describe("session-cache edge cases", () => {
 
       const result = await sessionGet("someKey");
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe("sessionRead", () => {
+    test("a missing key is a successful read of undefined", async () => {
+      await expect(sessionRead("nonexistent")).resolves.toEqual({ ok: true, value: undefined });
+    });
+
+    test("a stored value reads back", async () => {
+      await sessionSet("readable", { n: 7 });
+      await expect(sessionRead("readable")).resolves.toEqual({ ok: true, value: { n: 7 } });
+    });
+
+    test("a rejected read reports failure and does not log", async () => {
+      sessionGetMock().mockRejectedValueOnce(new Error("storage unavailable"));
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await expect(sessionRead("someKey")).resolves.toEqual({ ok: false });
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      warnSpy.mockRestore();
     });
   });
 
