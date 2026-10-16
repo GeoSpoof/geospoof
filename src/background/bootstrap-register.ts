@@ -35,9 +35,9 @@
  */
 
 import type { Settings } from "@/shared/types/settings";
-import { applyPrecisionOffset } from "@/shared/precision/offset";
 import { resolvePageLocale } from "@/shared/locale/resolver";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { resolveCurrentPageLocation } from "./precision-cadence";
 
 /* eslint-disable no-var */
 declare var process: { env: Record<string, string | undefined> };
@@ -98,17 +98,30 @@ async function unregister(api: UserScriptsApi): Promise<void> {
   }
 }
 
+/** Serializes registrations so two calls can't interleave their unregister/register pairs. */
+let queue: Promise<void> = Promise.resolve();
+
 /**
  * Register (or refresh) the document_start bootstrap user script to reflect the
  * current settings, or remove it when spoofing is off / no timezone is set.
  *
  * Firefox-only and best-effort; safe to call on any settings change and on
- * startup. Idempotent.
+ * startup. Idempotent. Calls run one after another in call order, so the last
+ * call wins: without that, two overlapping calls could unregister twice, then
+ * register A, then fail to register B on the duplicate id and leave A's stale
+ * code in place.
  */
-export async function updateBootstrapRegistration(settings: Settings): Promise<void> {
+export function updateBootstrapRegistration(settings: Settings): Promise<void> {
   // Compiled out entirely on Chromium / Safari builds.
-  if (!__FIREFOX__) return;
+  if (!__FIREFOX__) return Promise.resolve();
 
+  // registerNow catches everything, so the queue never wedges.
+  const run = queue.then(() => registerNow(settings));
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+async function registerNow(settings: Settings): Promise<void> {
   const api = getUserScriptsApi();
   if (!api) {
     // userScripts permission not yet granted (it's an optional-only permission
@@ -136,12 +149,10 @@ export async function updateBootstrapRegistration(settings: Settings): Promise<v
       timezone: settings.timezone,
       // Offset the location for approximate-precision mode so the exact anchor
       // is never inlined into the MAIN-world global (and any early geolocation
-      // read at cold start sees the same point the async path delivers).
-      location: applyPrecisionOffset(
-        settings.location,
-        settings.locationPrecision,
-        settings.precisionSeed
-      ),
+      // read at cold start sees the same point the async path delivers). The
+      // shared resolver gives the point for the current cadence period, the
+      // same one every other page-bound builder delivers.
+      location: await resolveCurrentPageLocation(settings),
       webrtcProtection: settings.webrtcProtection,
       // Inline the resolved locale so a page's very first synchronous
       // `navigator.language` / `Intl` read is already spoofed instead of racing

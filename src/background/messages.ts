@@ -28,14 +28,15 @@ import type {
   ScopeResponse,
   SetAccuracyPayload,
   SetPrecisionPayload,
+  SetPrecisionCadencePayload,
   SetLocaleSpoofingPayload,
 } from "@/shared/types/messages";
-import type { LocationName } from "@/shared/types/settings";
+import type { LocationName, PrecisionCadence, Settings } from "@/shared/types/settings";
 import { MAX_FAVORITES } from "@/shared/types/settings";
 import { resolveAccuracy, computeEffectiveAccuracySetting } from "@/shared/accuracy/resolver";
 import { detectDeviceClass } from "@/shared/accuracy/device-class";
-import { applyPrecisionOffset, computeEffectiveLocationPrecision } from "@/shared/precision/offset";
 import { resolvePageLocale } from "@/shared/locale/resolver";
+import { isTimeCadence, validatePrecisionCadence } from "@/shared/precision/cadence";
 import { setDebugEnabled, setVerbosityLevel, createLogger } from "@/shared/utils/debug-logger";
 import {
   computeEffectiveEnabled,
@@ -43,6 +44,7 @@ import {
   parsePattern,
 } from "@/shared/utils/scope";
 import {
+  ensureValidPrecisionSeed,
   loadSettings,
   updateSettings,
   validateAccuracySetting,
@@ -66,6 +68,12 @@ import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
 import { syncDebuggerSpoofing } from "./debugger-spoof";
+import { updateBootstrapRegistration } from "./bootstrap-register";
+import {
+  adoptClockBucket,
+  reschedulePrecisionRollover,
+  resolveCurrentPageLocation,
+} from "./precision-cadence";
 
 export async function handleMessage(
   message: Message,
@@ -161,16 +169,10 @@ export async function handleMessage(
           enabled: effectiveEnabled,
           // Apply the approximate-location offset (no-op in `exact` mode, and
           // Pro-gated back to exact for a non-Pro iOS user). Uses the same
-          // shared resolver as the broadcast path, so a freshly injected content
-          // script and a live one see the identical point.
-          location: applyPrecisionOffset(
-            settings.location,
-            computeEffectiveLocationPrecision(
-              settings.locationPrecision,
-              settings.proFeaturesBlocked
-            ),
-            settings.precisionSeed
-          ),
+          // shared resolver as the broadcast path (`resolveCurrentPageLocation`),
+          // so a freshly injected content script and a live one see the
+          // identical point for the current cadence period.
+          location: await resolveCurrentPageLocation(settings),
           timezone: debuggerActive ? null : settings.timezone,
           debugLogging: settings.debugLogging,
           verbosityLevel: settings.verbosityLevel,
@@ -383,6 +385,9 @@ export async function handleMessage(
 
       case "SET_PRECISION":
         return await handleSetPrecision(message.payload as SetPrecisionPayload);
+
+      case "SET_PRECISION_CADENCE":
+        return await handleSetPrecisionCadence(message.payload as SetPrecisionCadencePayload);
 
       case "SET_LOCALE_SPOOFING":
         return await handleSetLocaleSpoofing(message.payload as SetLocaleSpoofingPayload);
@@ -765,6 +770,61 @@ export async function handleSetPrecision(
   }
 
   await broadcastSettingsToTabs(settings);
+  return { success: true };
+}
+
+/**
+ * SET_PRECISION_CADENCE handler. Repairs the cadence (anything invalid becomes
+ * "never"), persists it, then re-registers the Firefox bootstrap, broadcasts,
+ * and schedules or clears the rollover alarm. A non-Never cadence also persists
+ * a valid `precisionSeed` when none is stored, so the hour/day phase and the
+ * point don't move on every load. `locationPrecision` is never touched.
+ *
+ * A failed save returns STORAGE_ERROR with nothing changed: the held period is
+ * adopted only after the save succeeds. Switching to hour or day starts from
+ * the clock's bucket; re-selecting the current cadence keeps the held one.
+ */
+export async function handleSetPrecisionCadence(
+  payload: SetPrecisionCadencePayload
+): Promise<{ success: true } | { error: string }> {
+  // Repair, never reject.
+  const precisionCadence = validatePrecisionCadence(payload?.cadence);
+
+  let previous: PrecisionCadence;
+  let settings: Settings;
+  try {
+    const current = await loadSettings();
+    previous = current.precisionCadence;
+    const updates: Partial<Settings> = { precisionCadence };
+    if (precisionCadence !== "never") {
+      updates.precisionSeed = ensureValidPrecisionSeed(current.precisionSeed);
+    }
+    settings = await updateSettings(updates);
+  } catch {
+    // The held period is untouched, so open tabs and new requests still agree.
+    return { error: "STORAGE_ERROR" };
+  }
+
+  // Only after a successful save. adoptClockBucket sets the held bucket
+  // synchronously, so nothing awaits between the save and the pushes below.
+  const adopted =
+    isTimeCadence(precisionCadence) && precisionCadence !== previous
+      ? adoptClockBucket(precisionCadence, settings.precisionSeed)
+      : undefined;
+
+  try {
+    // saveSettings' fire-and-forget registration may have resolved the old
+    // period; this one queues after it, so the bootstrap ends on the new one.
+    await Promise.all([
+      adopted,
+      updateBootstrapRegistration(settings),
+      broadcastSettingsToTabs(settings),
+    ]);
+  } finally {
+    // The save succeeded, so the alarm must follow the persisted cadence even
+    // if the broadcast rejected. Never rejects, so it can't mask that error.
+    await reschedulePrecisionRollover(loadSettings);
+  }
   return { success: true };
 }
 

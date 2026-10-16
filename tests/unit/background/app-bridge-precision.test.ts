@@ -21,9 +21,11 @@
  * Validates: Requirements 7.1–7.5, 9.1.
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { validateLocationPrecision } from "@/background/settings";
 import type { LocationPrecision } from "@/shared/types/settings";
+import { storageData } from "../../setup";
+import { makeCadenceSettings } from "../../helpers/cadence";
 
 /** Mirror of the bridge's parse step: JSON.parse in try/catch, undefined on error. */
 function parsePrecisionJSON(json: string): unknown {
@@ -104,5 +106,64 @@ describe("Safari locationPrecision bridge contract", () => {
         validateLocationPrecision(JSON.parse('{"mode":"approximate","radiusMeters":null}'))
       ).toEqual({ mode: "exact" });
     });
+  });
+});
+
+/**
+ * precisionCadence is extension-owned and deliberately NOT bridged: the app
+ * rewrites `locationPrecision` from an enum holding only mode/radius, so the
+ * cadence has to live outside it and survive the app's partial adoption.
+ */
+describe("precisionCadence stays off the bridge (AC2, AC3)", () => {
+  test("REGION_UPDATE carries exactly its existing keys", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync("src/background/settings.ts", "utf8");
+    const start = src.indexOf('type: "REGION_UPDATE"');
+    expect(start, "REGION_UPDATE message not found").toBeGreaterThan(-1);
+    const body = src.slice(src.lastIndexOf("\n", start) + 1, src.indexOf("});", start));
+    const keys = [...body.matchAll(/^\s{6}(\w+)[:,]/gm)].map((m) => m[1]);
+
+    expect(keys).toEqual([
+      "type",
+      "enabled",
+      "locationName",
+      "location",
+      "timezone",
+      "webrtcProtection",
+      "preserveGeolocationPrompt",
+      "vpnSyncEnabled",
+      "ip",
+      "favorites",
+      "scopeMode",
+      "allowlist",
+      "denylist",
+      "accuracySetting",
+      "locationPrecision",
+      "localeSpoofing",
+    ]);
+    expect(body).not.toContain("precisionCadence");
+  });
+
+  test("the bridge's locationPrecision adoption keeps a stored cadence", async () => {
+    storageData.settings = makeCadenceSettings({
+      precisionCadence: "hour",
+      locationPrecision: { mode: "exact" },
+    });
+    vi.resetModules();
+    const bg = await import("@/background");
+    const { validateLocationPrecision: validate } = await import("@/background/settings");
+
+    // adoptPendingSettingsFromApp's step-7 write, verbatim in shape.
+    const validatedPrecision = validate(JSON.parse('{"mode":"approximate","radiusMeters":2000}'));
+    await bg.updateSettings({ locationPrecision: validatedPrecision });
+
+    const loaded = await bg.loadSettings();
+    expect(loaded.precisionCadence).toBe("hour");
+    expect(loaded.locationPrecision).toEqual({ mode: "approximate", radiusMeters: 2000 });
+
+    const fs = await import("node:fs");
+    const bridge = fs.readFileSync("src/background/app-bridge.ts", "utf8");
+    expect(bridge).not.toContain("precisionCadence");
+    expect(bridge).toContain("updateSettings({ locationPrecision: validatedPrecision })");
   });
 });

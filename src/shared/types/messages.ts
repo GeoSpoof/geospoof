@@ -3,6 +3,7 @@ import type {
   Location,
   LocaleSpoofing,
   LocationPrecision,
+  PrecisionCadence,
   Timezone,
   Settings,
   ScopeMode,
@@ -40,6 +41,7 @@ export type MessageType =
   | "REMOVE_SCOPE_SITE"
   | "SET_ACCURACY"
   | "SET_PRECISION"
+  | "SET_PRECISION_CADENCE"
   | "SET_LOCALE_SPOOFING";
 
 /**
@@ -289,6 +291,11 @@ export interface SetAccuracyPayload {
 
 export interface SetPrecisionPayload {
   precision: LocationPrecision;
+}
+
+/** How often approximate mode draws a new point. Invalid values are stored as "never". */
+export interface SetPrecisionCadencePayload {
+  cadence: PrecisionCadence;
 }
 
 // --- Reported-Language payload types ---

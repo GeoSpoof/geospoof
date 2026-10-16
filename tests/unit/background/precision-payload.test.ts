@@ -9,8 +9,18 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import type { Settings } from "@/shared/types/settings";
+import type { Location, Settings } from "@/shared/types/settings";
 import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
+import { clockBucket, resolvePageLocation } from "@/shared/precision/cadence";
+import {
+  deferred,
+  flush,
+  installUserScriptsMock,
+  lastRegisteredPayload,
+  mocks,
+  seedHeldBucket,
+  sessionCallCount,
+} from "../../helpers/cadence";
 
 const ANCHOR = { latitude: 37.7749, longitude: -122.4194, accuracy: 42 } as const;
 const RADIUS = 5000;
@@ -43,6 +53,7 @@ function makeSettings(overrides?: Partial<Settings>): Settings {
     accuracySeed: 777,
     locationPrecision: { mode: "exact" },
     precisionSeed: SEED,
+    precisionCadence: "never" as const,
     localeSpoofing: { mode: "off" as const },
     ...overrides,
   };
@@ -220,26 +231,172 @@ describe("every page-bound builder offsets the location (Req 5.2)", () => {
     expect(broadcast.location).toEqual({ ...ANCHOR });
   });
 
-  test("src/background/index.ts imports and uses the offset at every payload site", async () => {
-    // A structural guard, because the behavioural test above can only reach the
-    // paths a unit test can drive. The alarm path needs a live alarm plus a
-    // resolvable tab, so this catches a regression there (and at any future
-    // builder added to this file) that runtime coverage would miss.
+  test("src/background/index.ts routes every payload site through the cadence resolver", async () => {
+    // A structural guard, because the behavioural tests can only reach the
+    // paths a unit test can drive. This catches a regression at any future
+    // builder added to this file that runtime coverage would miss.
     const fs = await import("node:fs");
     const src = fs.readFileSync("src/background/index.ts", "utf8");
 
-    expect(src).toContain("applyPrecisionOffset");
-
-    // Count payload literals against offset calls: every `UpdateSettingsPayload`
-    // built in this file must offset its location.
+    // Count payload literals against resolver calls: every `UpdateSettingsPayload`
+    // built in this file must resolve its location through the shared resolver.
     const payloadSites = (src.match(/: UpdateSettingsPayload = \{/g) ?? []).length;
-    const offsetCalls = (src.match(/location: applyPrecisionOffset\(/g) ?? []).length;
+    const resolverCalls = (
+      src.match(/location: await resolveCurrentPageLocation\(settings\)/g) ?? []
+    ).length;
     expect(payloadSites).toBeGreaterThan(0);
-    expect(offsetCalls, "a payload in index.ts is delivering an un-offset location").toBe(
-      payloadSites
-    );
+    expect(resolverCalls, "a payload in index.ts bypasses the cadence resolver").toBe(payloadSites);
+
+    // No inline offset that could skip the cadence period.
+    expect(src).not.toContain("applyPrecisionOffset");
 
     // And none may pass the bare destructured `location` through.
     expect(src).not.toMatch(/\n\s+enabled,\n\s+location,\n/);
+  });
+
+  test("applyPrecisionOffset( is called only inside shared/precision", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const files = fs
+      .readdirSync("src", { recursive: true, encoding: "utf8" })
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => path.join("src", f).split(path.sep).join("/"));
+
+    const callers = files.filter((f) =>
+      fs.readFileSync(f, "utf8").includes("applyPrecisionOffset(")
+    );
+    expect(callers.sort()).toEqual([
+      "src/shared/precision/cadence.ts",
+      "src/shared/precision/offset.ts",
+    ]);
+  });
+});
+
+describe("location-precision cadence through the page-bound builders", () => {
+  test("all five builders emit the held hour bucket's point (AC20)", async () => {
+    const s = makeSettings({
+      locationPrecision: { mode: "approximate", radiusMeters: 2000 },
+      precisionCadence: "hour",
+    });
+    // Held three buckets behind the clock, so a builder that recomputed from
+    // the clock instead of using the held period would be caught.
+    const K = clockBucket("hour", SEED, Date.now()) - 3;
+    seedHeldBucket("hour", SEED, K);
+    const userScripts = installUserScriptsMock();
+
+    try {
+      // Spawn check: a healthy alarm, so nothing advances or reschedules.
+      mocks
+        .alarmsGet()
+        .mockResolvedValue({ name: "precision-rollover", scheduledTime: Date.now() + 600_000 });
+      const bg = await importBackgroundWith(s);
+      const { updateBootstrapRegistration } = await import("@/background/bootstrap-register");
+      const locations: Array<UpdateSettingsPayload["location"]> = [];
+
+      // 1. sendSettingsToTab, via the broadcast.
+      locations.push((await broadcastAndCapture(bg, s)).location);
+
+      // 2. Content-script GET_SETTINGS.
+      const reply = (await bg.handleMessage(
+        { type: "GET_SETTINGS" },
+        { tab: { id: 2, url: "https://example.com/page" } as browser.tabs.Tab }
+      )) as UpdateSettingsPayload;
+      locations.push(reply.location);
+
+      // 3. tabs.onCreated, sent after its 100ms delay.
+      const sent: Array<{ tabId: number; payload: UpdateSettingsPayload }> = [];
+      browser.tabs.sendMessage = vi
+        .fn()
+        .mockImplementation((tabId: number, message: Message<UpdateSettingsPayload>) => {
+          if (message.type === "UPDATE_SETTINGS" && message.payload) {
+            sent.push({ tabId, payload: message.payload });
+          }
+          return Promise.resolve();
+        });
+      const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
+        ((tab: { id?: number; url?: string }) => void) | undefined;
+      expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+      vi.useFakeTimers();
+      try {
+        onCreated!({ id: 42, url: "https://example.com/new" });
+        await vi.waitFor(() => expect(sent.some((m) => m.tabId === 42)).toBe(true), {
+          timeout: 2000,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      locations.push(sent.find((m) => m.tabId === 42)!.payload.location);
+
+      // 4. The injection-check alarm builder (PING resolves → injected).
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 7, url: "https://example.com/late" });
+      await bg.onAlarm({ name: "injection-check:7:0", scheduledTime: Date.now() });
+      const late = sent.find((m) => m.tabId === 7);
+      expect(late, "the injection-check alarm sent no UPDATE_SETTINGS").toBeDefined();
+      locations.push(late!.payload.location);
+
+      // 5. The Firefox bootstrap's inlined payload.
+      await updateBootstrapRegistration(s);
+      locations.push(lastRegisteredPayload(userScripts.register).location as Location);
+
+      const expected = resolvePageLocation(s, { cadence: "hour", index: K });
+      const today = resolvePageLocation(s, null);
+      expect(locations).toHaveLength(5);
+      for (const loc of locations) {
+        expect(loc).toEqual(expected);
+        expect(loc).not.toEqual(today);
+      }
+    } finally {
+      userScripts.restore();
+      mocks.alarmsGet().mockResolvedValue(undefined);
+    }
+  });
+
+  test("concurrent bootstrap registrations run one after another (AC22)", async () => {
+    vi.resetModules();
+    const userScripts = installUserScriptsMock();
+    try {
+      const gate = deferred<void>();
+      userScripts.unregister.mockImplementationOnce(() => {
+        userScripts.log.push("unregister");
+        return gate.promise;
+      });
+      const { updateBootstrapRegistration } = await import("@/background/bootstrap-register");
+      const a = makeSettings({ locationPrecision: { mode: "approximate", radiusMeters: 2000 } });
+      const b = makeSettings({
+        location: { latitude: 48.8566, longitude: 2.3522, accuracy: 30 },
+        locationPrecision: { mode: "approximate", radiusMeters: 2000 },
+      });
+
+      const pa = updateBootstrapRegistration(a);
+      const pb = updateBootstrapRegistration(b);
+      await flush();
+      expect(userScripts.log, "the second call waits for the first").toEqual(["unregister"]);
+
+      gate.resolve();
+      await Promise.all([pa, pb]);
+
+      expect(userScripts.log).toEqual(["unregister", "register", "unregister", "register"]);
+      expect(lastRegisteredPayload(userScripts.register).location).toEqual(
+        resolvePageLocation(b, null)
+      );
+    } finally {
+      userScripts.restore();
+    }
+  });
+
+  test("under never, the broadcast does no storage.session I/O (AC6)", async () => {
+    const s = makeSettings({
+      locationPrecision: { mode: "approximate", radiusMeters: 2000 },
+      precisionCadence: "never",
+    });
+    const bg = await importBackgroundWith(s);
+    await flush();
+    mocks.sessionGet().mockClear();
+    mocks.sessionSet().mockClear();
+
+    const payload = await broadcastAndCapture(bg, s);
+
+    expect(payload.location).toEqual(resolvePageLocation(s, null));
+    expect(sessionCallCount()).toBe(0);
   });
 });
