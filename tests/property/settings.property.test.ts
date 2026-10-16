@@ -79,6 +79,7 @@ const settingsArb: fc.Arbitrary<Settings> = fc.record({
   // covered by precision-offset.property.test.ts and precision-payload.test.ts.
   locationPrecision: fc.constant({ mode: "exact" as const }),
   precisionSeed: fc.integer({ min: 0, max: 2 ** 31 }),
+  precisionCadence: fc.constant("never" as const),
   // Pinned to `off` for the same reason as `locationPrecision` above: this suite
   // asserts the broadcast payload passes non-scope fields through unchanged, and
   // an active locale would add a derived field unrelated to those assertions.

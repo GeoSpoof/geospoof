@@ -19,6 +19,7 @@ import {
 } from "@/shared/types/settings";
 import { isSupportedLocale } from "@/shared/i18n/locales";
 import { validateLocaleSpoofing } from "@/shared/locale/resolver";
+import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import { createLogger } from "@/shared/utils/debug-logger";
 import { parsePattern } from "@/shared/utils/scope";
 import { getLastSyncedIp } from "./vpn-sync";
@@ -191,6 +192,17 @@ function isValidPrecisionSeed(value: unknown): value is number {
 /** Generate a fresh per-install precision seed in [0, 2^31). */
 function generatePrecisionSeed(): number {
   return Math.floor(Math.random() * 2 ** 31);
+}
+
+/**
+ * Return `v` when it is a usable precision seed, otherwise a fresh one. Used by
+ * `SET_PRECISION_CADENCE` so a non-Never cadence always persists a real seed:
+ * `loadSettings()` returns the unvalidated defaults (seed `0`) when nothing is
+ * stored, and an unpersisted seed would be re-minted on every load, moving the
+ * hour/day phase and the point each time. A valid seed is returned unchanged.
+ */
+export function ensureValidPrecisionSeed(v: unknown): number {
+  return isValidPrecisionSeed(v) ? v : generatePrecisionSeed();
 }
 
 /**
@@ -423,6 +435,10 @@ export function validateSettings(settings: Partial<Settings>): Settings {
   validated.precisionSeed = isValidPrecisionSeed(settings.precisionSeed)
     ? settings.precisionSeed
     : generatePrecisionSeed();
+
+  // precisionCadence: repair an absent/unknown value (including the deferred
+  // "page") to "never", which is the pre-cadence behavior.
+  validated.precisionCadence = validatePrecisionCadence(settings.precisionCadence);
 
   // localeSpoofing (locale-spoofing Req 11.1–11.3): repair an absent/unknown/
   // malformed value to `off`. A `custom` tag is canonicalized and checked

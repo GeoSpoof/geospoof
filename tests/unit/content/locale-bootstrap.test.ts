@@ -113,6 +113,7 @@ describe("the background inlines the resolved locale into the bootstrap payload"
     accuracySeed: 777,
     locationPrecision: { mode: "exact" as const },
     precisionSeed: 123456789,
+    precisionCadence: "never" as const,
   };
 
   test("a custom locale is inlined so it applies before the page's first script", async () => {

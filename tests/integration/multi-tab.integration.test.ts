@@ -116,6 +116,7 @@ describe("Multi-Tab Integration Tests", () => {
         accuracySeed: 0,
         locationPrecision: { mode: "exact" as const },
         precisionSeed: 0,
+        precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
       };
 
@@ -286,6 +287,7 @@ describe("Multi-Tab Integration Tests", () => {
         // Valid (finite, non-zero) precision seed so validateSettings preserves
         // it and the reloaded payload round-trips unchanged (mirrors accuracySeed).
         precisionSeed: 123456789,
+        precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
       };
 
@@ -355,6 +357,7 @@ describe("Multi-Tab Integration Tests", () => {
         // Valid (finite, non-zero) precision seed so every loadSettings() keeps
         // the same value and the reloaded payloads stay identical.
         precisionSeed: 987654321,
+        precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
       };
 
@@ -427,6 +430,7 @@ describe("Multi-Tab Integration Tests", () => {
         accuracySeed: 0,
         locationPrecision: { mode: "exact" as const },
         precisionSeed: 0,
+        precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
       };
 

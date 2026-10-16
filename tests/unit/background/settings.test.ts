@@ -505,3 +505,52 @@ describe("Advanced Filtering migration (1.1 -> 1.2)", () => {
     ]);
   });
 });
+
+describe("precisionCadence validation (AC1)", () => {
+  // Valid seeds so validateSettings mints nothing random and two runs compare equal.
+  const base = {
+    enabled: true,
+    version: "1.2",
+    accuracySeed: 777,
+    precisionSeed: 123456789,
+    locationPrecision: { mode: "approximate" as const, radiusMeters: 2000 },
+  };
+
+  test("absent cadence defaults to never", async () => {
+    const { validateSettings } = await importBackground();
+    expect(validateSettings({}).precisionCadence).toBe("never");
+  });
+
+  test.each([undefined, null, 1, {}, "page", "weekly"])(
+    "repairs %j to never without touching any other field",
+    async (junk) => {
+      const { validateSettings } = await importBackground();
+      const repaired = validateSettings({ ...base, precisionCadence: junk as never });
+      expect(repaired.precisionCadence).toBe("never");
+      expect(repaired).toEqual(validateSettings({ ...base }));
+    }
+  );
+
+  test.each(["never", "session", "hour", "day"] as const)("%s round-trips", async (c) => {
+    const { validateSettings } = await importBackground();
+    expect(validateSettings({ ...base, precisionCadence: c }).precisionCadence).toBe(c);
+  });
+});
+
+describe("ensureValidPrecisionSeed", () => {
+  test("returns a valid seed unchanged", async () => {
+    vi.resetModules();
+    const { ensureValidPrecisionSeed } = await import("@/background/settings");
+    expect(ensureValidPrecisionSeed(555)).toBe(555);
+  });
+
+  test.each([0, NaN, undefined, "x"])("mints a finite non-zero seed for %j", async (bad) => {
+    vi.resetModules();
+    const { ensureValidPrecisionSeed } = await import("@/background/settings");
+    const seed = ensureValidPrecisionSeed(bad);
+    expect(Number.isFinite(seed)).toBe(true);
+    // Math.random could in principle produce 0; the generator's range makes that
+    // a 1-in-2^31 event, which the validator would then re-mint on load.
+    expect(seed).not.toBe(0);
+  });
+});
