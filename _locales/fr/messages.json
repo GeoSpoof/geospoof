@@ -659,6 +659,30 @@
     "message": "🔒 La localisation approximative est une fonctionnalité GeoSpoof Pro. Passez à Pro dans l’app GeoSpoof pour flouter votre position exacte.",
     "description": "Shown for non-Pro iOS users when the precision control is disabled, explaining that approximate location is a Pro feature."
   },
+  "advanced_precisionCadence": {
+    "message": "Choisir un nouveau point",
+    "description": "Label for the dropdown setting how often Approximate location picks a new random point in the same radius."
+  },
+  "advanced_precisionCadence_never": {
+    "message": "Jamais",
+    "description": "Default. Keep the same point until the location or precision changes."
+  },
+  "advanced_precisionCadence_session": {
+    "message": "Chaque session du navigateur",
+    "description": "A new point each time the browser starts."
+  },
+  "advanced_precisionCadence_hour": {
+    "message": "Toutes les heures",
+    "description": "A new point about once an hour. Open pages move too."
+  },
+  "advanced_precisionCadence_day": {
+    "message": "Tous les jours",
+    "description": "A new point about once a day. Open pages move too."
+  },
+  "advanced_precisionCadence_hint": {
+    "message": "Plus un nouveau point est choisi souvent, plus les sites ont d’échantillons à moyenner pour se rapprocher de votre position. « Toutes les heures » et « Tous les jours » peuvent aussi déplacer le point pendant qu’une page est ouverte.",
+    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
+  },
   "advanced_coffee": {
     "message": "☕ Offrez-moi un café",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

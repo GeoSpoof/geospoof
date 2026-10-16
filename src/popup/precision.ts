@@ -13,11 +13,23 @@
  * are independent. Selecting an option persists it via `SET_PRECISION`; the
  * background applies the offset to every page-bound payload.
  *
+ * Under it sits the "Pick a new point" cadence control (Never / Each browser
+ * session / Every hour / Every day), persisted via `SET_PRECISION_CADENCE`. It's
+ * shown only for an approximate option, and hidden and disabled behind the Pro
+ * lock; hiding it never changes the stored cadence. Its trade-off hint (and the
+ * select's `aria-describedby` pointing at it) is shown only when the cadence
+ * isn't Never, and both update synchronously on a change of either select.
+ *
  * The pure mapping helpers are exported so they can be unit-tested without a DOM.
  */
 
-import type { LocationPrecision } from "@/shared/types/settings";
-import type { Message, SetPrecisionPayload } from "@/shared/types/messages";
+import type { LocationPrecision, PrecisionCadence } from "@/shared/types/settings";
+import type {
+  Message,
+  SetPrecisionCadencePayload,
+  SetPrecisionPayload,
+} from "@/shared/types/messages";
+import { validatePrecisionCadence } from "@/shared/precision/cadence";
 
 /** The dropdown options, matching the `value` attributes in popup.html. */
 export type PrecisionOption = "exact" | "street" | "neighborhood" | "city";
@@ -100,6 +112,9 @@ async function sendPrecision(precision: LocationPrecision): Promise<void> {
 function handleSelectChange(): void {
   const select = getSelect();
   if (!select) return;
+  // Show or hide the cadence row before the round-trip, so it tracks the
+  // precision select synchronously.
+  syncPrecisionCadenceUi();
   void sendPrecision(optionToLocationPrecision(select.value as PrecisionOption));
 }
 
@@ -138,4 +153,97 @@ export function restorePrecisionControl(
   }
 
   select.value = locationPrecisionToOption(setting);
+}
+
+// ── Cadence ("Pick a new point") ─────────────────────────────────────────────
+
+/** Pro lock for the cadence row, set on restore. */
+let cadenceProLocked = false;
+
+/**
+ * Pure visibility rule for the cadence row and its hint: the row shows only
+ * for an approximate option outside the Pro lock, and the hint only when the
+ * cadence isn't Never.
+ */
+export function cadenceUiState(
+  option: PrecisionOption,
+  cadence: PrecisionCadence,
+  proLocked: boolean
+): { rowVisible: boolean; hintVisible: boolean } {
+  const rowVisible = !proLocked && option !== "exact";
+  return { rowVisible, hintVisible: rowVisible && cadence !== "never" };
+}
+
+function getCadenceSelect(): HTMLSelectElement | null {
+  return document.getElementById("precisionCadenceSelect") as HTMLSelectElement | null;
+}
+
+/**
+ * Apply {@link cadenceUiState} to the DOM from the current value of both
+ * selects. `aria-describedby` points at the hint only while it's visible.
+ */
+export function syncPrecisionCadenceUi(): void {
+  const precision = getSelect();
+  const select = getCadenceSelect();
+  const row = document.getElementById("precisionCadenceRow");
+  const hint = document.getElementById("precisionCadenceHint");
+  if (!precision || !select || !row || !hint) return;
+
+  const { rowVisible, hintVisible } = cadenceUiState(
+    precision.value as PrecisionOption,
+    validatePrecisionCadence(select.value),
+    cadenceProLocked
+  );
+  row.style.display = rowVisible ? "block" : "none";
+  hint.style.display = hintVisible ? "block" : "none";
+  select.disabled = cadenceProLocked;
+  if (hintVisible) {
+    select.setAttribute("aria-describedby", "precisionCadenceHint");
+  } else {
+    select.removeAttribute("aria-describedby");
+  }
+}
+
+/** Persist a cadence via the background. */
+async function sendPrecisionCadence(cadence: PrecisionCadence): Promise<void> {
+  const message: Message<SetPrecisionCadencePayload> = {
+    type: "SET_PRECISION_CADENCE",
+    payload: { cadence },
+  };
+  try {
+    await browser.runtime.sendMessage(message);
+  } catch (error: unknown) {
+    console.error("Failed to set location precision cadence:", error);
+  }
+}
+
+function handleCadenceChange(): void {
+  const select = getCadenceSelect();
+  if (!select) return;
+  syncPrecisionCadenceUi();
+  void sendPrecisionCadence(validatePrecisionCadence(select.value));
+}
+
+/**
+ * Wire the cadence control's change listener. Idempotent, like
+ * {@link initPrecisionControl}.
+ */
+export function initPrecisionCadenceControl(): void {
+  const select = getCadenceSelect();
+  if (!select || select.dataset.wired === "1") return;
+  select.dataset.wired = "1";
+  select.addEventListener("change", handleCadenceChange);
+}
+
+/**
+ * Restore the cadence control from the stored value. Call after
+ * {@link restorePrecisionControl}, since the row's visibility depends on the
+ * precision select. Only sets value/visibility/lock state, never persists.
+ */
+export function restorePrecisionCadenceControl(cadence: unknown, proLocked = false): void {
+  const select = getCadenceSelect();
+  if (!select) return;
+  cadenceProLocked = proLocked;
+  select.value = validatePrecisionCadence(cadence);
+  syncPrecisionCadenceUi();
 }

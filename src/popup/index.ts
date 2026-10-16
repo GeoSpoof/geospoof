@@ -14,7 +14,7 @@ import { wireDebuggerModeToggle } from "./debugger-mode";
 import { applyI18n, t, initI18n, resetI18nOverride, browserUiLanguage } from "./i18n";
 import { localizeWebsiteLinks } from "./website-links";
 import { initAccuracyControl } from "./accuracy";
-import { initPrecisionControl } from "./precision";
+import { initPrecisionCadenceControl, initPrecisionControl } from "./precision";
 import { initLocaleControl } from "./locale";
 import { wireCoordinatePaste } from "./coord-paste";
 import { SUPPORTED_UI_LOCALES, resolveUiLocale } from "@/shared/i18n/locales";
@@ -665,6 +665,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Wire the location-precision control (Advanced accordion). State is restored
   // later in loadSettings() from the stored locationPrecision.
   initPrecisionControl();
+  // And the "Pick a new point" cadence control under it (restored from the
+  // stored precisionCadence).
+  initPrecisionCadenceControl();
 
   // Wire the Reported Language control (Advanced accordion) and populate its
   // typeahead suggestions. State is restored later in loadSettings() from the

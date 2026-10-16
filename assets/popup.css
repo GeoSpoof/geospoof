@@ -1601,6 +1601,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   color: var(--disclaimer-text);
 }
 
+/* "Pick a new point" cadence row, nested in .precision-selector so it inherits
+   the stacked label/select layout. */
+.precision-cadence-row {
+  margin-top: 10px;
+}
+
 /* Reported Language selector. Stacks for the same reason as .precision-selector:
    the option text ("Match my location", "Choose language…", and longer in other
    locales) is too wide to sit beside the label at 350px, so the label goes on
