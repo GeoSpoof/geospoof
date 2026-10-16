@@ -36,6 +36,37 @@ Prevents websites from detecting your real IP address through WebRTC, even when 
 
 Automatically adjusts your browser's timezone to match your spoofed location for consistency.
 
+### Location Precision
+
+In **Settings (the ⚙ gear in the popup header) → Location Precision**, choose how closely the reported point sits on your chosen location. **Exact** (the default) reports the location itself. **Street (~0.5 km)**, **Neighborhood (~2 km)**, and **City (~10 km)** report a random point inside that radius instead. The location you chose is never changed; only what sites see moves.
+
+**Pick a new point** appears under it when one of the approximate options is selected. It sets how often a new random point is drawn in the same radius:
+
+- **Never** (default): the same point until you change the location or the precision.
+- **Each browser session**: a new point each time a session starts.
+- **Every hour**: a new point about once an hour.
+- **Every day**: a new point about once a day.
+
+**What a session is.** On Chrome, Edge, Brave, and Firefox, a session lasts until the browser restarts. Updating or reloading GeoSpoof, or disabling and re-enabling it in the browser's extension settings, also starts a new one. On Safari, a session is expected to last until Safari quits (on iPhone and iPad, until iOS closes Safari). This hasn't been verified yet.
+
+**Every hour and Every day.** The new point arrives about once an hour or once a day, at a time specific to your install rather than on the hour. It can arrive late after your computer sleeps, but never early. No points are drawn while the browser is closed; when it starts, the current hour or day applies. The point can change while a page is open, and every frame in a tab moves together.
+
+**The trade-off.** A site that collects several points around the same center can average them, and the error shrinks roughly as radius ÷ √n for n points. For example, 24 hourly points at 2 km narrow down to about 400 m. A point that never changes is one stable value a site can recognize across visits; picking new points avoids that, at the cost of giving sites more samples to average.
+
+**Timezone.** The timezone follows the location you chose, not the drawn point. Near a timezone border, the reported point can sit on the other side of the line.
+
+**Safari.** Approximate location is part of GeoSpoof Pro on iPhone and iPad. Without Pro, sites get your exact location whatever **Pick a new point** is set to. The GeoSpoof app doesn't show this setting yet, and changing the precision in the app keeps it.
+
+**Known limits.**
+
+- A new point can arrive late (sleep, browser alarm scheduling), never early.
+- A frame that loads at the exact moment a new point is picked can keep the previous point until the next settings change or a reload.
+- On Firefox with Instant timezone protection, a page that starts loading at that moment can briefly see the previous point before the current one arrives.
+- Tabs left open across a GeoSpoof update or reload keep their old point until you reload them.
+- Picking new points more often gives sites more samples to average (see above). It reduces one tracking signal, not all of them.
+
+**Planned.** An **Every page load** option is planned for a later release.
+
 ### Site Filters
 
 Control which sites GeoSpoof spoofs on. In the **Filters** tab, choose **All** (every site), **Allowlist** (only listed sites), or **Denylist** (every site except listed ones), then add patterns like `example.com`, `*.ru`, `localhost:3000`, or `site.com/app/*`. See the full pattern language — wildcards, ports, paths, and the rules to watch for — in the [Site Filters reference](SITE_FILTERS.md).
