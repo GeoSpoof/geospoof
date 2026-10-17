@@ -133,4 +133,54 @@ describe("initialize() one-time migration persistence", () => {
 
     errorSpy.mockRestore();
   });
+
+  /**
+   * Adding precisionCadence needs no migration: a stored 1.2 object without the
+   * field loads as "never" and initialize() writes nothing (AC4).
+   */
+  test("a stored 1.2 object without precisionCadence triggers no write and loads as never", async () => {
+    storageData.settings = {
+      enabled: true,
+      location: null,
+      timezone: null,
+      locationName: null,
+      webrtcProtection: false,
+      preserveGeolocationPrompt: false,
+      onboardingCompleted: true,
+      version: "1.2",
+      lastUpdated: 123,
+      vpnSyncEnabled: false,
+      debuggerModeEnabled: false,
+      autoSyncBlocked: false,
+      proFeaturesBlocked: false,
+      debugLogging: false,
+      verbosityLevel: "ERROR",
+      theme: "system",
+      uiLanguage: "",
+      favorites: [],
+      scopeMode: "all",
+      allowlist: [],
+      denylist: [],
+      accuracySetting: { mode: "auto" },
+      accuracySeed: 777,
+      locationPrecision: { mode: "approximate", radiusMeters: 2000 },
+      precisionSeed: 123456789,
+      localeSpoofing: { mode: "off" },
+    };
+
+    const setSpy = vi.mocked(
+      (browser.storage.local as unknown as Record<string, unknown>)[
+        "set"
+      ] as typeof browser.storage.local.set
+    );
+    setSpy.mockClear();
+
+    const { initialize, loadSettings } = await importBackground();
+    await initialize();
+
+    expect(setSpy).not.toHaveBeenCalled();
+    const loaded = await loadSettings();
+    expect(loaded.precisionCadence).toBe("never");
+    expect(loaded.version).toBe("1.2");
+  });
 });

@@ -63,6 +63,7 @@ const settingsArb: fc.Arbitrary<Settings> = fc.record({
   accuracySeed: fc.constant(0),
   locationPrecision: fc.constant({ mode: "exact" as const }),
   precisionSeed: fc.constant(0),
+  precisionCadence: fc.constant("never" as const),
   // Pinned like `locationPrecision`; locale behavior has its own suite in
   // locale-resolver.property.test.ts.
   localeSpoofing: fc.constant({ mode: "off" as const }),

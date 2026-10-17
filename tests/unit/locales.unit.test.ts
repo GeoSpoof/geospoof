@@ -156,3 +156,26 @@ describe("Advanced Filtering syntax keys are present in every locale", () => {
     });
   });
 });
+
+describe("Location precision cadence keys are present in every locale", () => {
+  const REQUIRED_KEYS = [
+    "advanced_precisionCadence",
+    "advanced_precisionCadence_never",
+    "advanced_precisionCadence_session",
+    "advanced_precisionCadence_hour",
+    "advanced_precisionCadence_day",
+    "advanced_precisionCadence_hint",
+  ];
+
+  test("all 12 locales are covered", () => {
+    expect(listLocales()).toHaveLength(12);
+  });
+
+  describe.each(listLocales())("%s", (locale) => {
+    const file = loadLocale(locale);
+    test.each(REQUIRED_KEYS)("has a non-empty %s", (key) => {
+      expect(typeof file[key]?.message).toBe("string");
+      expect(file[key].message.trim().length).toBeGreaterThan(0);
+    });
+  });
+});

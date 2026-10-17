@@ -108,6 +108,19 @@ export type LocationPrecision = { mode: "exact" } | { mode: "approximate"; radiu
 export const DEFAULT_LOCATION_PRECISION: LocationPrecision = { mode: "exact" };
 
 /**
+ * How often approximate mode draws a new point in the same radius.
+ *
+ *   - `never`   → one stable point per Anchor/radius (default; pre-feature behavior).
+ *   - `session` → a new point per browser session (`storage.session` lifetime).
+ *   - `hour`    → a new point about once an hour, at an install-specific minute.
+ *   - `day`     → a new point about once a day, at an install-specific time.
+ *
+ * A separate top-level field rather than part of {@link LocationPrecision}, so
+ * the bridged `locationPrecision` JSON stays byte-identical.
+ */
+export type PrecisionCadence = "never" | "session" | "hour" | "day";
+
+/**
  * Inclusive bounds (in meters) an `approximate` radius is clamped to.
  *
  * The surfaced presets stay at or below ~10km so the offset point remains in
@@ -285,6 +298,11 @@ export interface Settings {
    */
   precisionSeed: number;
   /**
+   * How often approximate mode draws a new point in the same radius. Bridged to
+   * the Safari app as a plain top-level string; period state isn't.
+   */
+  precisionCadence: PrecisionCadence;
+  /**
    * How the language/locale reported to websites is derived: off, matched to the
    * spoofed location, or an explicit BCP47 tag. Defaults to `off`.
    *
@@ -329,5 +347,6 @@ export const DEFAULT_SETTINGS: Settings = {
   accuracySeed: 0,
   locationPrecision: { mode: "exact" },
   precisionSeed: 0,
+  precisionCadence: "never",
   localeSpoofing: { mode: "off" },
 };

@@ -24,6 +24,26 @@ export async function sessionGet<T>(key: string): Promise<T | undefined> {
   }
 }
 
+/** Result of {@link sessionRead}: a failed read is distinguishable from a missing key. */
+export type SessionReadResult<T> = { ok: true; value: T | undefined } | { ok: false };
+
+/**
+ * Read a single cached value, reporting whether the read itself succeeded.
+ * Unlike {@link sessionGet}, a rejected read (or a missing `storage.session`)
+ * returns `{ ok: false }` instead of looking like an absent key, so callers can
+ * avoid minting-and-writing over a value they merely failed to read. Doesn't
+ * log; callers decide.
+ */
+export async function sessionRead<T>(key: string): Promise<SessionReadResult<T>> {
+  try {
+    const storageKey = PREFIX + key;
+    const result = await browser.storage.session.get(storageKey);
+    return { ok: true, value: result[storageKey] as T | undefined };
+  } catch {
+    return { ok: false };
+  }
+}
+
 /**
  * Write a single cached value.
  * Logs a warning on failure but never throws.

@@ -659,6 +659,30 @@
     "message": "🔒 Vị trí gần đúng là tính năng của GeoSpoof Pro. Hãy nâng cấp trong ứng dụng GeoSpoof để làm mờ vị trí chính xác của bạn.",
     "description": "Shown for non-Pro iOS users when the precision control is disabled, explaining that approximate location is a Pro feature."
   },
+  "advanced_precisionCadence": {
+    "message": "Chọn điểm mới",
+    "description": "Label for the dropdown setting how often Approximate location picks a new random point in the same radius."
+  },
+  "advanced_precisionCadence_never": {
+    "message": "Không bao giờ",
+    "description": "Default. Keep the same point until the location or precision changes."
+  },
+  "advanced_precisionCadence_session": {
+    "message": "Mỗi phiên trình duyệt",
+    "description": "A new point each time the browser starts."
+  },
+  "advanced_precisionCadence_hour": {
+    "message": "Mỗi giờ",
+    "description": "A new point about once an hour. Open pages move too."
+  },
+  "advanced_precisionCadence_day": {
+    "message": "Mỗi ngày",
+    "description": "A new point about once a day. Open pages move too."
+  },
+  "advanced_precisionCadence_hint": {
+    "message": "Chọn điểm mới càng thường xuyên thì các trang web càng có nhiều mẫu để lấy trung bình và tiến gần hơn đến vị trí của bạn. “Mỗi giờ” và “Mỗi ngày” cũng có thể di chuyển điểm khi một trang đang mở.",
+    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
+  },
   "advanced_coffee": {
     "message": "☕ Mời tôi một ly cà phê",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

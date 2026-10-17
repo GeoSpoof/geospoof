@@ -910,6 +910,33 @@
             <div class="precision-hint" id="precisionHint" data-i18n="advanced_precision_hint">
               Approximate reports a random point near your location instead of the exact spot.
             </div>
+            <!-- How often Approximate picks a new point. Shown only for an
+               approximate option; hidden (and disabled) behind the Pro lock. -->
+            <div class="precision-cadence-row" id="precisionCadenceRow" style="display: none">
+              <label class="select-label" for="precisionCadenceSelect">
+                <span data-i18n="advanced_precisionCadence">Pick a new point</span>
+                <select id="precisionCadenceSelect">
+                  <option value="never" data-i18n="advanced_precisionCadence_never">Never</option>
+                  <option value="session" data-i18n="advanced_precisionCadence_session">
+                    Each browser session
+                  </option>
+                  <option value="hour" data-i18n="advanced_precisionCadence_hour">
+                    Every hour
+                  </option>
+                  <option value="day" data-i18n="advanced_precisionCadence_day">Every day</option>
+                </select>
+              </label>
+              <div
+                class="precision-hint"
+                id="precisionCadenceHint"
+                style="display: none"
+                data-i18n="advanced_precisionCadence_hint"
+              >
+                Picking a new point more often gives sites more samples to average, which narrows in
+                on your location. Every hour and Every day can also move the point while a page is
+                open.
+              </div>
+            </div>
           </div>
           <hr class="section-divider" />
           <!-- Reported Language. Named to stay clearly distinct from the

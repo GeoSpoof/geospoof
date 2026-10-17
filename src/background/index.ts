@@ -22,7 +22,8 @@ import {
 } from "./tabs";
 import { computeEffectiveEnabled, computeEffectivePreserveGeoPrompt } from "@/shared/utils/scope";
 import { computeEffectiveAccuracySetting } from "@/shared/accuracy/resolver";
-import { applyPrecisionOffset, computeEffectiveLocationPrecision } from "@/shared/precision/offset";
+import { computeEffectiveLocationPrecision } from "@/shared/precision/offset";
+import { isTimeCadence, validatePrecisionCadence } from "@/shared/precision/cadence";
 import { resolvePageLocale } from "@/shared/locale/resolver";
 import { installAcceptLanguageRewriter, updateAcceptLanguageSettings } from "./accept-language";
 import { handleMessage, handleSetLocation } from "./messages";
@@ -32,6 +33,13 @@ import { installActivityWatcher } from "./activity-watcher";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { removeLegacyMainWorldRegistration } from "./legacy-main-world-cleanup";
 import { updateBootstrapRegistration } from "./bootstrap-register";
+import {
+  PRECISION_ROLLOVER_ALARM,
+  advanceHeldBucketToClock,
+  ensurePrecisionRollover,
+  reschedulePrecisionRollover,
+  resolveCurrentPageLocation,
+} from "./precision-cadence";
 import { installDebuggerWatchers, syncDebuggerSpoofing, ensureTabSpoofed } from "./debugger-spoof";
 import {
   installWorkerRequestFilter,
@@ -71,6 +79,13 @@ void loadSettings()
   .then((s) => {
     setDebugEnabled(s.debugLogging);
     setVerbosityLevel(s.verbosityLevel);
+    // Location-precision cadence: on every spawn, make sure an hour/day
+    // rollover alarm exists. An existing one that's well overdue (missed during
+    // sleep, or stuck) is run here, and its reschedule replaces it. Neither
+    // promise rejects. No-op under never/session.
+    void ensurePrecisionRollover(s, loadSettings).then((overdue) => {
+      if (overdue) void onPrecisionRolloverAlarm();
+    });
   })
   .catch(() => {
     /* storage unavailable this early — initialize() will restore later */
@@ -401,7 +416,6 @@ async function onAlarm(alarm: Alarms.Alarm): Promise<void> {
 
   const settings = await loadSettings();
   const {
-    location,
     timezone,
     debugLogging,
     verbosityLevel,
@@ -444,16 +458,10 @@ async function onAlarm(alarm: Alarms.Alarm): Promise<void> {
         // does. Delivering `location` raw here was a real leak: a user who
         // enabled approximate location still got their EXACT anchor coordinates
         // on this path, which is the one thing the feature exists to prevent.
-        // The resolver is deterministic, so this produces the identical point
-        // the broadcast path delivers (location-precision Req 5.2).
-        location: applyPrecisionOffset(
-          location,
-          computeEffectiveLocationPrecision(
-            settings.locationPrecision,
-            settings.proFeaturesBlocked
-          ),
-          settings.precisionSeed
-        ),
+        // `resolveCurrentPageLocation` is the shared resolver every page-bound
+        // builder uses, so this produces the identical point the broadcast path
+        // delivers for the current cadence period (location-precision Req 5.2).
+        location: await resolveCurrentPageLocation(settings),
         timezone,
         debugLogging,
         verbosityLevel,
@@ -501,6 +509,54 @@ async function onAlarm(alarm: Alarms.Alarm): Promise<void> {
 }
 
 export { onAlarm };
+
+/**
+ * Location-precision cadence rollover (the `precision-rollover` alarm, or a
+ * spawn that finds that alarm well overdue). Under an hour/day cadence, moves
+ * the held bucket to the clock's and, when it changed, pushes the new point to
+ * every tab and the Firefox bootstrap. Always reschedules the next alarm.
+ *
+ * The handler never rejects, so both `void` call sites (the alarm listener and
+ * the spawn check) are total: `loadSettings` returns defaults on a failed read,
+ * `advanceHeldBucketToClock` reaches only never-rejecting storage helpers,
+ * `Promise.allSettled` absorbs a push failure, and the reschedule job catches.
+ */
+export async function onPrecisionRolloverAlarm(): Promise<void> {
+  const initial = await loadSettings();
+  const c = validatePrecisionCadence(initial.precisionCadence);
+  if (isTimeCadence(c)) {
+    const changed = await advanceHeldBucketToClock(c, initial.precisionSeed);
+    // Re-read AFTER the last await: a save (SET_LOCATION, VPN resync,
+    // SET_PRECISION…) that completed during the advance has already pushed; a
+    // stale snapshot here would revert tabs and the bootstrap.
+    const settings = await loadSettings();
+    const effective = computeEffectiveLocationPrecision(
+      settings.locationPrecision,
+      settings.proFeaturesBlocked
+    );
+    // Protection off, no location, or effective Exact: the payload wouldn't
+    // change, so skip the push. The held bucket still advanced, so turning
+    // protection on or switching to Approximate later delivers the current one.
+    if (changed && settings.enabled && settings.location && effective.mode === "approximate") {
+      // allSettled, not all: wait for both pushes to finish even when one
+      // fails, so the reschedule below runs after them. broadcastSettingsToTabs
+      // can reject (tabs.query); the bootstrap registration never does.
+      const results = await Promise.allSettled([
+        updateBootstrapRegistration(settings),
+        broadcastSettingsToTabs(settings),
+      ]);
+      for (const r of results) {
+        if (r.status === "rejected") {
+          logger.warn("[cadence] rollover push failed:", r.reason as unknown);
+        }
+      }
+    }
+  }
+  // Unconditional: the fired one-shot alarm is gone. Under a non-time cadence
+  // this clears a stray alarm. The job reads settings when it runs, so a cadence
+  // save that lands during this handler can't leave an alarm for the old one.
+  await reschedulePrecisionRollover(loadSettings);
+}
 
 // --- Event Listeners (registered synchronously at top level) ---
 
@@ -573,6 +629,10 @@ if (__SAFARI__) {
 }
 
 browser.alarms.onAlarm.addListener((alarm: Alarms.Alarm) => {
+  if (alarm.name === PRECISION_ROLLOVER_ALARM) {
+    void onPrecisionRolloverAlarm();
+    return;
+  }
   void onAlarm(alarm);
 });
 
@@ -614,7 +674,6 @@ if (browser.tabs && browser.tabs.onCreated) {
     void (async () => {
       const settings = await loadSettings();
       const {
-        location,
         timezone,
         debugLogging,
         verbosityLevel,
@@ -636,49 +695,48 @@ if (browser.tabs && browser.tabs.onCreated) {
         topLevelUrl: tab.url,
         isRestricted: isRestrictedUrl,
       });
-      const scopedPayload: UpdateSettingsPayload = {
-        enabled,
-        // Apply the approximate-location offset, exactly as `sendSettingsToTab`
-        // does. Delivering `location` raw here was a real leak: a user who
-        // enabled approximate location still got their EXACT anchor coordinates
-        // on this path, which is the one thing the feature exists to prevent.
-        // The resolver is deterministic, so this produces the identical point
-        // the broadcast path delivers (location-precision Req 5.2).
-        location: applyPrecisionOffset(
-          location,
-          computeEffectiveLocationPrecision(
-            settings.locationPrecision,
-            settings.proFeaturesBlocked
-          ),
-          settings.precisionSeed
-        ),
-        timezone,
-        debugLogging,
-        verbosityLevel,
-        webrtcProtection,
-        preserveGeolocationPrompt: computeEffectivePreserveGeoPrompt(
-          preserveGeolocationPrompt,
-          settings.proFeaturesBlocked
-        ),
-        // Pro-gate custom accuracy on iOS Safari (force Realistic for a free
-        // user); fail-open + Safari-only, mirroring the scope gate above.
-        accuracySetting: computeEffectiveAccuracySetting(
-          accuracySetting,
-          settings.proFeaturesBlocked
-        ),
-        accuracySeed,
-        // Same shared resolver every other payload builder uses, so a brand-new
-        // tab receives the identical Reported Language.
-        locale: resolvePageLocale(
-          settings.localeSpoofing,
-          settings.timezone?.identifier ?? null,
-          settings.proFeaturesBlocked
-        ),
-      };
 
       setTimeout(() => {
         void (async () => {
           try {
+            // Built at send time, not when the event fired, so a cadence
+            // rollover inside the 100ms delay can't leave this tab on the
+            // previous period's point.
+            const scopedPayload: UpdateSettingsPayload = {
+              enabled,
+              // Apply the approximate-location offset, exactly as
+              // `sendSettingsToTab` does. Delivering `location` raw here was a
+              // real leak: a user who enabled approximate location still got
+              // their EXACT anchor coordinates on this path, which is the one
+              // thing the feature exists to prevent. `resolveCurrentPageLocation`
+              // is the shared resolver every page-bound builder uses, so this
+              // produces the identical point the broadcast path delivers
+              // (location-precision Req 5.2).
+              location: await resolveCurrentPageLocation(settings),
+              timezone,
+              debugLogging,
+              verbosityLevel,
+              webrtcProtection,
+              preserveGeolocationPrompt: computeEffectivePreserveGeoPrompt(
+                preserveGeolocationPrompt,
+                settings.proFeaturesBlocked
+              ),
+              // Pro-gate custom accuracy on iOS Safari (force Realistic for a
+              // free user); fail-open + Safari-only, mirroring the scope gate
+              // above.
+              accuracySetting: computeEffectiveAccuracySetting(
+                accuracySetting,
+                settings.proFeaturesBlocked
+              ),
+              accuracySeed,
+              // Same shared resolver every other payload builder uses, so a
+              // brand-new tab receives the identical Reported Language.
+              locale: resolvePageLocale(
+                settings.localeSpoofing,
+                settings.timezone?.identifier ?? null,
+                settings.proFeaturesBlocked
+              ),
+            };
             await browser.tabs.sendMessage(tab.id!, {
               type: "UPDATE_SETTINGS",
               payload: scopedPayload,

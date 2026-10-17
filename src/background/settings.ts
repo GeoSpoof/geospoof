@@ -19,6 +19,7 @@ import {
 } from "@/shared/types/settings";
 import { isSupportedLocale } from "@/shared/i18n/locales";
 import { validateLocaleSpoofing } from "@/shared/locale/resolver";
+import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import { createLogger } from "@/shared/utils/debug-logger";
 import { parsePattern } from "@/shared/utils/scope";
 import { getLastSyncedIp } from "./vpn-sync";
@@ -191,6 +192,17 @@ function isValidPrecisionSeed(value: unknown): value is number {
 /** Generate a fresh per-install precision seed in [0, 2^31). */
 function generatePrecisionSeed(): number {
   return Math.floor(Math.random() * 2 ** 31);
+}
+
+/**
+ * Return `v` when it is a usable precision seed, otherwise a fresh one. Used by
+ * `SET_PRECISION_CADENCE` so a non-Never cadence always persists a real seed:
+ * `loadSettings()` returns the unvalidated defaults (seed `0`) when nothing is
+ * stored, and an unpersisted seed would be re-minted on every load, moving the
+ * hour/day phase and the point each time. A valid seed is returned unchanged.
+ */
+export function ensureValidPrecisionSeed(v: unknown): number {
+  return isValidPrecisionSeed(v) ? v : generatePrecisionSeed();
 }
 
 /**
@@ -424,6 +436,10 @@ export function validateSettings(settings: Partial<Settings>): Settings {
     ? settings.precisionSeed
     : generatePrecisionSeed();
 
+  // precisionCadence: repair an absent/unknown value (including the deferred
+  // "page") to "never", which is the pre-cadence behavior.
+  validated.precisionCadence = validatePrecisionCadence(settings.precisionCadence);
+
   // localeSpoofing (locale-spoofing Req 11.1–11.3): repair an absent/unknown/
   // malformed value to `off`. A `custom` tag is canonicalized and checked
   // against this engine's locale data; anything unusable collapses to `off` so
@@ -533,6 +549,12 @@ async function pushRegionToNativeHost(settings: Settings): Promise<void> {
       // the app decodes + adopts it. precisionSeed stays extension-owned and is
       // intentionally NOT bridged. The bridged region/location stays the anchor.
       locationPrecision: JSON.stringify(settings.locationPrecision),
+      // Precision cadence ("Pick a new point") rides as a plain top-level string,
+      // not JSON and never inside locationPrecision, so that JSON stays
+      // byte-identical. The native handler stores it verbatim. Only the
+      // preference crosses: the session id, held bucket, and precisionSeed stay
+      // extension-owned, and a rollover saves nothing, so it never pushes.
+      precisionCadence: settings.precisionCadence,
       // Reported-Language setting rides as a JSON string like the two above, so
       // the app can persist and relay it (last-writer-wins) even though the
       // control itself lives only in the browser popup for now. Only the raw

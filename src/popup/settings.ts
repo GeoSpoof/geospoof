@@ -15,7 +15,7 @@ import { renderScope, renderScopeLoadError } from "./scope";
 import { reflectEarlyProtectionState } from "./early-protection";
 import { reflectDebuggerModeState } from "./debugger-mode";
 import { restoreAccuracyControl } from "./accuracy";
-import { restorePrecisionControl } from "./precision";
+import { restorePrecisionCadenceControl, restorePrecisionControl } from "./precision";
 import { restoreLocaleControl } from "./locale";
 
 /**
@@ -169,6 +169,9 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
     // Approximate location is Pro-gated on iOS Safari (parity with custom
     // accuracy); a non-Pro user sees it disabled and forced to Exact.
     restorePrecisionControl(settings.locationPrecision, proLocked);
+    // Restore "Pick a new point" after the precision select, since its
+    // visibility depends on it. Hidden and disabled behind the same Pro lock.
+    restorePrecisionCadenceControl(settings.precisionCadence, proLocked);
 
     // Restore the Reported Language control. Pro-gated on Safari like the two
     // above; a non-entitled user sees it disabled and forced to Off, which is

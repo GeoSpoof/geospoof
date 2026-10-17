@@ -693,6 +693,24 @@ Response: `{ injected: boolean, error: string | null }`.
 
 Response: `{ success: true }` or `{ error: "AT_CAPACITY" | "STORAGE_ERROR" }`. Capacity is 10; saves dedupe by coordinates rounded to 4 decimal places.
 
+#### SET_PRECISION
+
+```typescript
+{ type: "SET_PRECISION", payload: { precision: { mode: "exact" } | { mode: "approximate", radiusMeters: number } } }
+```
+
+Repairs the value through `validateLocationPrecision` (unknown mode → exact; radius clamped to 50–50,000 m), persists it, and broadcasts to content scripts.
+Response: `{ success: true }` or `{ error: "STORAGE_ERROR" }`.
+
+#### SET_PRECISION_CADENCE
+
+```typescript
+{ type: "SET_PRECISION_CADENCE", payload: { cadence: "never" | "session" | "hour" | "day" } }
+```
+
+Any other value (including `"page"`) is stored as `"never"` and still returns `{ success: true }`. A non-Never cadence persists a valid `precisionSeed` when none is stored; a valid stored seed is never changed, and `locationPrecision` is never touched. Switching to `hour` or `day` starts from the clock's current bucket; re-selecting the current cadence keeps the held one. After the save it re-registers the Firefox bootstrap, broadcasts, and creates (hour, day) or clears (never, session) the `precision-rollover` alarm. See [Location precision and cadence](#location-precision-and-cadence). Implemented by `applyPrecisionCadence`, which the Safari app bridge also calls.
+Response: `{ success: true }`; `{ error: "STORAGE_ERROR" }` when the save fails (nothing changes); or `{ error: message }` when the broadcast fails (the save and the alarm stand).
+
 ### Content Script → Background Messages
 
 #### ANNOUNCE_WORKER_FETCH
@@ -748,10 +766,54 @@ Persisted in `browser.storage.local` under the key `"settings"`.
   verbosityLevel: string,           // debug logger threshold (e.g. "INFO")
   theme: "system" | "light" | "dark",
   favorites: Favorite[],            // up to 50 saved locations
+  locationPrecision: { mode: "exact" } | { mode: "approximate", radiusMeters: number },
+  precisionSeed: number,            // per-install seed for the approximate offset; 0 = unseeded
+  precisionCadence: "never" | "session" | "hour" | "day", // default "never"; bridged to the Safari app as a plain string
   version: string,
   lastUpdated: number               // epoch ms; default 0 (never-saved sentinel — see app-bridge.ts)
 }
 ```
+
+### Location precision and cadence
+
+Every page-bound builder (the per-tab broadcast in `sendSettingsToTab`, the content-script `GET_SETTINGS` reply, `tabs.onCreated`, the injection-check alarm, and the Firefox bootstrap) gets `location` from one resolver, `resolveCurrentPageLocation` in `src/background/precision-cadence.ts`:
+
+```text
+point      = applyPrecisionOffset(anchor, effectivePrecision, periodSeed)
+periodSeed = precisionCadence === "never"
+           ? precisionSeed
+           : derivePeriodSeed(precisionSeed, { cadence, index })
+```
+
+`effectivePrecision` is `computeEffectiveLocationPrecision(locationPrecision, proFeaturesBlocked)`, so Exact and the iOS Pro gate return the Anchor under every cadence. Under Never the expression is the pre-cadence one, with no `storage.session` I/O and no alarm. The pure derivation (period seeds, phase, buckets) lives in `src/shared/precision/cadence.ts`.
+
+Period sources:
+
+- **Session**: a random uint32 id in `storage.session` (`cache:precisionCadence:session`), minted the first time it's needed. A failed read uses a per-spawn fallback id and never overwrites the stored one.
+- **Hour / day**: the bucket `floor((Date.now() − phase) / P)`, with `P` one hour or one day and a per-install `phase` in `[0, P)` derived from `precisionSeed`. The background holds the current bucket, mirrored in `cache:precisionCadence:bucket` so a service-worker restart keeps it. It advances only in the handler for the one-shot `precision-rollover` alarm, or at a background spawn that finds that alarm more than 2 minutes overdue. When the bucket changes and the point would differ, the handler re-reads settings, broadcasts to every tab, and re-registers the Firefox bootstrap. It then schedules the next boundary, never less than 1 s out.
+
+No session id, phase, or bucket reaches pages, and payload shapes are unchanged. **Every page load** is planned for a later release.
+
+**Safari app bridge.** `precisionCadence` crosses the bridge as its own plain string, never inside `locationPrecision`, whose JSON is unchanged:
+
+- **Extension → app.** `REGION_UPDATE.precisionCadence` carries the stored value after every successful save. The native handler stores it as `region_precisionCadence` verbatim, with no validation or trimming, and leaves the stored value alone when the field is absent or not a string.
+- **App → extension.** The app writes `pending_precisionCadence` only once it knows a value, verbatim. The handler relays it as `pending.precisionCadence`.
+- **Adoption.** Step 7a of `adoptPendingSnapshot` runs after the `locationPrecision` step, which leaves the cadence alone. It adopts only when the value is a string whose `validatePrecisionCadence` repair differs from the stored value, through `applyPrecisionCadence`, so it has the same side effects as `SET_PRECISION_CADENCE`. An absent key is a no-op, a non-string is ignored, an unknown string (such as `"page"`) repairs to `"never"`, and a failure is logged at WARN while the later steps still run.
+- **Only the preference crosses.** The session id, held bucket, phase, and `precisionSeed` never do. A rollover saves nothing, so it sends no `REGION_UPDATE`.
+- **Pro.** The app's UI gate is a convenience; `proFeaturesBlocked` is what enforces it, returning the Anchor for a non-Pro user under every cadence.
+
+A widget or Shortcut action restamps the app's snapshot, so the app's last-written cadence can override a newer popup change, as for every bridged setting.
+
+Known limits:
+
+1. **Alarm timing.** Chrome alarms have a 30 s floor and can fire late; alarms missed during sleep fire on wake; a dropped alarm is re-created on the next spawn. Until the rollover runs, every frame keeps the previous point, so a new point arrives at or after its boundary, never before. Where alarms don't fire at all (unverified on iOS Safari), the rollover happens at the first background spawn more than 2 minutes after the boundary.
+2. **Rollover race.** A `GET_SETTINGS` reply or push computed just before the advance and delivered after the rollover push leaves that frame on the previous point until the next push or a reload. Every settings change has the same race today.
+3. **Firefox bootstrap window.** Documents starting during re-registration can get the previous point (or no bootstrap) inline, then the current one from the async path milliseconds later. A registration persisted across a browser restart can carry the previous period's point until startup re-registers. Both are observable only through an early `watchPosition`, and only with Instant timezone protection on.
+4. **Safari `storage.session` lifetime is unverified.** It's expected to survive background unload and clear when Safari quits (on iOS, when iOS terminates Safari). If it behaves differently, that defines what a session is on Safari.
+5. **Tabs open across an extension update, reload, or disable/enable** keep their old point until reloaded: their orphaned content scripts get no more pushes. New pages and frames in those tabs use the new session id or the recomputed bucket.
+6. **Degraded `storage.session`.** Failed reads or writes fall back to a per-spawn session id or the clock bucket. They fail toward more draws, never toward the Anchor.
+7. **Averaging.** Redrawing around a fixed center lets a site average samples back toward it; the error shrinks roughly as radius ÷ √n.
+8. **Cached positions.** A `getCurrentPosition` with `maximumAge` right after a rollover can return the previous point from the page's cache, as a real device would.
 
 ## Data Models
 
@@ -860,6 +922,8 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 7. **IP geolocation** — Extension does not mask IP address. Fingerprinting scripts cross-check public IP country/region against browser-reported geolocation. Closing this gap requires routing traffic through a VPN exit in the spoofed region (hence the VPN Sync feature).
 
 8. **WebRTC IP leaks** — Without `browser.privacy.network.webRTCIPHandlingPolicy` set to `disable_non_proxied_udp`, WebRTC ICE gathering can expose the real public IP via server-reflexive (srflx) candidates, even when geolocation is spoofed. On Firefox this only holds when behind a proxy/VPN; on Chromium it's strict. Safari doesn't expose `browser.privacy`.
+
+9. **Precision cadence timing** — Under Every hour and Every day the reported point moves while pages are open, at an install-specific time that can be late (alarm scheduling, sleep) but never early, and redrawing gives a site more samples to average. See [Location precision and cadence](#location-precision-and-cadence) for these and the other cadence limits.
 
 ## Performance Targets
 

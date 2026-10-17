@@ -659,6 +659,30 @@
     "message": "🔒 Приблизительное местоположение — функция GeoSpoof Pro. Оформите Pro в приложении GeoSpoof, чтобы размыть точное местоположение.",
     "description": "Shown for non-Pro iOS users when the precision control is disabled, explaining that approximate location is a Pro feature."
   },
+  "advanced_precisionCadence": {
+    "message": "Выбирать новую точку",
+    "description": "Label for the dropdown setting how often Approximate location picks a new random point in the same radius."
+  },
+  "advanced_precisionCadence_never": {
+    "message": "Никогда",
+    "description": "Default. Keep the same point until the location or precision changes."
+  },
+  "advanced_precisionCadence_session": {
+    "message": "Каждый сеанс браузера",
+    "description": "A new point each time the browser starts."
+  },
+  "advanced_precisionCadence_hour": {
+    "message": "Каждый час",
+    "description": "A new point about once an hour. Open pages move too."
+  },
+  "advanced_precisionCadence_day": {
+    "message": "Каждый день",
+    "description": "A new point about once a day. Open pages move too."
+  },
+  "advanced_precisionCadence_hint": {
+    "message": "Чем чаще выбирается новая точка, тем больше значений сайты могут усреднить, приближаясь к вашему местоположению. «Каждый час» и «Каждый день» также могут сдвигать точку, пока страница открыта.",
+    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
+  },
   "advanced_coffee": {
     "message": "☕ Поддержать автора",
     "description": "Footer link inviting the user to buy the maintainer a coffee."
