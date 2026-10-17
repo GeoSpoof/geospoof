@@ -55,7 +55,7 @@ In **Settings (the ⚙ gear in the popup header) → Location Precision**, choos
 
 **Timezone.** The timezone follows the location you chose, not the drawn point. Near a timezone border, the reported point can sit on the other side of the line.
 
-**Safari.** Approximate location is part of GeoSpoof Pro on iPhone and iPad. Without Pro, sites get your exact location whatever **Pick a new point** is set to. The GeoSpoof app doesn't show this setting yet, and changing the precision in the app keeps it.
+**Safari.** Approximate location and **Pick a new point** are part of GeoSpoof Pro on iPhone, iPad, and Mac. The GeoSpoof app shows **Pick a new point** next to Location Precision, and the setting stays in step between the app and Safari: a change in one shows up in the other the next time you use it. Without Pro, sites get **the exact location you chose** whatever **Pick a new point** is set to.
 
 **Known limits.**
 

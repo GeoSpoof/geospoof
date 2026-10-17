@@ -708,7 +708,7 @@ Response: `{ success: true }` or `{ error: "STORAGE_ERROR" }`.
 { type: "SET_PRECISION_CADENCE", payload: { cadence: "never" | "session" | "hour" | "day" } }
 ```
 
-Any other value (including `"page"`) is stored as `"never"` and still returns `{ success: true }`. A non-Never cadence persists a valid `precisionSeed` when none is stored; a valid stored seed is never changed, and `locationPrecision` is never touched. Switching to `hour` or `day` starts from the clock's current bucket; re-selecting the current cadence keeps the held one. After the save it re-registers the Firefox bootstrap, broadcasts, and creates (hour, day) or clears (never, session) the `precision-rollover` alarm. See [Location precision and cadence](#location-precision-and-cadence).
+Any other value (including `"page"`) is stored as `"never"` and still returns `{ success: true }`. A non-Never cadence persists a valid `precisionSeed` when none is stored; a valid stored seed is never changed, and `locationPrecision` is never touched. Switching to `hour` or `day` starts from the clock's current bucket; re-selecting the current cadence keeps the held one. After the save it re-registers the Firefox bootstrap, broadcasts, and creates (hour, day) or clears (never, session) the `precision-rollover` alarm. See [Location precision and cadence](#location-precision-and-cadence). Implemented by `applyPrecisionCadence`, which the Safari app bridge also calls.
 Response: `{ success: true }`; `{ error: "STORAGE_ERROR" }` when the save fails (nothing changes); or `{ error: message }` when the broadcast fails (the save and the alarm stand).
 
 ### Content Script → Background Messages
@@ -768,7 +768,7 @@ Persisted in `browser.storage.local` under the key `"settings"`.
   favorites: Favorite[],            // up to 50 saved locations
   locationPrecision: { mode: "exact" } | { mode: "approximate", radiusMeters: number },
   precisionSeed: number,            // per-install seed for the approximate offset; 0 = unseeded
-  precisionCadence: "never" | "session" | "hour" | "day", // default "never"; not bridged to the iOS app
+  precisionCadence: "never" | "session" | "hour" | "day", // default "never"; bridged to the Safari app as a plain string
   version: string,
   lastUpdated: number               // epoch ms; default 0 (never-saved sentinel — see app-bridge.ts)
 }
@@ -792,7 +792,17 @@ Period sources:
 - **Session**: a random uint32 id in `storage.session` (`cache:precisionCadence:session`), minted the first time it's needed. A failed read uses a per-spawn fallback id and never overwrites the stored one.
 - **Hour / day**: the bucket `floor((Date.now() − phase) / P)`, with `P` one hour or one day and a per-install `phase` in `[0, P)` derived from `precisionSeed`. The background holds the current bucket, mirrored in `cache:precisionCadence:bucket` so a service-worker restart keeps it. It advances only in the handler for the one-shot `precision-rollover` alarm, or at a background spawn that finds that alarm more than 2 minutes overdue. When the bucket changes and the point would differ, the handler re-reads settings, broadcasts to every tab, and re-registers the Firefox bootstrap. It then schedules the next boundary, never less than 1 s out.
 
-No session id, phase, or bucket reaches pages, and payload shapes are unchanged. `precisionCadence` isn't bridged to the iOS app (`REGION_UPDATE` carries no cadence), and app-side adoption of `locationPrecision` leaves it alone. **Every page load** is planned for a later release.
+No session id, phase, or bucket reaches pages, and payload shapes are unchanged. **Every page load** is planned for a later release.
+
+**Safari app bridge.** `precisionCadence` crosses the bridge as its own plain string, never inside `locationPrecision`, whose JSON is unchanged:
+
+- **Extension → app.** `REGION_UPDATE.precisionCadence` carries the stored value after every successful save. The native handler stores it as `region_precisionCadence` verbatim, with no validation or trimming, and leaves the stored value alone when the field is absent or not a string.
+- **App → extension.** The app writes `pending_precisionCadence` only once it knows a value, verbatim. The handler relays it as `pending.precisionCadence`.
+- **Adoption.** Step 7a of `adoptPendingSnapshot` runs after the `locationPrecision` step, which leaves the cadence alone. It adopts only when the value is a string whose `validatePrecisionCadence` repair differs from the stored value, through `applyPrecisionCadence`, so it has the same side effects as `SET_PRECISION_CADENCE`. An absent key is a no-op, a non-string is ignored, an unknown string (such as `"page"`) repairs to `"never"`, and a failure is logged at WARN while the later steps still run.
+- **Only the preference crosses.** The session id, held bucket, phase, and `precisionSeed` never do. A rollover saves nothing, so it sends no `REGION_UPDATE`.
+- **Pro.** The app's UI gate is a convenience; `proFeaturesBlocked` is what enforces it, returning the Anchor for a non-Pro user under every cadence.
+
+A widget or Shortcut action restamps the app's snapshot, so the app's last-written cadence can override a newer popup change, as for every bridged setting.
 
 Known limits:
 
