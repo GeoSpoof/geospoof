@@ -13,6 +13,7 @@
 import { createLogger } from "@/shared/utils/debug-logger";
 import type { Favorite, ScopeMode, Settings } from "@/shared/types/settings";
 import { parsePattern } from "@/shared/utils/scope";
+import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import {
   loadSettings,
   updateSettings,
@@ -21,6 +22,7 @@ import {
   validateLocaleSpoofing,
 } from "./settings";
 import {
+  applyPrecisionCadence,
   handleSetLocation,
   handleSetProtectionStatus,
   handleSetWebRTCProtection,
@@ -83,6 +85,15 @@ export interface PendingSettings {
    * the Accept-Language header out of step with each other.
    */
   localeSpoofing?: string;
+  /**
+   * Precision cadence ("Pick a new point") as a plain string, not JSON. Pro-gated
+   * in the app's UI; the raw preference is adopted here, and the extension's
+   * proFeaturesBlocked gate (computeEffectiveLocationPrecision) still forces the
+   * Anchor for a non-Pro user, so adopting it is safe. Absent when the app
+   * predates the bridge or hasn't learned a cadence yet. Validated through
+   * validatePrecisionCadence on adoption; period state never crosses.
+   */
+  precisionCadence?: string;
 }
 
 interface PendingResponse {
@@ -404,6 +415,28 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
         }
       } catch (error) {
         logger.debug("adoptPendingSettingsFromApp: locationPrecision parse failed:", error);
+      }
+    }
+
+    // 7a. Precision cadence ("Pick a new point") — a plain string, not JSON.
+    // Adopted only when present and, once repaired by validatePrecisionCadence,
+    // different from the stored value (an unknown "page" repairs to "never").
+    // Goes through applyPrecisionCadence, the function SET_PRECISION_CADENCE
+    // uses, so hour/day get their seed, held bucket, and rollover alarm. An
+    // absent key (an app that predates the bridge or hasn't learned a cadence)
+    // changes nothing. Its own try/catch so a failure never skips step 8.
+    if (typeof pending.precisionCadence === "string") {
+      try {
+        const nextCadence = validatePrecisionCadence(pending.precisionCadence);
+        const latestForCadence = await loadSettings();
+        if (nextCadence !== latestForCadence.precisionCadence) {
+          const result = await applyPrecisionCadence(nextCadence);
+          if ("error" in result) {
+            logger.warn("[cadence] app cadence not adopted:", result.error);
+          }
+        }
+      } catch (error) {
+        logger.warn("[cadence] app cadence adoption failed:", error);
       }
     }
 

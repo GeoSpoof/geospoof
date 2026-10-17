@@ -549,6 +549,12 @@ async function pushRegionToNativeHost(settings: Settings): Promise<void> {
       // the app decodes + adopts it. precisionSeed stays extension-owned and is
       // intentionally NOT bridged. The bridged region/location stays the anchor.
       locationPrecision: JSON.stringify(settings.locationPrecision),
+      // Precision cadence ("Pick a new point") rides as a plain top-level string,
+      // not JSON and never inside locationPrecision, so that JSON stays
+      // byte-identical. The native handler stores it verbatim. Only the
+      // preference crosses: the session id, held bucket, and precisionSeed stay
+      // extension-owned, and a rollover saves nothing, so it never pushes.
+      precisionCadence: settings.precisionCadence,
       // Reported-Language setting rides as a JSON string like the two above, so
       // the app can persist and relay it (last-writer-wins) even though the
       // control itself lives only in the browser popup for now. Only the raw

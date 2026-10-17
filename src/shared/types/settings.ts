@@ -297,7 +297,10 @@ export interface Settings {
    * unseeded — the first save assigns a real value.
    */
   precisionSeed: number;
-  /** How often approximate mode draws a new point in the same radius. Extension-owned; not bridged. */
+  /**
+   * How often approximate mode draws a new point in the same radius. Bridged to
+   * the Safari app as a plain top-level string; period state isn't.
+   */
   precisionCadence: PrecisionCadence;
   /**
    * How the language/locale reported to websites is derived: off, matched to the

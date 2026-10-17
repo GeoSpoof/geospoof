@@ -110,12 +110,32 @@ describe("Safari locationPrecision bridge contract", () => {
 });
 
 /**
- * precisionCadence is extension-owned and deliberately NOT bridged: the app
- * rewrites `locationPrecision` from an enum holding only mode/radius, so the
- * cadence has to live outside it and survive the app's partial adoption.
+ * precisionCadence crosses the Safari bridge as its own plain top-level string,
+ * never inside `locationPrecision`: the app rewrites `locationPrecision` from an
+ * enum holding only mode/radius, so the cadence has to live outside it and
+ * survive the app's partial adoption. Only the preference crosses, and every
+ * write goes through applyPrecisionCadence, so hour/day keep their rollover
+ * alarm. The adoption behavior itself is in app-bridge-cadence.test.ts.
  */
-describe("precisionCadence stays off the bridge (AC2, AC3)", () => {
-  test("REGION_UPDATE carries exactly its existing keys", async () => {
+describe("precisionCadence crosses the bridge as a plain string", () => {
+  /** Every `src/background/*.ts` source, keyed by file name. */
+  async function backgroundSources(): Promise<Map<string, string>> {
+    const fs = await import("node:fs");
+    const dir = "src/background";
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".ts"));
+    return new Map(files.map((f) => [f, fs.readFileSync(`${dir}/${f}`, "utf8")]));
+  }
+
+  /** The text of `export async function <name>(` up to its closing `}` at column 0. */
+  function functionBody(src: string, name: string): string {
+    const start = src.indexOf(`export async function ${name}(`);
+    expect(start, `${name} not found`).toBeGreaterThan(-1);
+    const end = src.indexOf("\n}\n", start);
+    expect(end, `${name} has no closing brace`).toBeGreaterThan(start);
+    return src.slice(start, end + 2);
+  }
+
+  test("REGION_UPDATE carries its existing keys plus precisionCadence (AC 1)", async () => {
     const fs = await import("node:fs");
     const src = fs.readFileSync("src/background/settings.ts", "utf8");
     const start = src.indexOf('type: "REGION_UPDATE"');
@@ -139,9 +159,52 @@ describe("precisionCadence stays off the bridge (AC2, AC3)", () => {
       "denylist",
       "accuracySetting",
       "locationPrecision",
+      "precisionCadence",
       "localeSpoofing",
     ]);
-    expect(body).not.toContain("precisionCadence");
+    // A plain string, not JSON; locationPrecision's JSON is unchanged.
+    expect(body).toContain("precisionCadence: settings.precisionCadence,");
+    expect(body).toContain("locationPrecision: JSON.stringify(settings.locationPrecision),");
+  });
+
+  test("one function owns the cadence side effects (AC 5)", async () => {
+    const sources = await backgroundSources();
+    const owners = [...sources].filter(([, src]) =>
+      src.includes("export async function applyPrecisionCadence(")
+    );
+    expect(owners.map(([file]) => file)).toEqual(["messages.ts"]);
+    const messages = sources.get("messages.ts") ?? "";
+    expect(messages.split("export async function applyPrecisionCadence(")).toHaveLength(2);
+
+    const handler = functionBody(messages, "handleSetPrecisionCadence");
+    expect(handler).toContain("applyPrecisionCadence(payload?.cadence)");
+    expect(handler).not.toContain("updateSettings(");
+
+    expect(sources.get("app-bridge.ts")).toContain("applyPrecisionCadence(");
+
+    // No bare cadence write anywhere: that would leave hour/day without an alarm.
+    for (const [file, src] of sources) {
+      expect(src, file).not.toMatch(/updateSettings\(\s*\{[^}]*\bprecisionCadence\b/);
+    }
+    const write = "const updates: Partial<Settings> = { precisionCadence };";
+    const writes = [...sources.values()].reduce((n, src) => n + src.split(write).length - 1, 0);
+    expect(writes).toBe(1);
+    expect(functionBody(messages, "applyPrecisionCadence")).toContain(write);
+
+    // Step 7's locationPrecision adoption is unchanged.
+    expect(sources.get("app-bridge.ts")).toContain(
+      "updateSettings({ locationPrecision: validatedPrecision })"
+    );
+  });
+
+  test("a rollover saves nothing, so it never sends REGION_UPDATE (FR-1.6)", async () => {
+    const fs = await import("node:fs");
+    const body = functionBody(
+      fs.readFileSync("src/background/index.ts", "utf8"),
+      "onPrecisionRolloverAlarm"
+    );
+    expect(body).not.toContain("updateSettings(");
+    expect(body).not.toContain("saveSettings(");
   });
 
   test("the bridge's locationPrecision adoption keeps a stored cadence", async () => {
@@ -163,7 +226,8 @@ describe("precisionCadence stays off the bridge (AC2, AC3)", () => {
 
     const fs = await import("node:fs");
     const bridge = fs.readFileSync("src/background/app-bridge.ts", "utf8");
-    expect(bridge).not.toContain("precisionCadence");
+    // The cadence is adopted in its own step, never as part of step 7's write.
+    expect(bridge).toContain("applyPrecisionCadence(nextCadence)");
     expect(bridge).toContain("updateSettings({ locationPrecision: validatedPrecision })");
   });
 });
