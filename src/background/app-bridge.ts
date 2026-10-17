@@ -33,7 +33,7 @@ import { collectAccessReport } from "./website-access";
 
 const logger = createLogger("BG");
 
-interface PendingSettings {
+export interface PendingSettings {
   updatedAt: number; // Unix seconds (Swift timeIntervalSince1970)
   enabled?: boolean;
   webrtc?: boolean;
@@ -137,6 +137,17 @@ export async function adoptPendingSettingsFromApp(): Promise<void> {
     return;
   }
 
+  await adoptPendingSnapshot(pending);
+}
+
+/**
+ * Adopt one app-written snapshot when it's newer than the extension's last
+ * change (symmetric last-writer-wins on `updatedAt`), in numbered steps.
+ * Split from adoptPendingSettingsFromApp so tests can drive it: Vitest compiles
+ * `__SAFARI__` to false, which removes the native fetch above. Production calls
+ * it only from there. Never throws.
+ */
+export async function adoptPendingSnapshot(pending: PendingSettings): Promise<void> {
   const settings = await loadSettings();
 
   // The app writes updatedAt as Unix seconds; settings.lastUpdated is Unix ms.

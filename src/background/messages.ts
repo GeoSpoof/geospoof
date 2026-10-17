@@ -774,21 +774,27 @@ export async function handleSetPrecision(
 }
 
 /**
- * SET_PRECISION_CADENCE handler. Repairs the cadence (anything invalid becomes
- * "never"), persists it, then re-registers the Firefox bootstrap, broadcasts,
- * and schedules or clears the rollover alarm. A non-Never cadence also persists
- * a valid `precisionSeed` when none is stored, so the hour/day phase and the
- * point don't move on every load. `locationPrecision` is never touched.
+ * Apply a precision cadence. The one owner of the cadence side effects:
+ * SET_PRECISION_CADENCE and the Safari app-bridge adoption (app-bridge.ts step
+ * 7a) both call it, and nothing else in the background writes
+ * `precisionCadence` — a bare updateSettings would leave hour/day without a
+ * rollover alarm.
  *
- * A failed save returns STORAGE_ERROR with nothing changed: the held period is
- * adopted only after the save succeeds. Switching to hour or day starts from
- * the clock's bucket; re-selecting the current cadence keeps the held one.
+ * Repairs the cadence (anything invalid becomes "never"), persists it, then
+ * re-registers the Firefox bootstrap, broadcasts, and schedules or clears the
+ * rollover alarm. A non-Never cadence also persists a valid `precisionSeed`
+ * when none is stored. `locationPrecision` is never touched.
+ *
+ * Resolves `{ error: "STORAGE_ERROR" }` when the save fails, with nothing
+ * changed. Rejects when the broadcast rejects; the save and the alarm stand.
+ * Switching to hour or day starts from the clock's bucket; re-selecting the
+ * current cadence keeps the held one.
  */
-export async function handleSetPrecisionCadence(
-  payload: SetPrecisionCadencePayload
+export async function applyPrecisionCadence(
+  cadence: unknown
 ): Promise<{ success: true } | { error: string }> {
   // Repair, never reject.
-  const precisionCadence = validatePrecisionCadence(payload?.cadence);
+  const precisionCadence = validatePrecisionCadence(cadence);
 
   let previous: PrecisionCadence;
   let settings: Settings;
@@ -826,6 +832,13 @@ export async function handleSetPrecisionCadence(
     await reschedulePrecisionRollover(loadSettings);
   }
   return { success: true };
+}
+
+/** SET_PRECISION_CADENCE handler. See {@link applyPrecisionCadence}. */
+export async function handleSetPrecisionCadence(
+  payload: SetPrecisionCadencePayload
+): Promise<{ success: true } | { error: string }> {
+  return applyPrecisionCadence(payload?.cadence);
 }
 
 /**
