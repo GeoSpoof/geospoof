@@ -260,8 +260,9 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
         // DNS for geospoof.com is hosted at Namecheap (not Route 53), so the cert
         // is created + DNS-validated out of band and imported here by ARN.
         // Regional, in 898565151814 us-east-1. CNAME push-dev to the ApnsRelayDomainTarget output.
-        // certificateArn is not set yet: add it once the cert is ISSUED (cdk/README.md,
-        // "Custom domain"). Until then dev serves on execute-api only and synth warns.
+        // With the ARN set, execute-api is disabled: this domain is the only door.
+        certificateArn:
+          "arn:aws:acm:us-east-1:898565151814:certificate/e22d3def-fbff-497d-b04f-9f48f3b9b5fa",
       },
     },
   },
