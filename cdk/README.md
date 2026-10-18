@@ -168,7 +168,9 @@ aws cloudfront list-distributions \
   with no subscriber and the budget is skipped. See `.env.example`.
 - **Custom-domain certificates** are ACM certs in `us-east-1`, created and
   DNS-validated out of band (DNS lives at Namecheap, not Route 53) and imported
-  by ARN in `lib/config/app.ts`.
+  by ARN in `lib/config/app.ts`. The CDN's are CloudFront certs. The APNs
+  relay's are REGIONAL API Gateway certs and must live in the API's own account,
+  so the two can't be shared (see [Custom domain](#custom-domain)).
 
 ## GPS DMG publishing
 
@@ -349,11 +351,102 @@ Read the base URL from the `ApnsRelayUrl` output. Smoke tests that need no
 credentials:
 
 ```sh
-URL=https://<api-id>.execute-api.us-east-1.amazonaws.com
+URL=https://push-dev.geospoof.com
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$URL/v1/push" -d '{}'      # 401
 curl -sS -X POST "$URL/v1/session" -H 'content-type: application/json' \
   -d '{"push_token":"00000000000000000000000000000000","app_transaction":"a.b.c"}'  # 403 entitlement_invalid
 curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$URL/v1/nope"               # 404
+```
+
+The base is `https://<api-id>.execute-api.us-east-1.amazonaws.com` only while
+the env has no `certificateArn` configured. Once it has one, execute-api is
+closed and answers `403`.
+
+### Custom domain
+
+| Stack                    | Hostname                | Cert lives in (us-east-1) |
+| ------------------------ | ----------------------- | ------------------------- |
+| `GeoSpoofApnsRelay-dev`  | `push-dev.geospoof.com` | `898565151814`            |
+| `GeoSpoofApnsRelay-prod` | `push.geospoof.com`     | `682844365870`            |
+
+**The agent embeds only these hostnames, never an execute-api URL.** That URL
+embeds the API id, which changes if the API is ever replaced. Once an env's
+`apnsRelay.customDomain.certificateArn` is set in `lib/config/app.ts`, the stack
+disables execute-api, so the custom domain is the only door and anything
+pointed at execute-api fails at once. Until it is set, the env serves on
+execute-api only and `cdk synth` warns. Both doors reach the same `$default`
+stage, so the throttles and the cost ceiling are the same through either.
+
+**Prod is hostname-only for now, on purpose**: it has no cert, so its synth
+warns about `push.geospoof.com`. That is expected until prod ships.
+
+CDK never creates the certificate. DNS is at Namecheap, so a CDK-created cert
+would block the deploy on DNS validation. The stack imports it by ARN, so a
+destroy can't delete it either. API Gateway needs a REGIONAL cert in the API's
+own account and region, so the CDN's certs can't be reused.
+
+To enable an env, shown for prod. For dev, use `--profile geospoof-dev`,
+account `898565151814`, `push-dev.geospoof.com`, token `pushdevgeospoof` and
+`Value=dev`.
+
+1. Request the cert, reusing one if it already exists:
+
+   ```sh
+   aws sso login --profile geospoof-prod
+   aws sts get-caller-identity --profile geospoof-prod --query Account --output text   # 682844365870
+   aws acm list-certificates --region us-east-1 --profile geospoof-prod \
+     --certificate-statuses PENDING_VALIDATION ISSUED \
+     --query "CertificateSummaryList[?DomainName=='push.geospoof.com'].[CertificateArn,Status]" --output text
+   # only if none was listed:
+   aws acm request-certificate --region us-east-1 --profile geospoof-prod \
+     --domain-name push.geospoof.com --validation-method DNS --key-algorithm RSA_2048 \
+     --idempotency-token pushgeospoof \
+     --tags Key=project,Value=geospoof Key=component,Value=apns-relay Key=env,Value=prod \
+     --query CertificateArn --output text
+   aws acm describe-certificate --region us-east-1 --profile geospoof-prod --certificate-arn "<ARN>" \
+     --query 'Certificate.DomainValidationOptions[0].ResourceRecord'
+   ```
+
+   `ResourceRecord` can be `null` for a few seconds after the request. Re-run
+   the describe if so.
+
+2. Add the validation record at Namecheap (geospoof.com → Advanced DNS), then
+   wait for `ISSUED`. API Gateway rejects a cert that isn't issued, so never
+   deploy before this.
+
+   ```sh
+   aws acm wait certificate-validated --region us-east-1 --profile geospoof-prod \
+     --certificate-arn "<ARN>"
+   ```
+
+3. Set `certificateArn` under that env's `apnsRelay.customDomain` in
+   `lib/config/app.ts`. A config test checks the ARN is in that env's own
+   account and region.
+4. Diff and deploy only the relay stack (see
+   [Deploying only this stack](#deploying-only-this-stack)). Expect
+   `[+] AWS::ApiGatewayV2::DomainName`, `[+] AWS::ApiGatewayV2::ApiMapping`,
+   `[~] AWS::ApiGatewayV2::Api` (`DisableExecuteApiEndpoint` only) and the
+   output changes. No `AWS::CertificateManager::Certificate` should appear, and
+   nothing should be replaced.
+5. Add the serving record at Namecheap, pointing at the new
+   `ApnsRelayDomainTarget` output.
+
+The two Namecheap records per env, all with TTL Automatic:
+
+| Purpose         | Type    | Host                                                            | Value                                                              |
+| --------------- | ------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Cert validation | `CNAME` | the record's `Name` minus `.geospoof.com.`, e.g. `_abc123.push` | the record's `Value` (`_….acm-validations.aws.`)                   |
+| Serving         | `CNAME` | `push` (prod) / `push-dev` (dev)                                | `ApnsRelayDomainTarget`, `d-….execute-api.us-east-1.amazonaws.com` |
+
+Keep the validation record after issuance. ACM uses it to renew the cert.
+
+Before the serving CNAME exists, test through the domain anyway. curl still
+checks the cert against the hostname:
+
+```sh
+TARGET=d-xxxxxxxxxx.execute-api.us-east-1.amazonaws.com   # the ApnsRelayDomainTarget output
+curl -sS -o /dev/null -w '%{http_code}\n' --connect-to push-dev.geospoof.com:443:$TARGET:443 \
+  -X POST https://push-dev.geospoof.com/v1/push -d '{}'    # 401
 ```
 
 ### Cost, metrics, alarms
@@ -381,9 +474,6 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$URL/v1/nope"               #
 
 ### Follow-ups
 
-- **Custom domain.** design.md names `push.geospoof.com` and a dev host. That
-  needs an ACM cert validated at Namecheap plus a CNAME. It must land before the
-  agent ships a hard-coded URL. Until then the execute-api URL is the base.
 - **Reserved concurrency** isn't set, because the account quotas are unverified,
   and reserving on a 10-concurrency account fails the deploy. Once the quota is
   known, reserving a small number caps the cost of a hung upstream.
