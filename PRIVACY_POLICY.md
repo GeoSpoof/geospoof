@@ -1,6 +1,6 @@
 # Privacy Policy for GeoSpoof
 
-**Last Updated:** October 16, 2026
+**Last Updated:** October 18, 2026
 
 ## Overview
 
