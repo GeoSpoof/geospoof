@@ -25,10 +25,12 @@
     "watch": "tsc -w"
   },
   "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "3.1149.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.1",
     "@vitest/coverage-v8": "5.0.3",
     "aws-cdk": "2.1144.0",
+    "esbuild": "0.28.2",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",
@@ -38,6 +40,7 @@
     "vitest": "5.0.3"
   },
   "dependencies": {
+    "@apple/app-store-server-library": "3.1.0",
     "aws-cdk-lib": "^2.260.0",
     "constructs": "^10.5.0",
     "geo-tz": "8.1.6"
