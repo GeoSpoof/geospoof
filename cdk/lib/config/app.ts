@@ -1,6 +1,8 @@
 import { Duration } from "aws-cdk-lib";
+import { RetentionDays } from "aws-cdk-lib/aws-logs";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import type { ApnsEnvironment, StoreKitEnvironmentName } from "../lambda/apns-relay/env-contract";
 
 export type EnvName = "dev" | "prod";
 
@@ -71,6 +73,46 @@ export interface ExtensionUpdatesConfig {
   // for token.actions.githubusercontent.com.
 }
 
+/** One APNs signing key: its public Key ID, and where the secret holding it lives. */
+export interface ApnsKeyConfig {
+  /** Apple Key ID. The secret's own `keyId` must equal this or the relay signs nothing. */
+  readonly keyId: string;
+  /**
+   * Secrets Manager NAME of `{keyId, teamId, p8}`. Created out of band and
+   * imported by name: CDK must never own it (the `.p8` cannot be re-downloaded
+   * from Apple), and its value never passes through CDK.
+   */
+  readonly secretName: string;
+}
+
+export interface ThrottleConfig {
+  readonly rateLimit: number;
+  readonly burstLimit: number;
+}
+
+/** The APNs relay for Live Activity push (`ApnsRelayStack`). */
+export interface ApnsRelayConfig {
+  readonly bundleId: string;
+  readonly teamId: string;
+  /** The app's numeric App Store id; the Production StoreKit verifier requires it. */
+  readonly appAppleId: number;
+  /**
+   * Which APNs host families this deployment serves, and the key for each. A
+   * request for an environment absent here gets `400 environment_unsupported`
+   * and is never forwarded.
+   */
+  readonly apnsKeys: Partial<Record<ApnsEnvironment, ApnsKeyConfig>>;
+  /** StoreKit environments whose signed entitlements are verified. Never Xcode/LocalTesting. */
+  readonly storeKitEnvironments: readonly StoreKitEnvironmentName[];
+  /** Stage default route throttle; governs POST /v1/push. See the cost comment below. */
+  readonly throttle: ThrottleConfig;
+  /** Route override for POST /v1/session. */
+  readonly sessionThrottle: ThrottleConfig;
+  readonly logRetention: RetentionDays;
+  /** Monthly cost budget in USD, scoped to `component=apns-relay`. Only created when alarmEmail is set. */
+  readonly monthlyBudgetUsd: number;
+}
+
 export interface GeoTzCdnEnv {
   readonly name: EnvName;
   readonly account: string;
@@ -101,7 +143,42 @@ export interface GeoTzCdnEnv {
   readonly alarmEmail?: string;
   /** Monthly cost-budget limit in USD. Only created when alarmEmail is set. */
   readonly monthlyBudgetUsd?: number;
+  /**
+   * When set, `lib/app.ts` also deploys `GeoSpoofApnsRelay-<env>`: a separate
+   * stack (its own lifecycle and blast radius) holding the Live Activity push
+   * relay. It shares only this env's account, region and alarm email.
+   */
+  readonly apnsRelay?: ApnsRelayConfig;
 }
+
+/** Public identifiers of the iOS app. Nothing here is secret. */
+export const APPLE_APP = {
+  bundleId: "com.moonloaf.geospoof",
+  teamId: "9445Q654K8",
+  // apps.apple.com/app/id6765719745
+  appAppleId: 6765719745,
+} as const;
+
+// Cost ceiling, by arithmetic, not estimate (us-east-1 list prices, checked 2026-10-18 against
+// aws.amazon.com/api-gateway/pricing, aws.amazon.com/lambda/pricing and
+// aws.amazon.com/cloudwatch/pricing; 30-day month = 2,592,000 s; free tier ignored).
+// HTTP API "default route settings" apply to EACH route, so the ceiling is the sum over routes:
+//   POST /v1/push      10 req/s (stage default; burst 20 is bucket depth, adds nothing per month)
+//   POST /v1/session    2 req/s (route override)
+//   => 12 req/s x 2,592,000 s = 31,104,000 invocations/month
+// API Gateway HTTP API   $1.00 / million                                         $31.10
+// Lambda requests        $0.20 / million                                          $6.22
+// Lambda duration        arm64 $0.0000133334/GB-s x 0.25 GB x 0.1 s              $10.37
+// CloudWatch Logs        <= ~600 B/invoke (EMF + failure line) = 18.7 GB x $0.50  $9.33
+// Custom metrics         <= 31 streams x $0.30 (14 ApnsResponse, 1 ApnsNon2xx,    $9.30
+//                        8 RelayRejected, 7 RelayFault, 1 SessionIssued)
+// Alarms + session secret  4 alarm metrics x $0.10 + 1 secret x $0.40            ~$0.80
+// CEILING ~= $67/month. Expected (~1 push/min per active route, ~240k/month) ~= $2.
+// Each +1 req/s on either route adds ~= $4.75/month. Changing these numbers is a cost decision.
+// Duration assumes a responsive APNs; a hung upstream is bounded by the 10 s timeout x concurrency,
+// which reserved concurrency would cap (not set: account quota unverified, see cdk/README.md).
+export const APNS_RELAY_THROTTLE: ThrottleConfig = { rateLimit: 10, burstLimit: 20 };
+export const APNS_RELAY_SESSION_THROTTLE: ThrottleConfig = { rateLimit: 2, burstLimit: 10 };
 
 // CloudFront certificates MUST live in us-east-1, which is also where we keep
 // the origin bucket, so a single-region deployment covers everything.
@@ -142,6 +219,22 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
       // is created + DNS-validated out of band and imported here by ARN.
       certificateArn:
         "arn:aws:acm:us-east-1:898565151814:certificate/6569c8dd-e974-45e5-92bd-e065fe16af67",
+    },
+    // Dev serves the APNs SANDBOX host with the dev account's environment-scoped
+    // key, so a misrouted push fails at the credential layer.
+    apnsRelay: {
+      ...APPLE_APP,
+      apnsKeys: {
+        // arn:aws:secretsmanager:us-east-1:898565151814:secret:geospoof/apns/signing-key-wvGpnO
+        // (reference only). Created out of band; CDK imports by name and must never own it.
+        sandbox: { keyId: "A3TWAYM427", secretName: "geospoof/apns/signing-key" },
+      },
+      // Both fully verified; TestFlight purchases are StoreKit Sandbox.
+      storeKitEnvironments: ["Production", "Sandbox"],
+      throttle: APNS_RELAY_THROTTLE,
+      sessionThrottle: APNS_RELAY_SESSION_THROTTLE,
+      logRetention: RetentionDays.TWO_WEEKS,
+      monthlyBudgetUsd: 10,
     },
   },
   prod: {
@@ -205,6 +298,21 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
         "repo:*/geospoof@1170325630:ref:refs/tags/v*",
         "repo:*/geospoof@1170325630:ref:refs/heads/main",
       ],
+    },
+    // Prod serves the APNs PRODUCTION host with the prod account's key.
+    apnsRelay: {
+      ...APPLE_APP,
+      apnsKeys: {
+        // arn:aws:secretsmanager:us-east-1:682844365870:secret:geospoof/apns/signing-key-xXA4wx
+        // (reference only). Created out of band; CDK imports by name and must never own it.
+        production: { keyId: "Y7QSB5K2Y6", secretName: "geospoof/apns/signing-key" },
+      },
+      // Both fully verified; TestFlight purchases are StoreKit Sandbox.
+      storeKitEnvironments: ["Production", "Sandbox"],
+      throttle: APNS_RELAY_THROTTLE,
+      sessionThrottle: APNS_RELAY_SESSION_THROTTLE,
+      logRetention: RetentionDays.TWO_WEEKS,
+      monthlyBudgetUsd: 10,
     },
   },
 };
