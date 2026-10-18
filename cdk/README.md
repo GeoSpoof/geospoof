@@ -1,7 +1,7 @@
 # GeoSpoof CDK
 
-Infrastructure-as-code for GeoSpoof's AWS footprint. A single stack per
-environment (`GeoSpoofGeoTzCdn-<env>`) provisions:
+Infrastructure-as-code for GeoSpoof's AWS footprint. Two stacks per
+environment. `GeoSpoofGeoTzCdn-<env>` provisions:
 
 - **geo-tz boundary-data CDN** — a private S3 bucket fronted by CloudFront
   (OAC), serving timezone data at `cdn.geospoof.com/geo-tz/<version>/` for the
@@ -11,16 +11,23 @@ environment (`GeoSpoofGeoTzCdn-<env>`) provisions:
   published by the private `geospoof-gps` repo's CI via GitHub OIDC (no stored
   AWS keys). See [GPS DMG publishing](#gps-dmg-publishing) below.
 
+`GeoSpoofApnsRelay-<env>` is the **APNs relay** for Live Activity push: an HTTP
+API and one Lambda. It is a separate stack so a relay deploy never churns the
+CDN. See [APNs relay](#apns-relay) below.
+
 ## Layout
 
-| Path                              | What                                              |
-| --------------------------------- | ------------------------------------------------- |
-| `lib/app.ts`                      | CDK app entry; instantiates the stack per env     |
-| `lib/config/app.ts`               | Per-env config (accounts, domain, GPS release)    |
-| `lib/stacks/geo-tz-cdn-stack.ts`  | The stack                                         |
-| `lib/constructs/geo-tz-cdn.ts`    | S3 + CloudFront + monitoring for the geo-tz data  |
-| `lib/constructs/gps-downloads.ts` | OIDC role letting geospoof-gps CI publish the DMG |
-| `test/`                           | Vitest unit/assertion tests                       |
+| Path                              | What                                                    |
+| --------------------------------- | ------------------------------------------------------- |
+| `lib/app.ts`                      | CDK app entry; instantiates the stacks per env          |
+| `lib/config/app.ts`               | Per-env config (accounts, domain, GPS release, relay)   |
+| `lib/stacks/geo-tz-cdn-stack.ts`  | The CDN stack                                           |
+| `lib/constructs/geo-tz-cdn.ts`    | S3 + CloudFront + monitoring for the geo-tz data        |
+| `lib/constructs/gps-downloads.ts` | OIDC role letting geospoof-gps CI publish the DMG       |
+| `lib/stacks/apns-relay-stack.ts`  | The APNs relay stack                                    |
+| `lib/constructs/apns-relay.ts`    | HTTP API + Lambda + secrets + alarms + budget           |
+| `lib/lambda/apns-relay/`          | The relay Lambda's source (self-contained; no CDK code) |
+| `test/`, `test/apns-relay/`       | Vitest unit/assertion tests                             |
 
 ## Prerequisites
 
@@ -84,10 +91,10 @@ aws sts get-caller-identity --profile geospoof-prod
 
 ## Environments
 
-| Env  | Account        | Profile         | Region      | Domain                 |
-| ---- | -------------- | --------------- | ----------- | ---------------------- |
-| dev  | `898565151814` | `geospoof-dev`  | `us-east-1` | `cdn-dev.geospoof.com` |
-| prod | `682844365870` | `geospoof-prod` | `us-east-1` | `cdn.geospoof.com`     |
+| Env  | Account        | Profile         | Region      | Domain                 | Stacks                                            |
+| ---- | -------------- | --------------- | ----------- | ---------------------- | ------------------------------------------------- |
+| dev  | `898565151814` | `geospoof-dev`  | `us-east-1` | `cdn-dev.geospoof.com` | `GeoSpoofGeoTzCdn-dev`, `GeoSpoofApnsRelay-dev`   |
+| prod | `682844365870` | `geospoof-prod` | `us-east-1` | `cdn.geospoof.com`     | `GeoSpoofGeoTzCdn-prod`, `GeoSpoofApnsRelay-prod` |
 
 The environment is selected with `-c env=dev|prod` (the npm scripts pass this).
 Each env's account is pinned, so a deploy only succeeds against the matching
@@ -238,6 +245,148 @@ custom claim is a good way to deny every publish.
 > A green preflight means the subject matched. That only covers Entra, though —
 > `Configure AWS credentials (OIDC)` is skipped unless `publish_release` is on, so
 > the trust policy above is exercised only by a real `gps-v*` tag. It fails closed.
+
+## APNs relay
+
+`GeoSpoofApnsRelay-<env>` lets the GPS desktop agent update a Live Activity on
+a locked iPhone while the app isn't running. Two routes on one Lambda:
+
+- `POST /v1/session` exchanges Apple-signed StoreKit entitlement material for an
+  8-hour session token bound to a hash of one push token. The entitlement is
+  verified offline and discarded. Nothing about it is stored or logged.
+- `POST /v1/push` takes that token as `Authorization: Bearer`, validates the
+  request strictly per `kind`, builds the APNs request and forwards the outcome.
+  `202 {"apns_id"}` means APNs **accepted** the push, not that it reached the
+  device.
+
+**The wire formats belong to `geospoof-ios:.kiro/specs/live-activity-push/design.md`.
+This repo mirrors none of them.** If the code here and that file disagree, the
+file is right.
+
+### Cross-repo couplings
+
+None of these is visible from inside this repo, and nothing compiles both sides.
+
+- The `content-state` keys the relay emits are the Swift property names of
+  `RouteActivityAttributes.ContentState` in
+  `geospoof-ios:app/Shared (App)/RouteActivityAttributes.swift`. That type
+  declares no `CodingKeys`, so renaming a Swift property changes the wire
+  format. The relay's request is snake_case. `lib/lambda/apns-relay/push-schema.ts`
+  translates it and turns durations into Unix-epoch absolutes from its own clock.
+- The Apple-facing code (ES256 JWT with `ieee-p1363`, headers, payload shape) is
+  ported from `geospoof-ios:scripts/apns-push.mjs`, which is hardware-proven.
+- The Pro rule and the embedded Apple Root CA - G3 mirror the GPS agent
+  (`geospoof-gps:agent/src/entitlement.rs`, `agent/assets/AppleRootCA-G3.cer`).
+  The relay accepts StoreKit Production and Sandbox, never Xcode or LocalTesting.
+- The client is the GPS agent (Phase 3 of that spec).
+
+### Key custody: CDK does not own the APNs key
+
+The APNs signing key secret `geospoof/apns/signing-key` (JSON
+`{keyId, teamId, p8}`) was created out of band in each account. **Apple will not
+let you download a `.p8` again**, so the stack imports the secret by name
+(`Secret.fromSecretNameV2` plus `grantRead`). An import creates no
+CloudFormation resource, so `cdk destroy` or a construct-id rename can't delete
+or replace it. The value never passes through CDK, so it never lands in a
+template, `cdk.out/` or the CloudFormation console. The Lambda gets the name and
+fetches the value at runtime. If the secret's `keyId`/`teamId` don't match
+`lib/config/app.ts`, it signs nothing and raises a `RelayFault{key_mismatch}`
+alarm.
+
+| Stack                    | Serves `environment` | APNs host                    | Key ID       |
+| ------------------------ | -------------------- | ---------------------------- | ------------ |
+| `GeoSpoofApnsRelay-dev`  | `sandbox`            | `api.sandbox.push.apple.com` | `A3TWAYM427` |
+| `GeoSpoofApnsRelay-prod` | `production`         | `api.push.apple.com`         | `Y7QSB5K2Y6` |
+
+A push for the other environment gets `400 environment_unsupported` and is never
+sent. Whether one relay must serve both hosts depends on
+`geospoof-ios` tasks.md 1.3 (the 6.2b token-family split on production-signed
+builds). If it must, add the second key to `apnsKeys`. The code already supports
+that, but cross-account IAM doesn't exist yet.
+
+To check that the secret exists, use `describe-secret`. **Never run
+`get-secret-value`.**
+
+```sh
+aws secretsmanager describe-secret --secret-id geospoof/apns/signing-key \
+  --profile geospoof-dev --query '{ARN:ARN,Deleted:DeletedDate}'
+```
+
+Rotating the APNs key means a new `.p8`, which means a new Key ID. Write the JSON
+to a private temp file so the key never touches a command line. Then update
+`keyId` in `lib/config/app.ts` and deploy:
+
+```sh
+umask 077; T=$(mktemp -d)
+jq -n --arg keyId NEWKEYID --arg teamId 9445Q654K8 --rawfile p8 AuthKey_NEWKEYID.p8 \
+  '{keyId: $keyId, teamId: $teamId, p8: $p8}' > "$T/secret.json"
+aws secretsmanager put-secret-value --secret-id geospoof/apns/signing-key \
+  --secret-string "file://$T/secret.json" --profile geospoof-dev
+rm -rf "$T"
+```
+
+Warm containers cache the parsed key for their lifetime. After changing a secret,
+redeploy, or recycle containers by updating the function's configuration. The
+**session HMAC key** is a separate, CDK-generated secret. Rotating it signs every
+agent out once (each gets a `401` and calls `/v1/session` again), which is
+recoverable.
+
+### Deploying only this stack
+
+```sh
+aws sso login --profile geospoof-dev
+npx cdk diff   GeoSpoofApnsRelay-dev --context env=dev --profile geospoof-dev
+npx cdk deploy GeoSpoofApnsRelay-dev --context env=dev --profile geospoof-dev
+```
+
+> **`npm run deploy:dev` / `deploy:prod` run `cdk deploy --all`, so they now
+> include the relay.** The next `deploy:prod` will create
+> `GeoSpoofApnsRelay-prod`, which signs with the production key. Use the
+> single-stack command above when you mean only one stack. No CI workflow
+> deploys CDK, so merging deploys nothing.
+
+Read the base URL from the `ApnsRelayUrl` output. Smoke tests that need no
+credentials:
+
+```sh
+URL=https://<api-id>.execute-api.us-east-1.amazonaws.com
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$URL/v1/push" -d '{}'      # 401
+curl -sS -X POST "$URL/v1/session" -H 'content-type: application/json' \
+  -d '{"push_token":"00000000000000000000000000000000","app_transaction":"a.b.c"}'  # 403 entitlement_invalid
+curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$URL/v1/nope"               # 404
+```
+
+### Cost, metrics, alarms
+
+- **Cost ceiling.** The per-route throttles (`/v1/push` 10 req/s burst 20,
+  `/v1/session` 2 req/s burst 10) make the worst case arithmetic: about $67 a
+  month. Expected cost is about $2. The sum is written out beside
+  `APNS_RELAY_THROTTLE` in `lib/config/app.ts`, so a change to the throttle is
+  a visible cost decision.
+- **Budget.** The $10 monthly budget filters on `user:component$apns-relay`, so it
+  reads $0 until `component` is an **active** cost-allocation tag in the account.
+  Check with `aws ce list-cost-allocation-tags --tag-keys component`. The CDN's
+  account-wide budget is the aggregate backstop.
+- **Metrics** live in `GeoSpoof/ApnsRelay` as EMF: `ApnsResponse` by APNs
+  `Status` (or `timeout`/`network`), `ApnsNon2xx`, `RelayRejected` by `Reason`,
+  `RelayFault` by `Reason`, and `SessionIssued`.
+- **Alarms** go to the relay's own SNS topic:
+  - non-2xx rate above 20% for 15 min, at ≥10 pushes per 5 min
+  - any `RelayFault` (key mismatch, unreadable secret, APNs 403)
+  - Lambda errors
+- **Logs** hold failures only, with whitelisted fields (route, error code, APNs
+  status, reason enum, apns-id). The entitlement JWS, push token, session token
+  and provider JWT are credentials and are never logged. There are no API
+  access logs, because they would record client IPs.
+
+### Follow-ups
+
+- **Custom domain.** design.md names `push.geospoof.com` and a dev host. That
+  needs an ACM cert validated at Namecheap plus a CNAME. It must land before the
+  agent ships a hard-coded URL. Until then the execute-api URL is the base.
+- **Reserved concurrency** isn't set, because the account quotas are unverified,
+  and reserving on a 10-concurrency account fails the deploy. Once the quota is
+  known, reserving a small number caps the cost of a hung upstream.
 
 ## First-time account bootstrap
 
