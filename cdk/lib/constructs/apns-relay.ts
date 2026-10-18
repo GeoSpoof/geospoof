@@ -4,6 +4,7 @@ import { Annotations, CfnOutput, Duration, RemovalPolicy } from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as budgets from "aws-cdk-lib/aws-budgets";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cwActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -47,6 +48,9 @@ const SESSION_ROUTE_KEY = "POST /v1/session";
  *
  * HTTP API rather than a Function URL: per-stage/route throttling is what turns
  * the cost ceiling into arithmetic (see the comment in lib/config/app.ts).
+ *
+ * Once `relay.customDomain.certificateArn` is configured, the custom domain is
+ * the only door: the execute-api endpoint is disabled.
  */
 export class ApnsRelay extends Construct {
   readonly httpApi: apigwv2.HttpApi;
@@ -140,12 +144,28 @@ export class ApnsRelay extends Construct {
     for (const { secret } of apnsSecrets) secret.grantRead(this.fn);
     sessionSecret.grantRead(this.fn);
 
+    // The custom domain is enabled only by a cert ARN (DNS is at Namecheap, so
+    // the cert is out of band). A hostname alone just warns, like the CDN.
+    const cd = relay.customDomain;
+    const certificateArn = cd?.certificateArn ? cd.certificateArn : undefined;
+    if (cd && !certificateArn) {
+      Annotations.of(this).addWarning(
+        `customDomain.domainName "${cd.domainName}" is set but certificateArn is not, so the ` +
+          "relay serves only on its execute-api URL. Add a regional ACM cert ARN (same account, " +
+          "us-east-1) to enable the domain."
+      );
+    }
+
     // 6. The HTTP API and its two routes. No CORS: the only client is the
     // desktop agent, never a browser.
     this.httpApi = new apigwv2.HttpApi(this, "Api", {
       apiName: `geospoof-apns-relay-${envName}`,
       description: `GeoSpoof APNs relay for Live Activity push (${envName})`,
       createDefaultStage: false,
+      // The execute-api hostname embeds the API id, which changes if the API is
+      // replaced, so with a domain it is closed: anything embedding it fails now,
+      // not after a replacement. Throttles are per stage, so cost is unaffected.
+      disableExecuteApiEndpoint: certificateArn !== undefined,
     });
     const integration = new HttpLambdaIntegration("Relay", this.fn);
     const sessionRoutes = this.httpApi.addRoutes({
@@ -174,17 +194,49 @@ export class ApnsRelay extends Construct {
     // The stage names the route in RouteSettings, so the route must exist first.
     stage.node.addDependency(...sessionRoutes);
 
-    // 8. Alarms, on their own topic (no coupling to the CDN stack).
+    // 8. The custom domain, only with a cert ARN. The cert is IMPORTED, never
+    // created: an import is no CloudFormation resource, so a deploy can't block
+    // on DNS validation and a destroy can't delete the cert. The mapping
+    // targets $default, so the stage throttles above apply through the domain.
+    let domain: apigwv2.DomainName | undefined;
+    if (cd && certificateArn) {
+      const certificate = acm.Certificate.fromCertificateArn(this, "DomainCert", certificateArn);
+      domain = new apigwv2.DomainName(this, "Domain", {
+        domainName: cd.domainName,
+        certificate,
+        endpointType: apigwv2.EndpointType.REGIONAL,
+        securityPolicy: apigwv2.SecurityPolicy.TLS_1_2,
+      });
+      new apigwv2.ApiMapping(this, "DomainMapping", {
+        api: this.httpApi,
+        domainName: domain,
+        stage,
+      });
+    }
+
+    // 9. Alarms, on their own topic (no coupling to the CDN stack).
     this.addMonitoring(envName, alarmEmail);
 
-    // 9. The budget, scoped to this component's cost-allocation tag.
+    // 10. The budget, scoped to this component's cost-allocation tag.
     if (alarmEmail) this.addBudget(envName, alarmEmail, relay.monthlyBudgetUsd);
 
-    // 10. Outputs.
-    new CfnOutput(this, "ApnsRelayUrl", {
-      value: stage.url,
-      description: "Relay base URL (execute-api $default stage). POST v1/session, v1/push.",
-    });
+    // 11. Outputs.
+    if (cd && domain) {
+      new CfnOutput(this, "ApnsRelayUrl", {
+        value: `https://${cd.domainName}/`,
+        description:
+          "Relay base URL (custom domain; execute-api is disabled). POST v1/session, v1/push.",
+      });
+      new CfnOutput(this, "ApnsRelayDomainTarget", {
+        value: domain.regionalDomainName,
+        description: `CNAME ${cd.domainName} to this at Namecheap (DNS is not in Route 53).`,
+      });
+    } else {
+      new CfnOutput(this, "ApnsRelayUrl", {
+        value: stage.url,
+        description: "Relay base URL (execute-api $default stage). POST v1/session, v1/push.",
+      });
+    }
     new CfnOutput(this, "ApnsRelayApiId", { value: this.httpApi.apiId });
   }
 

@@ -18,14 +18,19 @@ const cdkJsonContext = (
 ).context;
 
 // alarmEmail is passed explicitly; never read from cdk/.env here.
-function synth(envName: EnvName, alarmEmail: string | undefined): Template {
+function synth(
+  envName: EnvName,
+  alarmEmail: string | undefined,
+  overrides: Partial<ApnsRelayConfig> = {},
+  id = `TestApnsRelay-${envName}`
+): Template {
   const env = environments[envName];
   const relay = env.apnsRelay as ApnsRelayConfig;
   if (!relay) throw new Error(`${envName} is expected to configure apnsRelay`);
   const app = new cdk.App({ context: cdkJsonContext });
-  const stack = new ApnsRelayStack(app, `TestApnsRelay-${envName}`, {
+  const stack = new ApnsRelayStack(app, id, {
     envName,
-    relay: { ...relay },
+    relay: { ...relay, ...overrides },
     alarmEmail,
     env: { account: env.account, region: env.region },
   });
@@ -33,9 +38,44 @@ function synth(envName: EnvName, alarmEmail: string | undefined): Template {
   return Template.fromStack(stack);
 }
 
+// dev's certificateArn is filled in once its out-of-band cert is ISSUED (cdk/README.md, "Custom
+// domain"). Until then the domain tests synthesize dev with a same-account placeholder ARN, so they
+// pin exactly what filling it in will produce; afterwards they use the configured ARN.
+const devDomainConfig = environments.dev.apnsRelay?.customDomain;
+const PLACEHOLDER_DEV_CERT_ARN =
+  "arn:aws:acm:us-east-1:898565151814:certificate/00000000-0000-0000-0000-000000000000";
+const devCertArn = devDomainConfig?.certificateArn
+  ? devDomainConfig.certificateArn
+  : PLACEHOLDER_DEV_CERT_ARN;
+const DEV_WITH_DOMAIN = "TestApnsRelay-dev-domain";
+const DEV_NO_DOMAIN = "TestApnsRelay-dev-nodomain";
+
 const dev = synth("dev", "alerts@example.com");
 const devNoEmail = synth("dev", undefined);
 const prod = synth("prod", "alerts@example.com");
+const devWithDomain = synth(
+  "dev",
+  "alerts@example.com",
+  { customDomain: { domainName: "push-dev.geospoof.com", certificateArn: devCertArn } },
+  DEV_WITH_DOMAIN
+);
+const devNoDomain = synth("dev", "alerts@example.com", { customDomain: undefined }, DEV_NO_DOMAIN);
+
+const stackNamed = (id: string): ApnsRelayStack => {
+  const found = stacks.filter((s) => s.node.id === id);
+  expect(found).toHaveLength(1);
+  return found[0];
+};
+
+const warningsOf = (stack: cdk.Stack): unknown[] =>
+  Annotations.fromStack(stack)
+    .findWarning("*", Match.anyValue())
+    .map((w) => w.entry.data);
+
+// The one warning dev may raise: its hostname is configured, its cert ARN not yet.
+const devPendingCertWarnings = devDomainConfig?.certificateArn
+  ? []
+  : [expect.stringMatching(/^customDomain\.domainName "push-dev\.geospoof\.com" .*certificateArn/)];
 
 const onlyResource = (t: Template, type: string): Record<string, unknown> => {
   const all = Object.values(t.findResources(type));
@@ -254,9 +294,11 @@ describe("ApnsRelayStack: the bundled Lambda", () => {
     expect(bundle).not.toMatch(/BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+/]{20}/);
   });
 
-  it("raises no synth warnings or errors", () => {
-    Annotations.fromStack(stack).hasNoWarning("*", Match.anyValue());
+  it("raises no synth warnings or errors (beyond a still-missing domain cert ARN)", () => {
+    // Exactly no warnings once dev's certificateArn is configured.
+    expect(warningsOf(stack)).toEqual(devPendingCertWarnings);
     Annotations.fromStack(stack).hasNoError("*", Match.anyValue());
+    Annotations.fromStack(stackNamed(DEV_WITH_DOMAIN)).hasNoWarning("*", Match.anyValue());
   });
 });
 
@@ -270,5 +312,130 @@ describe("ApnsRelayStack: prod", () => {
     prod.resourceCountIs("AWS::SecretsManager::Secret", 1);
     const budget = onlyResource(prod, "AWS::Budgets::Budget").Budget as Record<string, unknown>;
     expect(budget.BudgetName).toBe("geospoof-apns-relay-prod-monthly");
+  });
+
+  it("throttles the $default stage at 10/20 with /v1/session overridden to 2/10", () => {
+    const stage = onlyResource(prod, "AWS::ApiGatewayV2::Stage");
+    expect(stage.DefaultRouteSettings).toEqual({
+      ThrottlingRateLimit: 10,
+      ThrottlingBurstLimit: 20,
+    });
+    expect(stage.RouteSettings).toEqual({
+      "POST /v1/session": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 10 },
+    });
+  });
+});
+
+describe("ApnsRelayStack: custom domain", () => {
+  const logicalId = (t: Template, type: string): string => {
+    const ids = Object.keys(t.findResources(type));
+    expect(ids).toHaveLength(1);
+    return ids[0];
+  };
+  const outputsNamed = (t: Template, name: string): { Value: unknown }[] =>
+    Object.entries(t.findOutputs("*"))
+      .filter(([k]) => k.includes(name))
+      .map(([, o]) => o as { Value: unknown });
+
+  it("creates a regional DomainName for push-dev.geospoof.com with the configured cert", () => {
+    const props = onlyResource(devWithDomain, "AWS::ApiGatewayV2::DomainName");
+    expect(props.DomainName).toBe("push-dev.geospoof.com");
+    expect(props.DomainNameConfigurations).toEqual([
+      { CertificateArn: devCertArn, EndpointType: "REGIONAL", SecurityPolicy: "TLS_1_2" },
+    ]);
+  });
+
+  it("maps the domain root to the one $default stage, after the stage exists", () => {
+    const mapping = Object.values(devWithDomain.findResources("AWS::ApiGatewayV2::ApiMapping"));
+    expect(mapping).toHaveLength(1);
+    const { Properties, DependsOn } = mapping[0] as {
+      Properties: Record<string, unknown>;
+      DependsOn?: string[];
+    };
+    expect(Properties).toEqual({
+      ApiId: { Ref: logicalId(devWithDomain, "AWS::ApiGatewayV2::Api") },
+      DomainName: { Ref: logicalId(devWithDomain, "AWS::ApiGatewayV2::DomainName") },
+      Stage: "$default",
+    });
+    expect(Properties.ApiMappingKey).toBeUndefined();
+    expect(DependsOn).toContain(logicalId(devWithDomain, "AWS::ApiGatewayV2::Stage"));
+  });
+
+  it("keeps the stage throttles unchanged behind the domain", () => {
+    const stage = onlyResource(devWithDomain, "AWS::ApiGatewayV2::Stage");
+    expect(stage.StageName).toBe("$default");
+    expect(stage.DefaultRouteSettings).toEqual({
+      ThrottlingRateLimit: 10,
+      ThrottlingBurstLimit: 20,
+    });
+    expect(stage.RouteSettings).toEqual({
+      "POST /v1/session": { ThrottlingRateLimit: 2, ThrottlingBurstLimit: 10 },
+    });
+  });
+
+  it("disables the execute-api endpoint once the domain is enabled", () => {
+    expect(onlyResource(devWithDomain, "AWS::ApiGatewayV2::Api").DisableExecuteApiEndpoint).toBe(
+      true
+    );
+  });
+
+  it("outputs the domain URL and the CNAME target", () => {
+    const domainId = logicalId(devWithDomain, "AWS::ApiGatewayV2::DomainName");
+    expect(outputsNamed(devWithDomain, "ApnsRelayDomainTarget")).toEqual([
+      expect.objectContaining({ Value: { "Fn::GetAtt": [domainId, "RegionalDomainName"] } }),
+    ]);
+    expect(outputsNamed(devWithDomain, "ApnsRelayUrl")).toEqual([
+      expect.objectContaining({ Value: "https://push-dev.geospoof.com/" }),
+    ]);
+  });
+
+  it("never creates an ACM certificate", () => {
+    for (const t of [dev, devNoEmail, prod, devWithDomain, devNoDomain]) {
+      t.resourceCountIs("AWS::CertificateManager::Certificate", 0);
+    }
+  });
+
+  it("prod, with a hostname but no cert ARN: no domain, execute-api stays open, and synth says why", () => {
+    prod.resourceCountIs("AWS::ApiGatewayV2::DomainName", 0);
+    prod.resourceCountIs("AWS::ApiGatewayV2::ApiMapping", 0);
+    expect(onlyResource(prod, "AWS::ApiGatewayV2::Api").DisableExecuteApiEndpoint).toBe(false);
+    expect(outputsNamed(prod, "ApnsRelayDomainTarget")).toEqual([]);
+    const url = outputsNamed(prod, "ApnsRelayUrl");
+    expect(url).toHaveLength(1);
+    expect(JSON.stringify(url[0].Value)).toContain("execute-api");
+    expect(warningsOf(stackNamed("TestApnsRelay-prod"))).toEqual([
+      expect.stringMatching(/^customDomain\.domainName "push\.geospoof\.com" .*certificateArn/),
+    ]);
+  });
+
+  it("dev as configured: on its domain once the cert ARN is set, on execute-api until then", () => {
+    const enabled = Boolean(devDomainConfig?.certificateArn);
+    dev.resourceCountIs("AWS::ApiGatewayV2::DomainName", enabled ? 1 : 0);
+    dev.resourceCountIs("AWS::ApiGatewayV2::ApiMapping", enabled ? 1 : 0);
+    expect(onlyResource(dev, "AWS::ApiGatewayV2::Api").DisableExecuteApiEndpoint).toBe(enabled);
+    expect(warningsOf(stacks[0])).toEqual(devPendingCertWarnings);
+  });
+
+  it("dev with the domain removed: no domain, execute-api open, no warnings", () => {
+    devNoDomain.resourceCountIs("AWS::ApiGatewayV2::DomainName", 0);
+    devNoDomain.resourceCountIs("AWS::ApiGatewayV2::ApiMapping", 0);
+    expect(onlyResource(devNoDomain, "AWS::ApiGatewayV2::Api").DisableExecuteApiEndpoint).toBe(
+      false
+    );
+    Annotations.fromStack(stackNamed(DEV_NO_DOMAIN)).hasNoWarning("*", Match.anyValue());
+    Annotations.fromStack(stackNamed(DEV_NO_DOMAIN)).hasNoError("*", Match.anyValue());
+  });
+
+  it("config: hostnames per env, and every cert ARN is in its own env's account and region", () => {
+    expect(environments.dev.apnsRelay?.customDomain?.domainName).toBe("push-dev.geospoof.com");
+    expect(environments.prod.apnsRelay?.customDomain?.domainName).toBe("push.geospoof.com");
+    for (const env of Object.values(environments)) {
+      const arn = env.apnsRelay?.customDomain?.certificateArn;
+      if (arn === undefined) continue;
+      expect(arn).toMatch(new RegExp(`^arn:aws:acm:${env.region}:${env.account}:certificate/`));
+    }
+    expect(PLACEHOLDER_DEV_CERT_ARN).toMatch(
+      new RegExp(`^arn:aws:acm:${environments.dev.region}:${environments.dev.account}:certificate/`)
+    );
   });
 });

@@ -90,6 +90,22 @@ export interface ThrottleConfig {
   readonly burstLimit: number;
 }
 
+/**
+ * The relay's custom domain. DNS for geospoof.com is at Namecheap, so the cert is requested and
+ * DNS-validated OUT OF BAND and imported by ARN; CDK never creates one (it would block the deploy on
+ * validation). API Gateway needs a REGIONAL cert in the SAME account and region as the API
+ * (us-east-1 here), so the CDN's certs can't be reused.
+ */
+export interface ApnsRelayDomainConfig {
+  /** FQDN the agent embeds, e.g. "push.geospoof.com". Never embed the execute-api URL. */
+  readonly domainName: string;
+  /**
+   * ARN of the already-ISSUED regional cert covering `domainName`. Until it is set the relay serves
+   * only on execute-api and synth warns. Once set, execute-api is disabled: the domain is the only door.
+   */
+  readonly certificateArn?: string;
+}
+
 /** The APNs relay for Live Activity push (`ApnsRelayStack`). */
 export interface ApnsRelayConfig {
   readonly bundleId: string;
@@ -111,6 +127,8 @@ export interface ApnsRelayConfig {
   readonly logRetention: RetentionDays;
   /** Monthly cost budget in USD, scoped to `component=apns-relay`. Only created when alarmEmail is set. */
   readonly monthlyBudgetUsd: number;
+  /** Optional custom domain. Served only once its `certificateArn` is set; until then, execute-api. */
+  readonly customDomain?: ApnsRelayDomainConfig;
 }
 
 export interface GeoTzCdnEnv {
@@ -175,6 +193,8 @@ export const APPLE_APP = {
 // Alarms + session secret  4 alarm metrics x $0.10 + 1 secret x $0.40            ~$0.80
 // CEILING ~= $67/month. Expected (~1 push/min per active route, ~240k/month) ~= $2.
 // Each +1 req/s on either route adds ~= $4.75/month. Changing these numbers is a cost decision.
+// Both doors (execute-api and the custom domain) reach the same $default stage, so the custom
+// domain does not change this ceiling.
 // Duration assumes a responsive APNs; a hung upstream is bounded by the 10 s timeout x concurrency,
 // which reserved concurrency would cap (not set: account quota unverified, see cdk/README.md).
 export const APNS_RELAY_THROTTLE: ThrottleConfig = { rateLimit: 10, burstLimit: 20 };
@@ -235,6 +255,14 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
       sessionThrottle: APNS_RELAY_SESSION_THROTTLE,
       logRetention: RetentionDays.TWO_WEEKS,
       monthlyBudgetUsd: 10,
+      customDomain: {
+        domainName: "push-dev.geospoof.com",
+        // DNS for geospoof.com is hosted at Namecheap (not Route 53), so the cert
+        // is created + DNS-validated out of band and imported here by ARN.
+        // Regional, in 898565151814 us-east-1. CNAME push-dev to the ApnsRelayDomainTarget output.
+        // certificateArn is not set yet: add it once the cert is ISSUED (cdk/README.md,
+        // "Custom domain"). Until then dev serves on execute-api only and synth warns.
+      },
     },
   },
   prod: {
@@ -313,6 +341,14 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
       sessionThrottle: APNS_RELAY_SESSION_THROTTLE,
       logRetention: RetentionDays.TWO_WEEKS,
       monthlyBudgetUsd: 10,
+      customDomain: {
+        domainName: "push.geospoof.com",
+        // No certificateArn yet, on purpose: prod is hands-off until the relay ships there, so
+        // prod serves on execute-api only and synth warns. Before prod ships: request a REGIONAL
+        // cert in 682844365870 us-east-1, validate it at Namecheap, add `certificateArn` here,
+        // deploy, then CNAME push to the ApnsRelayDomainTarget output. See cdk/README.md,
+        // "Custom domain".
+      },
     },
   },
 };
