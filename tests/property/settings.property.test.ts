@@ -95,6 +95,7 @@ const FORBIDDEN_KEYS: (keyof Settings)[] = [
   "version",
   "lastUpdated",
   "vpnSyncEnabled",
+  "siteLocations",
 ];
 
 /** The keys that MUST appear in the broadcast payload. */

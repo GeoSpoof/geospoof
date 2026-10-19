@@ -40,7 +40,8 @@
 
 import type { Tabs } from "webextension-polyfill";
 import type { Settings } from "@/shared/types/settings";
-import { computeEffectiveEnabled } from "@/shared/utils/scope";
+import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
+import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { loadSettings } from "./settings";
 import { isRestrictedUrl } from "./tabs";
 import { createLogger } from "@/shared/utils/debug-logger";
@@ -50,9 +51,9 @@ const logger = createLogger("BG");
 /** CDP version string passed to chrome.debugger.attach. */
 const PROTOCOL_VERSION = "1.3";
 
-/** Resolved override values for a single apply pass. */
+/** Resolved override values for one tab. */
 interface Overrides {
-  timezoneId: string | null;
+  timezoneId: string;
 }
 
 /** Top-level listeners installed once per service-worker lifetime. */
@@ -69,12 +70,16 @@ let webNavRegistered = false;
 
 /**
  * Browser-level timezone spoofing runs only with the mode on, protection on,
- * and a timezone to apply. (Geolocation is handled by the injected path, so it
- * doesn't gate this.)
+ * and some timezone to apply: the main one or a site location's. (Geolocation
+ * is handled by the injected path, so it doesn't gate this.)
  */
 function shouldSpoof(settings: Settings): boolean {
   return (
-    __CHROMIUM__ && settings.debuggerModeEnabled && settings.enabled && settings.timezone != null
+    __CHROMIUM__ &&
+    settings.debuggerModeEnabled &&
+    settings.enabled &&
+    (settings.timezone != null ||
+      computeEffectiveSiteLocations(settings.siteLocations, settings.proFeaturesBlocked).length > 0)
   );
 }
 
@@ -83,26 +88,22 @@ function isSpoofableTabUrl(url: string | undefined): boolean {
 }
 
 /**
- * Whether a specific tab URL should be spoofed, honouring the same per-site
- * scope (all / allowlist / denylist) the content-script broadcast uses. Keeps
- * debugger mode consistent with injection mode — a denylisted site is never
- * attached, an allowlisted-only site is the only one attached, etc.
+ * The CDP overrides for one tab, or null when the tab shouldn't be held. Pure.
+ *
+ * Honours the same per-site resolution the content-script payload uses, so
+ * debugger mode agrees with injection mode: a denylisted site is never
+ * attached, an allowlisted-only site is the only one attached, and a site
+ * location's page gets that site's zone. Null for non-http(s) URLs, out-of-scope
+ * tabs, and tabs with no zone to apply.
  */
-function tabInScope(settings: Settings, url: string | undefined): boolean {
-  if (!isSpoofableTabUrl(url)) return false;
-  return computeEffectiveEnabled({
-    masterEnabled: settings.enabled,
-    scopeMode: settings.scopeMode,
-    allowlist: settings.allowlist,
-    denylist: settings.denylist,
-    proFeaturesBlocked: settings.proFeaturesBlocked,
-    topLevelUrl: url,
-    isRestricted: isRestrictedUrl,
-  });
-}
-
-function buildOverrides(settings: Settings): Overrides {
-  return { timezoneId: settings.timezone?.identifier ?? null };
+export function buildOverridesForTab(
+  settings: Settings,
+  url: string | undefined
+): Overrides | null {
+  if (!isSpoofableTabUrl(url)) return null;
+  const r = resolveSiteSettings(settings, url, isRestrictedUrl);
+  if (!r.enabled || !r.settings.timezone) return null;
+  return { timezoneId: r.settings.timezone.identifier };
 }
 
 /**
@@ -111,7 +112,7 @@ function buildOverrides(settings: Settings): Overrides {
  */
 async function applyOverridesToTab(tabId: number, overrides: Overrides): Promise<void> {
   const dbg = chrome.debugger;
-  if (!dbg || !overrides.timezoneId) return;
+  if (!dbg) return;
   try {
     await dbg.sendCommand({ tabId }, "Emulation.setTimezoneOverride", {
       timezoneId: overrides.timezoneId,
@@ -150,13 +151,15 @@ async function attachAndApplyTab(tabId: number, overrides: Overrides): Promise<v
  */
 export async function ensureTabSpoofed(tabId: number, url: string | undefined): Promise<void> {
   const settings = await loadSettings();
-  if (!shouldSpoof(settings) || !tabInScope(settings, url)) {
-    // Out of scope (or spoofing off) — make sure we're not holding a stale
-    // session on this tab (e.g. it navigated from an allowlisted page away).
+  const overrides = shouldSpoof(settings) ? buildOverridesForTab(settings, url) : null;
+  if (overrides === null) {
+    // Out of scope (or spoofing off, or no zone here) — make sure we're not
+    // holding a stale session on this tab (e.g. it navigated from an
+    // allowlisted page away).
     await detachTab(tabId);
     return;
   }
-  await attachAndApplyTab(tabId, buildOverrides(settings));
+  await attachAndApplyTab(tabId, overrides);
 }
 
 /**
@@ -227,8 +230,6 @@ export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
     return;
   }
 
-  const overrides = buildOverrides(settings);
-
   let targets: ChromeDebugger.TargetInfo[] = [];
   try {
     targets = await dbg.getTargets();
@@ -238,20 +239,24 @@ export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
   }
 
   const pageTargets = targets.filter((t) => t.type === "page" && t.tabId != null);
-  const inScope = pageTargets.filter((t) => tabInScope(settings, t.url));
+  // Each tab gets its own overrides (a site location's page has its own zone).
+  const planned = pageTargets.map((t) => ({
+    target: t,
+    overrides: buildOverridesForTab(settings, t.url),
+  }));
+  const apply = planned.filter((p) => p.overrides !== null);
   // Tabs we currently hold that fell out of scope (e.g. scope just changed) must
   // be released so an excluded site isn't left spoofed.
-  const staleAttached = pageTargets.filter((t) => t.attached && !tabInScope(settings, t.url));
+  const staleAttached = planned.filter((p) => p.overrides === null && p.target.attached);
 
   logger.info("[debugger] applying browser-level timezone spoofing", {
-    apply: inScope.length,
+    apply: apply.length,
     detach: staleAttached.length,
-    timezone: overrides.timezoneId,
   });
 
   await Promise.allSettled([
-    ...inScope.map((t) => attachAndApplyTab(t.tabId!, overrides)),
-    ...staleAttached.map((t) => detachTab(t.tabId!)),
+    ...apply.map((p) => attachAndApplyTab(p.target.tabId!, p.overrides!)),
+    ...staleAttached.map((p) => detachTab(p.target.tabId!)),
   ]);
 }
 

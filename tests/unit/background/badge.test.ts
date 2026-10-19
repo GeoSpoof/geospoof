@@ -10,8 +10,17 @@
  */
 
 import { DEFAULT_SETTINGS, type Settings } from "@/shared/types/settings";
-import { badgeStateFor, setBadgeForTab, updateBadge } from "@/background/badge";
+import {
+  badgeStateFor,
+  setBadgeForTab,
+  setTitleForTab,
+  tabTitleFor,
+  updateBadge,
+} from "@/background/badge";
+import { resolveSiteSettings } from "@/shared/utils/site-locations";
+import { isRestrictedUrl } from "@/background/restricted-url";
 import { storageData } from "../../setup";
+import { ENTRY_DUBLIN, ENTRY_MEXICO_CITY, makeSiteLocation } from "../../helpers/site-locations";
 
 function seedSettings(overrides: Partial<Settings>): void {
   storageData.settings = { ...DEFAULT_SETTINGS, ...overrides };
@@ -157,5 +166,106 @@ describe("updateBadge", () => {
       color: "#5b7083",
       tabId: 3,
     });
+  });
+});
+describe("per-tab title (site locations)", () => {
+  const SITES = [ENTRY_DUBLIN, ENTRY_MEXICO_CITY];
+
+  test("updateBadge names the site location on matched tabs and resets the rest", async () => {
+    seedSettings({ enabled: true, scopeMode: "all", siteLocations: SITES });
+    browser.tabs.query.mockResolvedValue([
+      { id: 1, url: "https://chatgpt.com/c/1" },
+      { id: 2, url: "https://www.twitch.tv/x" },
+      { id: 3, url: "https://example.com/" },
+    ]);
+    await updateBadge();
+    expect(browser.action.setTitle).toHaveBeenCalledWith({
+      title: "GeoSpoof: Dublin on chatgpt.com",
+      tabId: 1,
+    });
+    expect(browser.action.setTitle).toHaveBeenCalledWith({
+      title: "GeoSpoof: Mexico City on www.twitch.tv",
+      tabId: 2,
+    });
+    expect(browser.action.setTitle).toHaveBeenCalledWith({ title: "GeoSpoof", tabId: 3 });
+    // Badge colors and states are unchanged: a site-location tab is just active.
+    expect(browser.action.setBadgeBackgroundColor).toHaveBeenCalledWith({
+      color: "green",
+      tabId: 1,
+    });
+  });
+
+  test("an out-of-scope matched tab gets the plain title", async () => {
+    seedSettings({
+      enabled: true,
+      scopeMode: "denylist",
+      denylist: ["chatgpt.com"],
+      siteLocations: SITES,
+    });
+    browser.tabs.query.mockResolvedValue([{ id: 1, url: "https://chatgpt.com/" }]);
+    await updateBadge();
+    expect(browser.action.setTitle).toHaveBeenCalledWith({ title: "GeoSpoof", tabId: 1 });
+  });
+
+  test("tabTitleFor uses the localized string when one exists", () => {
+    const original = (browser as unknown as { i18n?: unknown }).i18n;
+    const getMessage = vi.fn((key: string, subs?: string[]) =>
+      key === "badge_titleSiteLocation" ? `GS ${subs?.[0]} @ ${subs?.[1]}` : ""
+    );
+    (browser as unknown as { i18n?: unknown }).i18n = { getMessage };
+    try {
+      const settings = { ...DEFAULT_SETTINGS, enabled: true, siteLocations: SITES };
+      const url = "https://chatgpt.com/";
+      expect(tabTitleFor(resolveSiteSettings(settings, url, isRestrictedUrl), url)).toBe(
+        "GS Dublin @ chatgpt.com"
+      );
+      // An empty string (missing key) falls back to the English default.
+      const other = "https://example.com/";
+      expect(tabTitleFor(resolveSiteSettings(settings, other, isRestrictedUrl), other)).toBe(
+        "GeoSpoof"
+      );
+    } finally {
+      (browser as unknown as { i18n?: unknown }).i18n = original;
+    }
+  });
+
+  test("tabTitleFor prefers the entry's label", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      enabled: true,
+      siteLocations: [makeSiteLocation({ patterns: ["chatgpt.com"], label: "EU privacy" })],
+    };
+    const url = "https://chatgpt.com/";
+    expect(tabTitleFor(resolveSiteSettings(settings, url, isRestrictedUrl), url)).toBe(
+      "GeoSpoof: EU privacy on chatgpt.com"
+    );
+  });
+
+  test("a missing setTitle is tolerated", async () => {
+    const action = browser.action as unknown as Record<string, unknown>;
+    const original = action.setTitle;
+    delete action.setTitle;
+    try {
+      expect(() => setTitleForTab(1, "GeoSpoof")).not.toThrow();
+      seedSettings({ enabled: true, siteLocations: SITES });
+      browser.tabs.query.mockResolvedValue([{ id: 1, url: "https://chatgpt.com/" }]);
+      await expect(updateBadge()).resolves.toBeUndefined();
+      expect(browser.action.setBadgeText).toHaveBeenCalledWith({ text: "✓", tabId: 1 });
+    } finally {
+      action.setTitle = original;
+    }
+  });
+
+  test("a setTitle rejection is swallowed", async () => {
+    browser.action.setTitle.mockRejectedValueOnce(new Error("No tab with id: 1"));
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      setTitleForTab(1, "GeoSpoof");
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 });

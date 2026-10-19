@@ -51,7 +51,7 @@ const logger = createLogger("BG");
 import { geocodeQuery, reverseGeocode } from "./geocoding";
 import { getTimezoneForCoordinates } from "./timezone";
 import { setWebRTCProtection } from "./webrtc";
-import { updateBadge, setBadgeForTab, badgeStateFor } from "./badge";
+import { updateBadge, applyTabIndicator } from "./badge";
 import {
   broadcastSettingsToTabs,
   injectContentScriptIntoExistingTabs,
@@ -137,8 +137,11 @@ export async function handleMessage(
         // mapping using the payload's Effective_Enabled (Req 12.1–12.3). The
         // badge reflects whether protection is active for the tab, so it stays
         // on in debugger mode even though the injected path is suppressed.
+        // `applyTabIndicator` resolves through the same `resolveSiteSettings`
+        // as the payload, so its badge agrees with `payload.enabled`, and it
+        // also sets the title that names an applied site location.
         if (senderTabId != null) {
-          setBadgeForTab(senderTabId, badgeStateFor(settings.enabled, payload.enabled));
+          applyTabIndicator(senderTabId, settings, _sender.tab.url);
         }
 
         return payload;

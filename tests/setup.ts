@@ -79,6 +79,7 @@ const browserMock: typeof browser = {
   action: {
     setBadgeBackgroundColor: vi.fn().mockResolvedValue(undefined),
     setBadgeText: vi.fn().mockResolvedValue(undefined),
+    setTitle: vi.fn().mockResolvedValue(undefined),
   },
   scripting: {
     executeScript: vi.fn().mockResolvedValue([]),

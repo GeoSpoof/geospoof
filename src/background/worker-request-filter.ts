@@ -120,7 +120,8 @@ import { buildStandaloneWorkerPayload } from "@/shared/worker-payload";
 import { resolvePageLocale } from "@/shared/locale/resolver";
 import { loadSettings } from "./settings";
 import { isRestrictedUrl } from "./tabs";
-import { computeEffectiveEnabled } from "@/shared/utils/scope";
+import { computeEffectiveEnabled, computeEffectiveSiteLocations } from "@/shared/utils/scope";
+import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
 
 const logger = createLogger("BG");
@@ -220,6 +221,12 @@ interface PendingRequest {
   url: string;
   decision: Decision;
   chunks: Uint8Array[];
+  /**
+   * The initiating document's URL, recorded at classification. `onstop` builds
+   * the payload against it so a worker on a site-location page gets that
+   * site's zone, not the main one.
+   */
+  pageUrl?: string;
 }
 
 /** Map from requestId to the active filter + decision state. */
@@ -298,6 +305,53 @@ function isAllowlisted(url: string): boolean {
  */
 export function updateWorkerFilterSettings(settings: Settings): void {
   cachedSettings = settings;
+}
+
+/**
+ * Whether any timezone could apply to a worker: the main one, or an effective
+ * site location's. Lets the attach short-circuit skip work when neither
+ * exists, without missing a site-location page whose main location is unset.
+ */
+export function hasWorkerTimezoneSource(settings: Settings): boolean {
+  return (
+    !!settings.timezone?.identifier ||
+    computeEffectiveSiteLocations(settings.siteLocations, settings.proFeaturesBlocked).length > 0
+  );
+}
+
+/**
+ * Build the worker payload for a worker created by the document at `pageUrl`.
+ * The timezone and locale come from the same per-site resolution the page
+ * payload uses, so a worker and its page agree. Returns "" when there is
+ * neither a timezone nor a locale to apply (leave the script unmodified).
+ */
+export function workerPayloadFor(settings: Settings, pageUrl: string | undefined): string {
+  const effective = resolveSiteSettings(settings, pageUrl, isRestrictedUrl).settings;
+  const identifier = effective.timezone?.identifier;
+  // Either axis alone is enough to warrant a payload — a user can spoof a
+  // locale with no location (hence no timezone), or a timezone with no locale.
+  const locale = resolvePageLocale(
+    effective.localeSpoofing,
+    identifier ?? null,
+    effective.proFeaturesBlocked
+  );
+  return identifier || locale ? buildStandaloneWorkerPayload(identifier, locale) : "";
+}
+
+/**
+ * The URL of the document that initiated a request.
+ *
+ *   - Dedicated / module workers carry the spawning page's tabId, so the
+ *     per-tab cache answers directly.
+ *   - SharedWorkers are NOT bound to a tab (Firefox reports tabId === -1), so
+ *     the cache can't help. Firefox does, however, populate `documentUrl` /
+ *     `originUrl` on the request with the document that created the worker.
+ *     Using that is race-free — no dependency on the ANNOUNCE_WORKER_FETCH
+ *     handshake winning against the worker fetch — and gives a reliable
+ *     origin for the same-origin and scope gates.
+ */
+function resolveInitiatorUrl(details: WebRequestDetails): string | undefined {
+  return tabPageUrlCache.get(details.tabId) ?? details.documentUrl ?? details.originUrl;
 }
 
 /**
@@ -506,17 +560,9 @@ function classifyRequest(details: WebRequestDetailsWithHeaders): Decision {
   // untouched (documented known limitation).
   if (dest === "serviceworker") return "pass";
 
-  // Resolve the URL of the document that initiated this worker fetch.
-  //
-  //   - Dedicated / module workers carry the spawning page's tabId, so the
-  //     per-tab cache answers directly.
-  //   - SharedWorkers are NOT bound to a tab (Firefox reports tabId === -1), so
-  //     the cache can't help. Firefox does, however, populate `documentUrl` /
-  //     `originUrl` on the request with the document that created the worker.
-  //     Using that is race-free — no dependency on the ANNOUNCE_WORKER_FETCH
-  //     handshake winning against the worker fetch — and gives a reliable
-  //     origin for the same-origin and scope gates below.
-  const pageUrl = tabPageUrlCache.get(details.tabId) ?? details.documentUrl ?? details.originUrl;
+  // Resolve the URL of the document that initiated this worker fetch (see
+  // resolveInitiatorUrl for the per-tab cache vs SharedWorker fallback).
+  const pageUrl = resolveInitiatorUrl(details);
   if (!pageUrl) return "pass"; // unknown initiator → safe fallback
 
   // Scope gate (Req 11): consult the single source of truth so the worker
@@ -560,8 +606,8 @@ function onBeforeWorkerRequest(details: WebRequestDetails): void {
   // 2. Spoofing disabled — nothing to prepend, don't bother attaching.
   if (!cachedSettings.enabled) return;
 
-  // 3. No timezone configured.
-  if (!cachedSettings.timezone?.identifier) return;
+  // 3. No timezone configured, neither main nor any site location's.
+  if (!hasWorkerTimezoneSource(cachedSettings)) return;
 
   // 4. Only http(s) scripts — data:/blob: are handled by the content-
   //    script constructor wrapper, webRequest doesn't see them.
@@ -625,21 +671,11 @@ function onBeforeWorkerRequest(details: WebRequestDetails): void {
       if (state.decision === "patch") {
         // Build payload fresh so any concurrent timezone change
         // (rare, but possible mid-flight) is reflected in the next
-        // completed worker script.
-        const identifier = cachedSettings?.timezone?.identifier;
-        // Resolve the locale from the same snapshot, so a worker script gets the
-        // identical Reported Language the page realm does. Either axis alone is
-        // enough to warrant a payload — a user can spoof a locale with no
-        // location (hence no timezone), or a timezone with no locale.
-        const locale = cachedSettings
-          ? resolvePageLocale(
-              cachedSettings.localeSpoofing,
-              cachedSettings.timezone?.identifier ?? null,
-              cachedSettings.proFeaturesBlocked
-            )
-          : null;
-        const payload =
-          identifier || locale ? buildStandaloneWorkerPayload(identifier, locale) : "";
+        // completed worker script. The timezone and locale are resolved
+        // for the initiating page from the same snapshot, so a worker
+        // script gets the identical zone and Reported Language its page
+        // realm does (including a site location's).
+        const payload = cachedSettings ? workerPayloadFor(cachedSettings, state.pageUrl) : "";
         if (payload) {
           if (cachedSettings?.debugLogging) {
             logger.info(`[worker-filter] patching worker script: ${state.url}`);
@@ -701,6 +737,7 @@ function onBeforeWorkerSendHeaders(details: WebRequestDetailsWithHeaders): void 
 
   const decision = classifyRequest(details);
   state.decision = decision;
+  state.pageUrl = resolveInitiatorUrl(details);
 
   if (cachedSettings?.debugLogging) {
     const dest = readSecFetchDest(details.requestHeaders) ?? "(absent)";

@@ -262,6 +262,7 @@ describe("Per-Tab Settings Broadcast", () => {
             // Privacy invariant: lists never appear in a page-bound payload.
             expect(payload).not.toHaveProperty("allowlist");
             expect(payload).not.toHaveProperty("denylist");
+            expect(payload).not.toHaveProperty("siteLocations");
           }
         }
       ),

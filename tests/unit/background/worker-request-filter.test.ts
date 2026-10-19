@@ -13,8 +13,11 @@ import {
   isSameOriginWorker,
   tabPageUrlCache,
   updateWorkerFilterSettings,
+  hasWorkerTimezoneSource,
+  workerPayloadFor,
 } from "@/background/worker-request-filter";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
+import { ENTRY_DUBLIN, TOKYO, TOKYO_TZ } from "../../helpers/site-locations";
 
 /** In-scope settings snapshot so the scope gate passes through to the same-origin gate. */
 const IN_SCOPE_SETTINGS = { ...DEFAULT_SETTINGS, enabled: true, scopeMode: "all" as const };
@@ -268,5 +271,41 @@ describe("classifyRequest — fix checking (same-origin gate)", () => {
         requestHeaders: [{ name: "Sec-Fetch-Dest", value: "worker" }],
       })
     ).toBe("patch");
+  });
+});
+
+describe("site locations", () => {
+  const SITE_SETTINGS = {
+    ...IN_SCOPE_SETTINGS,
+    location: TOKYO,
+    timezone: TOKYO_TZ,
+    siteLocations: [ENTRY_DUBLIN],
+  };
+
+  test("workerPayloadFor uses the site zone on a matched page", () => {
+    const payload = workerPayloadFor(SITE_SETTINGS, "https://chatgpt.com/c/1");
+    expect(payload).toContain('"Europe/Dublin"');
+    expect(payload).not.toContain('"Asia/Tokyo"');
+  });
+
+  test("workerPayloadFor uses the main zone elsewhere", () => {
+    const payload = workerPayloadFor(SITE_SETTINGS, "https://example.com/");
+    expect(payload).toContain('"Asia/Tokyo"');
+    expect(payload).not.toContain('"Europe/Dublin"');
+  });
+
+  test("workerPayloadFor never applies a site zone out of scope", () => {
+    const s = { ...SITE_SETTINGS, scopeMode: "denylist" as const, denylist: ["chatgpt.com"] };
+    expect(workerPayloadFor(s, "https://chatgpt.com/")).not.toContain('"Europe/Dublin"');
+  });
+
+  test("workerPayloadFor is empty with no zone and no locale", () => {
+    expect(workerPayloadFor({ ...IN_SCOPE_SETTINGS }, "https://example.com/")).toBe("");
+  });
+
+  test("hasWorkerTimezoneSource is true with only site locations", () => {
+    expect(hasWorkerTimezoneSource({ ...SITE_SETTINGS, timezone: null })).toBe(true);
+    expect(hasWorkerTimezoneSource({ ...IN_SCOPE_SETTINGS, timezone: TOKYO_TZ })).toBe(true);
+    expect(hasWorkerTimezoneSource({ ...IN_SCOPE_SETTINGS })).toBe(false);
   });
 });

@@ -11,7 +11,8 @@
 
 import type { Settings } from "@/shared/types/settings";
 import type { UpdateSettingsPayload } from "@/shared/types/messages";
-import { computeEffectiveEnabled, computeEffectivePreserveGeoPrompt } from "@/shared/utils/scope";
+import { computeEffectivePreserveGeoPrompt } from "@/shared/utils/scope";
+import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { computeEffectiveAccuracySetting } from "@/shared/accuracy/resolver";
 import { resolvePageLocale } from "@/shared/locale/resolver";
 import { resolveCurrentPageLocation } from "./precision-cadence";
@@ -31,7 +32,9 @@ export type BootstrapPayload = { enabled: true } & Pick<
  * `enabled` field is that tab's `Effective_Enabled` value, computed from its
  * top-level URL via the shared `computeEffectiveEnabled` source of truth (Req
  * 8.1, 8.2). The non-scope fields are equal to the persisted Settings (Req
- * 8.3). The allowlist/denylist arrays are never included — `UpdateSettingsPayload`
+ * 8.3), except that a matching site location supplies `location`, `timezone`,
+ * and (in Match mode) `locale` via `resolveSiteSettings`. The allowlist/denylist
+ * arrays and the site-location list are never included — `UpdateSettingsPayload`
  * has no list keys, so the lists cannot leak (privacy invariant).
  */
 export async function buildPagePayload(
@@ -39,16 +42,12 @@ export async function buildPagePayload(
   topLevelUrl: string | undefined
 ): Promise<UpdateSettingsPayload> {
   // Resolve Effective_Enabled for this tab against its top-level URL (Req 8.1,
-  // 8.2). Restricted or undeterminable URLs resolve to false (Req 8.6, 8.7).
-  const enabled = computeEffectiveEnabled({
-    masterEnabled: settings.enabled,
-    scopeMode: settings.scopeMode,
-    allowlist: settings.allowlist,
-    denylist: settings.denylist,
-    proFeaturesBlocked: settings.proFeaturesBlocked,
-    topLevelUrl,
-    isRestricted: isRestrictedUrl,
-  });
+  // 8.2), then the site location, if one matches. Restricted or undeterminable
+  // URLs resolve to false (Req 8.6, 8.7). Out of scope, `r.settings` is the
+  // input itself, so an entry's coordinates can't reach a page Filters keep
+  // GeoSpoof off. Only location, timezone, and locale follow the site; every
+  // other field stays global.
+  const r = resolveSiteSettings(settings, topLevelUrl, isRestrictedUrl);
 
   // When browser-level (chrome.debugger) spoofing is active on Chromium, CDP
   // owns the TIMEZONE (it covers every frame/worker before first script).
@@ -60,15 +59,16 @@ export async function buildPagePayload(
   const debuggerActive = __CHROMIUM__ && settings.debuggerModeEnabled;
 
   return {
-    enabled,
+    enabled: r.enabled,
     // Approximate-location precision, when enabled, offsets the reported point
     // within its radius; `exact` (the default) returns the anchor unchanged.
     // The anchor in storage is never mutated. On iOS Safari a non-Pro user is
     // gated back to exact (fail-open elsewhere). `resolveCurrentPageLocation`
     // is the shared resolver, so every page-bound payload agrees on the point
-    // for the current cadence period (location-precision Req 5.2).
-    location: await resolveCurrentPageLocation(settings),
-    timezone: debuggerActive ? null : settings.timezone,
+    // for the current cadence period (location-precision Req 5.2). A site
+    // location's point is the anchor here, with the global seed and cadence.
+    location: await resolveCurrentPageLocation(r.settings),
+    timezone: debuggerActive ? null : r.settings.timezone,
     debugLogging: settings.debugLogging,
     verbosityLevel: settings.verbosityLevel,
     webrtcProtection: settings.webrtcProtection,
@@ -87,10 +87,11 @@ export async function buildPagePayload(
     // Reported Language, resolved here so the page world receives only the
     // outcome — never the mode or the zone/country mapping data. Pro-gated back
     // to "off" for a non-entitled Safari user. `null` means "leave the real
-    // locale alone", which is also the default (Req 12.4).
+    // locale alone", which is also the default (Req 12.4). In Match mode the
+    // locale follows the site location's zone.
     locale: resolvePageLocale(
       settings.localeSpoofing,
-      settings.timezone?.identifier ?? null,
+      r.settings.timezone?.identifier ?? null,
       settings.proFeaturesBlocked
     ),
   };

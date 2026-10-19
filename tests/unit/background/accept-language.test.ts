@@ -12,8 +12,15 @@
 
 import { describe, test, expect } from "vitest";
 import type { Settings } from "@/shared/types/settings";
-import { resolveAcceptLanguageFor } from "@/background/accept-language";
-import { resolvePageLocale } from "@/shared/locale/resolver";
+import { MAX_SITE_LOCATIONS } from "@/shared/types/settings";
+import {
+  ACCEPT_LANGUAGE_RULE_IDS,
+  planAcceptLanguageRules,
+  resolveAcceptLanguageFor,
+  usesPerTabRules,
+} from "@/background/accept-language";
+import { resolveLocale, resolvePageLocale } from "@/shared/locale/resolver";
+import { ENTRY_DUBLIN, ENTRY_MEXICO_CITY } from "../../helpers/site-locations";
 
 function makeSettings(overrides?: Partial<Settings>): Settings {
   return {
@@ -181,5 +188,86 @@ describe("header format", () => {
   test("a language-only tag advertises a single entry", () => {
     const s = makeSettings({ localeSpoofing: { mode: "custom", locale: "ja" } });
     expect(resolveAcceptLanguageFor(s, PAGE)).toBe("ja");
+  });
+});
+
+describe("site locations", () => {
+  const acceptFor = (zone: string): string =>
+    resolveLocale({ mode: "match" }, zone)!.acceptLanguage;
+  const withSites = (overrides?: Partial<Settings>): Settings =>
+    makeSettings({
+      localeSpoofing: { mode: "match" },
+      siteLocations: [ENTRY_DUBLIN, ENTRY_MEXICO_CITY],
+      ...overrides,
+    });
+  const TABS = [
+    { id: 1, url: "https://chatgpt.com/" }, // Dublin
+    { id: 2, url: "https://www.twitch.tv/x" }, // Mexico City
+    { id: 3, url: "https://example.com/" }, // main (Paris)
+    { id: 4, url: "https://openai.com/c" }, // Dublin
+    { id: 5, url: "about:blank" }, // restricted: no rule
+    { url: "https://example.com/no-id" }, // no id: skipped
+  ];
+
+  test("a matched URL gets the site location's value", () => {
+    const s = withSites();
+    expect(resolveAcceptLanguageFor(s, "https://chatgpt.com/")).toBe(acceptFor("Europe/Dublin"));
+    expect(resolveAcceptLanguageFor(s, "https://example.com/")).toBe(acceptFor("Europe/Paris"));
+  });
+
+  test("the rule ids cover one global rule plus one per site location", () => {
+    expect(ACCEPT_LANGUAGE_RULE_IDS).toHaveLength(MAX_SITE_LOCATIONS + 1);
+    expect(ACCEPT_LANGUAGE_RULE_IDS[0]).toBe(8801);
+    expect(ACCEPT_LANGUAGE_RULE_IDS.at(-1)).toBe(8801 + MAX_SITE_LOCATIONS);
+  });
+
+  test("with no site locations, 'all' mode keeps the single global rule", () => {
+    const s = makeSettings({ localeSpoofing: { mode: "match" } });
+    expect(usesPerTabRules(s)).toBe(false);
+    expect(planAcceptLanguageRules(s, TABS)).toEqual([
+      { id: 8801, value: acceptFor("Europe/Paris"), condition: { urlFilter: "*" } },
+    ]);
+  });
+
+  test("Match mode with site locations groups tabs by value, sorted, with sequential ids", () => {
+    const s = withSites();
+    expect(usesPerTabRules(s)).toBe(true);
+    const groups = [
+      { value: acceptFor("Europe/Dublin"), tabIds: [1, 4] },
+      { value: acceptFor("America/Mexico_City"), tabIds: [2] },
+      { value: acceptFor("Europe/Paris"), tabIds: [3] },
+    ].sort((a, b) => (a.value < b.value ? -1 : 1));
+    expect(planAcceptLanguageRules(s, TABS)).toEqual(
+      groups.map((g, i) => ({ id: 8801 + i, value: g.value, condition: { tabIds: g.tabIds } }))
+    );
+  });
+
+  test("custom mode stays global: the locale doesn't follow the zone", () => {
+    const s = withSites({ localeSpoofing: { mode: "custom", locale: "fr-FR" } });
+    expect(usesPerTabRules(s)).toBe(false);
+    const plan = planAcceptLanguageRules(s, TABS);
+    expect(plan).toHaveLength(1);
+    expect(plan[0].condition).toEqual({ urlFilter: "*" });
+  });
+
+  test("Filters still decide: an out-of-scope tab gets no rule", () => {
+    const s = withSites({ scopeMode: "allowlist", allowlist: ["twitch.tv"] });
+    expect(planAcceptLanguageRules(s, TABS)).toEqual([
+      { id: 8801, value: acceptFor("America/Mexico_City"), condition: { tabIds: [2] } },
+    ]);
+  });
+
+  test("master off plans no rules", () => {
+    expect(planAcceptLanguageRules(withSites({ enabled: false }), TABS)).toEqual([]);
+    expect(
+      planAcceptLanguageRules(
+        makeSettings({ enabled: false, localeSpoofing: { mode: "match" } }),
+        TABS
+      )
+    ).toEqual([]);
+  });
+
+  test("no locale at all plans no rules", () => {
+    expect(planAcceptLanguageRules(makeSettings(), TABS)).toEqual([]);
   });
 });

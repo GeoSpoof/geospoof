@@ -16,6 +16,7 @@ import { describe, test, expect, vi } from "vitest";
 import type { Settings } from "@/shared/types/settings";
 import type { Message } from "@/shared/types/messages";
 import { computeEffectiveEnabled } from "@/shared/utils/scope";
+import { ENTRY_DUBLIN } from "../../helpers/site-locations";
 
 function makeSettings(overrides?: Partial<Settings>): Settings {
   return {
@@ -319,6 +320,30 @@ describe("Tab-lifecycle per-tab scope resolution (task 5.3)", () => {
       await flushMicrotasks();
 
       expect(byTab.has(tabId)).toBe(false);
+    });
+
+    test("a same-document navigation onto a site-location page sets the title and site payload", async () => {
+      const s = makeSettings({ siteLocations: [ENTRY_DUBLIN] });
+      const { onUpdated } = await captureHandlers(s);
+      const byTab = captureUpdateMessages();
+      const setTitle = vi.fn().mockResolvedValue(undefined);
+      browser.action.setTitle = setTitle;
+
+      const tabId = 43;
+      const url = "https://chatgpt.com/c/1";
+      onUpdated(tabId, { url }, { id: tabId, url } as browser.tabs.Tab);
+      await flushMicrotasks();
+
+      expect(setTitle).toHaveBeenCalledWith({ title: "GeoSpoof: Dublin on chatgpt.com", tabId });
+      const payload = byTab.get(tabId)!.payload as unknown as Record<string, unknown>;
+      expect(payload.timezone).toEqual(ENTRY_DUBLIN.timezone);
+      expect(payload).not.toHaveProperty("siteLocations");
+
+      // Leaving for a site without one resets the title explicitly.
+      const away = "https://example.com/";
+      onUpdated(tabId, { url: away }, { id: tabId, url: away } as browser.tabs.Tab);
+      await flushMicrotasks();
+      expect(setTitle).toHaveBeenLastCalledWith({ title: "GeoSpoof", tabId });
     });
   });
 });
