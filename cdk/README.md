@@ -117,19 +117,26 @@ Preview + deploy (these wrap `--context env` and `--profile` for you):
 # Always log in first:
 aws sso login --profile geospoof-dev      # or geospoof-prod
 
-npm run diff:dev       # cdk diff  against dev
-npm run deploy:dev     # build:full + cdk deploy --all (dev)
+npm run diff:dev            # cdk diff --all against dev (read-only)
+npm run deploy:dev          # build:full + deploy GeoSpoofGeoTzCdn-dev only
+npm run deploy:relay:dev    # build:full + deploy GeoSpoofApnsRelay-dev only
 
-npm run diff:prod      # cdk diff  against prod
-npm run deploy:prod    # build:full + cdk deploy --all (prod)
+npm run diff:prod           # cdk diff --all against prod (read-only)
+npm run deploy:prod         # build:full + deploy GeoSpoofGeoTzCdn-prod only
+npm run deploy:relay:prod   # build:full + deploy GeoSpoofApnsRelay-prod only
 ```
+
+Each deploy script names one stack with `--exclusively`, so shipping a CDN
+change can never stand up or change the relay, and the reverse. The relay
+scripts deliberately omit `--require-approval never`: a change that broadens
+IAM (the relay reads the APNs signing key) stops and asks.
 
 Running the CDK CLI directly (equivalent to the scripts, handy for one-offs):
 
 ```sh
 npx cdk synth  --context env=prod --profile geospoof-prod
 npx cdk diff   --all --context env=prod --profile geospoof-prod
-npx cdk deploy --all --context env=prod --profile geospoof-prod
+npx cdk deploy GeoSpoofGeoTzCdn-prod --exclusively --context env=prod --profile geospoof-prod
 ```
 
 ## Querying the deployed environments
@@ -341,11 +348,10 @@ npx cdk diff   GeoSpoofApnsRelay-dev --context env=dev --profile geospoof-dev
 npx cdk deploy GeoSpoofApnsRelay-dev --context env=dev --profile geospoof-dev
 ```
 
-> **`npm run deploy:dev` / `deploy:prod` run `cdk deploy --all`, so they now
-> include the relay.** The next `deploy:prod` will create
-> `GeoSpoofApnsRelay-prod`, which signs with the production key. Use the
-> single-stack command above when you mean only one stack. No CI workflow
-> deploys CDK, so merging deploys nothing.
+Or `npm run deploy:relay:dev` / `deploy:relay:prod`, which wrap the same
+command. `deploy:dev` / `deploy:prod` deploy only the CDN stack, so the prod
+relay (which signs with the production key) is only ever created on purpose.
+No CI workflow deploys CDK, so merging deploys nothing.
 
 Read the base URL from the `ApnsRelayUrl` output. Smoke tests that need no
 credentials:
