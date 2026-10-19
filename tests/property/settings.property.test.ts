@@ -85,6 +85,7 @@ const settingsArb: fc.Arbitrary<Settings> = fc.record({
   // an active locale would add a derived field unrelated to those assertions.
   // Locale resolution/validation is covered by locale-resolver.property.test.ts.
   localeSpoofing: fc.constant({ mode: "off" as const }),
+  siteLocations: fc.constant([]),
 });
 
 /** The keys that MUST NOT appear in the broadcast payload. */

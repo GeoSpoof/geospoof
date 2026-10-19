@@ -118,6 +118,7 @@ describe("Multi-Tab Integration Tests", () => {
         precisionSeed: 0,
         precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
+        siteLocations: [],
       };
 
       // Act: Should not throw even if some tabs fail
@@ -289,6 +290,7 @@ describe("Multi-Tab Integration Tests", () => {
         precisionSeed: 123456789,
         precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
+        siteLocations: [],
       };
 
       storageGet.mockResolvedValue({ settings });
@@ -359,6 +361,7 @@ describe("Multi-Tab Integration Tests", () => {
         precisionSeed: 987654321,
         precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
+        siteLocations: [],
       };
 
       storageGet.mockResolvedValue({ settings });
@@ -432,6 +435,7 @@ describe("Multi-Tab Integration Tests", () => {
         precisionSeed: 0,
         precisionCadence: "never" as const,
         localeSpoofing: { mode: "off" as const },
+        siteLocations: [],
       };
 
       storageGet.mockResolvedValue({ settings });

@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Cross-language parity fixture for the Site locations pattern grammar.",
+    "A site-location pattern is the Filters grammar (pattern-vectors.json) minus paths and a",
+    "wildcard-only host: every valid vector's expected value equals parsePattern(input), so",
+    "the host-only grammar is a strict subset of Filters with the identical canonical form.",
+    "",
+    "Each entry is { input, expected } where expected is the canonical stored string, or",
+    "null (with a reason) when the input is not a valid site-location pattern. Expected values",
+    "are hand-authored (an independent contract), NOT re-derived from either parser.",
+    "Additive only: append vectors, never change existing ones.",
+    "",
+    "Consumed by:",
+    "  - tests/unit/shared/site-location-vectors.test.ts (TypeScript, runs under `npm test`)",
+    "  - a future geospoof-ios Swift parity test (not yet written)"
+  ],
+  "valid": [
+    { "input": "twitch.tv", "expected": "twitch.tv" },
+    { "input": "  Twitch.TV  ", "expected": "twitch.tv" },
+    { "input": "https://Twitch.tv/", "expected": "https://twitch.tv" },
+    { "input": "*.example.com", "expected": "*.example.com" },
+    { "input": "*.ru", "expected": "*.ru" },
+    { "input": "localhost:3000", "expected": "localhost:3000" },
+    { "input": "127.0.0.1", "expected": "127.0.0.1" },
+    { "input": "MÜNCHEN.de", "expected": "münchen.de" },
+    { "input": "example.com:*", "expected": "example.com" },
+    { "input": "example.com?x=1#y", "expected": "example.com" },
+    { "input": "*://example.com", "expected": "*://example.com" }
+  ],
+  "invalid": [
+    { "input": "*", "expected": null, "reason": "wildcard-only host" },
+    { "input": "*://*", "expected": null, "reason": "wildcard-only host" },
+    { "input": "https://*:8080", "expected": null, "reason": "wildcard-only host with a port" },
+    { "input": "twitch.tv/videos", "expected": null, "reason": "paths are not allowed" },
+    { "input": "example.com/*", "expected": null, "reason": "paths are not allowed" },
+    { "input": "com", "expected": null, "reason": "a bare TLD is not a site" },
+    { "input": "*.*.com", "expected": null, "reason": "a wildcard only as a leading *." },
+    { "input": "ftp://example.com", "expected": null, "reason": "only http, https, or *" },
+    { "input": "", "expected": null, "reason": "empty" },
+    { "input": "exa mple.com", "expected": null, "reason": "whitespace inside the host" },
+    { "input": "example.com:99999", "expected": null, "reason": "port out of range" }
+  ]
+}

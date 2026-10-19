@@ -22,6 +22,7 @@ import { validateLocaleSpoofing } from "@/shared/locale/resolver";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import { createLogger } from "@/shared/utils/debug-logger";
 import { parsePattern } from "@/shared/utils/scope";
+import { validateSiteLocations } from "@/shared/utils/site-locations";
 import { getLastSyncedIp } from "./vpn-sync";
 import { updateBootstrapRegistration } from "./bootstrap-register";
 
@@ -33,6 +34,13 @@ import { updateBootstrapRegistration } from "./bootstrap-register";
  * repair path for a stored `localeSpoofing`.
  */
 export { validateLocaleSpoofing };
+
+/**
+ * Re-exported for the same reason: the implementation lives in
+ * `shared/utils/site-locations.ts` next to the grammar it re-parses, and the
+ * Safari app bridge adopts lists through it too.
+ */
+export { validateSiteLocations };
 
 const logger = createLogger("BG");
 
@@ -445,6 +453,11 @@ export function validateSettings(settings: Partial<Settings>): Settings {
   // against this engine's locale data; anything unusable collapses to `off` so
   // the user's real locale is reported rather than a half-applied one.
   validated.localeSpoofing = validateLocaleSpoofing(settings.localeSpoofing);
+
+  // siteLocations: repair an absent/malformed value to [] and drop invalid
+  // entries (bad coordinates, fallback zones, unknown kinds, patterns another
+  // entry already claims). Absent repairs to [] with no version bump.
+  validated.siteLocations = validateSiteLocations(settings.siteLocations);
 
   return validated;
 }
