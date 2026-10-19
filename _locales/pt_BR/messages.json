@@ -738,5 +738,223 @@
   "advanced_locale_proNote": {
     "message": "🔒 Idioma informado é um recurso do GeoSpoof Pro. Faça upgrade no app GeoSpoof para mudar o idioma que os sites veem.",
     "description": "Shown for non-Pro users when the Reported Language control is disabled, explaining that it is a Pro feature."
+  },
+  "siteLocation_rowHeading": {
+    "message": "Este site",
+    "description": "Heading of the Main-tab row that shows which location the current tab's site gets (Site locations)."
+  },
+  "siteLocation_statusMain": {
+    "message": "$SITE$ · Localização principal",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Status of the This site row when the site uses the global location. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
+  },
+  "siteLocation_statusSite": {
+    "message": "$SITE$ · $PLACE$ (localização por site)",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Mexico City"
+      }
+    },
+    "description": "Status of the This site row when a site location applies. $SITE$ is the host name, $PLACE$ the site location's name."
+  },
+  "siteLocation_statusFiltersOff": {
+    "message": "O GeoSpoof está desativado neste site (Filtros)",
+    "description": "Status of the This site row when the user's Filters (allowlist/denylist) keep GeoSpoof off for the current site."
+  },
+  "siteLocation_useDifferent": {
+    "message": "Usar outra localização aqui",
+    "description": "Button on the This site row that opens the editor to give the current site its own location."
+  },
+  "siteLocation_change": {
+    "message": "Alterar",
+    "description": "Button on the This site row that edits the site location applied to the current site."
+  },
+  "siteLocation_useMain": {
+    "message": "Usar localização principal",
+    "description": "Button on the This site row that stops using a site location for the current site, so it uses the main (global) location again."
+  },
+  "siteLocation_hintAllowlist": {
+    "message": "Os filtros não falsificam este site. Adicionar à lista de permissões?",
+    "description": "Hint on the This site row in allowlist mode when the current site isn't on the allowlist."
+  },
+  "siteLocation_addToAllowlist": {
+    "message": "Adicionar à lista de permissões",
+    "description": "One-tap button that adds the current site to the Filters allowlist."
+  },
+  "siteLocation_hintDenylist": {
+    "message": "Os filtros não falsificam este site porque ele está na sua lista de bloqueio.",
+    "description": "Hint on the This site row in denylist mode when the current site is blocked by the denylist."
+  },
+  "siteLocation_hintVpn": {
+    "message": "Os sites continuam vendo o endereço IP da sua VPN. Uma localização diferente aqui pode parecer inconsistente.",
+    "description": "Hint shown with Sync with VPN on, explaining that a site location doesn't change the IP address sites see."
+  },
+  "siteLocation_reloadHint": {
+    "message": "Recarregue as páginas deste site para aplicar a mudança em todos os lugares.",
+    "description": "Hint shown after a site location change, because already-open pages keep their old values until reloaded."
+  },
+  "siteLocation_sitesLabel": {
+    "message": "Sites",
+    "description": "Label of the site location editor's text field listing the sites the location applies to."
+  },
+  "siteLocation_sitesHint": {
+    "message": "Separe os sites com vírgulas, ex.: chatgpt.com, openai.com",
+    "description": "Help text under the Sites field. Keep the example domains unchanged."
+  },
+  "siteLocation_searchLabel": {
+    "message": "Localização",
+    "description": "Label of the site location editor's location search field."
+  },
+  "siteLocation_favoriteLabel": {
+    "message": "Ou escolha um favorito",
+    "description": "Label of the site location editor's favorites dropdown."
+  },
+  "siteLocation_favoriteNone": {
+    "message": "Escolha um favorito",
+    "description": "Placeholder option in the site location editor's favorites dropdown."
+  },
+  "siteLocation_chosenNone": {
+    "message": "Nenhuma localização escolhida ainda",
+    "description": "Shown in the site location editor before a location has been picked."
+  },
+  "siteLocation_explain": {
+    "message": "As páginas em $SITES$, e tudo o que estiver incorporado nelas, verão $PLACE$. Os outros sites mantêm sua localização principal.",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "chatgpt.com, openai.com"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Dublin"
+      }
+    },
+    "description": "Plain-language summary in the site location editor. $SITES$ is the comma-separated site list, $PLACE$ the chosen location."
+  },
+  "siteLocation_save": {
+    "message": "Salvar",
+    "description": "Button that saves the site location in the editor."
+  },
+  "siteLocation_cancel": {
+    "message": "Cancelar",
+    "description": "Button that closes the site location editor without saving."
+  },
+  "siteLocation_errorPattern": {
+    "message": "Use um site como example.com, sem caminho e não apenas *.",
+    "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
+  },
+  "siteLocation_errorInUse": {
+    "message": "$SITE$ já tem uma localização por site ($PLACE$).",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Mexico City"
+      }
+    },
+    "description": "Error when a site is already covered by another site location. $SITE$ is the site, $PLACE$ the other site location's name."
+  },
+  "siteLocation_editOwner": {
+    "message": "Editar essa",
+    "description": "Button next to the 'already has a site location' error that opens the other site location for editing."
+  },
+  "siteLocation_errorCapacity": {
+    "message": "Você pode ter até $MAX$ localizações por site. Remova uma primeiro.",
+    "placeholders": {
+      "max": {
+        "content": "$1",
+        "example": "50"
+      }
+    },
+    "description": "Error when the maximum number of site locations is reached. $MAX$ is the limit."
+  },
+  "siteLocation_errorTooManySites": {
+    "message": "Uma localização por site pode cobrir até $MAX$ sites.",
+    "placeholders": {
+      "max": {
+        "content": "$1",
+        "example": "10"
+      }
+    },
+    "description": "Error when too many sites are listed for one site location. $MAX$ is the limit."
+  },
+  "siteLocation_errorTimezone": {
+    "message": "Não foi possível obter o fuso horário deste lugar. Verifique sua conexão e tente novamente.",
+    "description": "Error when the time zone of the chosen place couldn't be determined, so the site location wasn't saved."
+  },
+  "siteLocation_errorNoLocation": {
+    "message": "Escolha uma localização primeiro.",
+    "description": "Error when saving a site location before picking a location."
+  },
+  "siteLocation_sectionTitle": {
+    "message": "Localizações por site",
+    "description": "Heading of the Filters-tab section listing site locations. 'Site locations' is the feature's glossary name."
+  },
+  "siteLocation_sectionDesc": {
+    "message": "Dê a sites específicos sua própria localização. Os filtros continuam decidindo onde o GeoSpoof fica ativo.",
+    "description": "Description under the Site locations heading on the Filters tab."
+  },
+  "siteLocation_add": {
+    "message": "Adicionar localização por site",
+    "description": "Button on the Filters tab that opens the editor for a new site location."
+  },
+  "siteLocation_empty": {
+    "message": "Nenhuma localização por site ainda",
+    "description": "Shown on the Filters tab when there are no site locations."
+  },
+  "siteLocation_edit": {
+    "message": "Editar",
+    "description": "Button on a site location row that opens it for editing."
+  },
+  "siteLocation_editAriaLabel": {
+    "message": "Editar localização por site",
+    "description": "Accessible label prefix on a site location's edit button; the location's name follows."
+  },
+  "siteLocation_removeAriaLabel": {
+    "message": "Remover localização por site",
+    "description": "Accessible label prefix on a site location's remove button; the location's name follows."
+  },
+  "siteLocation_listAriaLabel": {
+    "message": "Localizações por site",
+    "description": "Accessible label of the list of site locations on the Filters tab."
+  },
+  "siteLocation_proNote": {
+    "message": "🔒 Localizações por site é um recurso do GeoSpoof Pro. Faça upgrade no app GeoSpoof para dar aos sites sua própria localização.",
+    "description": "Shown for non-Pro users when site location controls are disabled, explaining that it is a Pro feature."
+  },
+  "details_siteLocation": {
+    "message": "Localização por site",
+    "description": "Details tab heading for the site location applied to the current tab."
+  },
+  "details_siteLocationNone": {
+    "message": "Nenhuma. Este site usa sua localização principal.",
+    "description": "Details tab value when no site location applies to the current tab."
+  },
+  "badge_titleSiteLocation": {
+    "message": "GeoSpoof: $PLACE$ em $SITE$",
+    "placeholders": {
+      "place": {
+        "content": "$1",
+        "example": "Dublin"
+      },
+      "site": {
+        "content": "$2",
+        "example": "chatgpt.com"
+      }
+    },
+    "description": "Toolbar button tooltip when a site location applies to the current tab. $PLACE$ is the site location's name, $SITE$ the host name."
   }
 }

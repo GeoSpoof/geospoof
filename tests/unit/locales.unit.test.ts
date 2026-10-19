@@ -157,6 +157,89 @@ describe("Advanced Filtering syntax keys are present in every locale", () => {
   });
 });
 
+/**
+ * Site locations (GeoSpoof/geospoof#177): every new string is user-facing in
+ * every language, and "Site locations" / "Main location" are glossary terms
+ * the native app derives from these files.
+ */
+describe("Site locations keys are present in every locale", () => {
+  const REQUIRED_KEYS = [
+    "siteLocation_rowHeading",
+    "siteLocation_statusMain",
+    "siteLocation_statusSite",
+    "siteLocation_statusFiltersOff",
+    "siteLocation_useDifferent",
+    "siteLocation_change",
+    "siteLocation_useMain",
+    "siteLocation_hintAllowlist",
+    "siteLocation_addToAllowlist",
+    "siteLocation_hintDenylist",
+    "siteLocation_hintVpn",
+    "siteLocation_reloadHint",
+    "siteLocation_sitesLabel",
+    "siteLocation_sitesHint",
+    "siteLocation_searchLabel",
+    "siteLocation_favoriteLabel",
+    "siteLocation_favoriteNone",
+    "siteLocation_chosenNone",
+    "siteLocation_explain",
+    "siteLocation_save",
+    "siteLocation_cancel",
+    "siteLocation_errorPattern",
+    "siteLocation_errorInUse",
+    "siteLocation_editOwner",
+    "siteLocation_errorCapacity",
+    "siteLocation_errorTooManySites",
+    "siteLocation_errorTimezone",
+    "siteLocation_errorNoLocation",
+    "siteLocation_sectionTitle",
+    "siteLocation_sectionDesc",
+    "siteLocation_add",
+    "siteLocation_empty",
+    "siteLocation_edit",
+    "siteLocation_editAriaLabel",
+    "siteLocation_removeAriaLabel",
+    "siteLocation_listAriaLabel",
+    "siteLocation_proNote",
+    "details_siteLocation",
+    "details_siteLocationNone",
+    "badge_titleSiteLocation",
+  ];
+
+  describe.each(listLocales())("%s", (locale) => {
+    const file = loadLocale(locale);
+    test.each(REQUIRED_KEYS)("has a non-empty %s", (key) => {
+      expect(typeof file[key]?.message).toBe("string");
+      expect(file[key].message.trim().length).toBeGreaterThan(0);
+    });
+  });
+
+  test("every data-i18n* key in the Site locations popup regions exists in en", () => {
+    const html = readFileSync(resolve(__dirname, "../../assets/popup.html"), "utf-8");
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const regions = [
+      doc.getElementById("thisSiteRow"),
+      doc.getElementById("siteLocationsSection"),
+      doc.getElementById("siteLocationEditor"),
+      doc.getElementById("detailSiteLocation")?.closest(".detail-section") ?? null,
+    ];
+    const source = loadLocale(SOURCE_LOCALE);
+    const attrs = ["data-i18n", "data-i18n-placeholder", "data-i18n-aria-label", "data-i18n-title"];
+    const keys: string[] = [];
+    for (const region of regions) {
+      expect(region).not.toBeNull();
+      for (const attr of attrs) {
+        region!.querySelectorAll(`[${attr}]`).forEach((node) => {
+          keys.push(node.getAttribute(attr) ?? "");
+        });
+        if (region!.hasAttribute(attr)) keys.push(region!.getAttribute(attr) ?? "");
+      }
+    }
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys.filter((key) => !(key in source))).toEqual([]);
+  });
+});
+
 describe("Location precision cadence keys are present in every locale", () => {
   const REQUIRED_KEYS = [
     "advanced_precisionCadence",
