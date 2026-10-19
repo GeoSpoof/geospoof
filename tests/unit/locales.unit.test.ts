@@ -166,6 +166,7 @@ describe("Site locations keys are present in every locale", () => {
   const REQUIRED_KEYS = [
     "siteLocation_rowHeading",
     "siteLocation_statusMain",
+    "siteLocation_statusNoMain",
     "siteLocation_statusSite",
     "siteLocation_statusFiltersOff",
     "siteLocation_useDifferent",

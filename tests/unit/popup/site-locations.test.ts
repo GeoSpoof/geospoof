@@ -135,6 +135,17 @@ describe("This site row: states", () => {
     expect(isShown("thisSiteProNote")).toBe(false);
   });
 
+  test("no main location: an unmatched site says it isn't spoofed", () => {
+    const settings = makeSettings({ location: null, timezone: null, locationName: null });
+    renderThisSiteRow(settings, "https://example.org/", false);
+    expect(text("thisSiteStatus")).toBe("example.org · Not spoofed (no main location set)");
+    expect(isShown("thisSiteUseDifferent")).toBe(true);
+
+    // A matched site still names its site location.
+    renderThisSiteRow(settings, "https://twitch.tv/", false);
+    expect(text("thisSiteStatus")).toBe("twitch.tv · Mexico City (site location)");
+  });
+
   test("applied: host · Place (site location) with Change and Use main location", () => {
     renderThisSiteRow(makeSettings(), "https://www.twitch.tv/somechannel", false);
     expect(text("thisSiteStatus")).toBe("www.twitch.tv · Mexico City (site location)");

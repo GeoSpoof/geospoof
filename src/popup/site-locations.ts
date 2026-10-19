@@ -267,6 +267,14 @@ function statusText(state: ThisSiteRowState): string {
     case "filtersOff":
       return t("siteLocation_statusFiltersOff") || "GeoSpoof is off on this site (Filters)";
     case "main":
+      // With no main location the page gets no location or zone at all, so
+      // say so rather than naming a location that doesn't exist.
+      if (!current?.settings.location) {
+        return (
+          t("siteLocation_statusNoMain", [state.host]) ||
+          `${state.host} · Not spoofed (no main location set)`
+        );
+      }
       return t("siteLocation_statusMain", [state.host]) || `${state.host} · Main location`;
     default:
       return "";

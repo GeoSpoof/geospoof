@@ -753,6 +753,16 @@
     },
     "description": "Status of the This site row when the site uses the global location. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
   },
+  "siteLocation_statusNoMain": {
+    "message": "$SITE$ · Niet vervalst (geen hoofdlocatie ingesteld)",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "example.org"
+      }
+    },
+    "description": "Status of the This site row when the site would use the main location but none is set, so GeoSpoof doesn't spoof it. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
+  },
   "siteLocation_statusSite": {
     "message": "$SITE$ · $PLACE$ (sitelocatie)",
     "placeholders": {

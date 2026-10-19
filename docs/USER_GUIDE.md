@@ -120,6 +120,8 @@ The row now reads, for example, `twitch.tv · Mexico City (site location)`. Use 
 
 If Filters keep GeoSpoof off for a site, the row says **GeoSpoof is off on this site (Filters)**. In Allowlist mode it offers **Add to allowlist** in one click.
 
+Site locations work without a main location. Sites without their own location then get no spoofing, and the row says so, for example `example.org · Not spoofed (no main location set)`.
+
 ### Enabling Protection
 
 **Location Protection**: Spoofs your geolocation API
