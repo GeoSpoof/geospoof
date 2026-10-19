@@ -691,7 +691,7 @@ Response: `{ injected: boolean, error: string | null }`.
 { type: "RENAME_FAVORITE", payload: { id: string, label: string } }
 ```
 
-Response: `{ success: true }` or `{ error: "AT_CAPACITY" | "STORAGE_ERROR" }`. Capacity is 10; saves dedupe by coordinates rounded to 4 decimal places.
+Response: `{ success: true }` or `{ error: "AT_CAPACITY" | "STORAGE_ERROR" }`. Capacity is 50 (`MAX_FAVORITES`); saves dedupe by coordinates rounded to 4 decimal places.
 
 #### SET_PRECISION
 

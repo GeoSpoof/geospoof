@@ -12,6 +12,7 @@
 
 import { createLogger } from "@/shared/utils/debug-logger";
 import type { Favorite, ScopeMode, Settings } from "@/shared/types/settings";
+import { MAX_FAVORITES } from "@/shared/types/settings";
 import { parsePattern } from "@/shared/utils/scope";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import {
@@ -307,7 +308,7 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
         const parsed = JSON.parse(pending.favorites) as Favorite[];
         if (Array.isArray(parsed)) {
           const latest = await loadSettings();
-          const next = parsed.slice(0, 10);
+          const next = parsed.slice(0, MAX_FAVORITES);
           if (JSON.stringify(latest.favorites) !== JSON.stringify(next)) {
             await updateSettings({ favorites: next });
           }
