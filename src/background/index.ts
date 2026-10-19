@@ -128,6 +128,8 @@ export {
   handleSetScopeMode,
   handleAddScopeSite,
   handleRemoveScopeSite,
+  handleSaveSiteLocation,
+  handleRemoveSiteLocation,
 } from "./messages";
 export {
   isValidIpAddress,
