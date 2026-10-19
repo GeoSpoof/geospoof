@@ -194,6 +194,12 @@ interface WebRequestDetails {
    * signal when `documentUrl` is absent.
    */
   originUrl?: string;
+  /**
+   * Firefox-only: the frame hierarchy above the initiating document, from the
+   * immediate parent up to the top-level document (last). Empty for a request
+   * made by a top-level document.
+   */
+  frameAncestors?: { url: string; frameId: number }[];
 }
 
 interface WebRequestDetailsWithHeaders extends WebRequestDetails {
@@ -352,6 +358,22 @@ export function workerPayloadFor(settings: Settings, pageUrl: string | undefined
  */
 function resolveInitiatorUrl(details: WebRequestDetails): string | undefined {
   return tabPageUrlCache.get(details.tabId) ?? details.documentUrl ?? details.originUrl;
+}
+
+/**
+ * The top-level page a worker belongs to, which decides its site location.
+ * Like `resolveInitiatorUrl`, except that a SharedWorker started by an
+ * embedded frame resolves to the frame's top-level page (the last entry of
+ * `frameAncestors`) rather than the frame itself, so the worker gets the same
+ * site location as the realm that created it. Exported for tests.
+ */
+export function resolveWorkerPageUrl(details: WebRequestDetails): string | undefined {
+  return (
+    tabPageUrlCache.get(details.tabId) ??
+    details.frameAncestors?.at(-1)?.url ??
+    details.documentUrl ??
+    details.originUrl
+  );
 }
 
 /**
@@ -737,7 +759,7 @@ function onBeforeWorkerSendHeaders(details: WebRequestDetailsWithHeaders): void 
 
   const decision = classifyRequest(details);
   state.decision = decision;
-  state.pageUrl = resolveInitiatorUrl(details);
+  state.pageUrl = resolveWorkerPageUrl(details);
 
   if (cachedSettings?.debugLogging) {
     const dest = readSecFetchDest(details.requestHeaders) ?? "(absent)";

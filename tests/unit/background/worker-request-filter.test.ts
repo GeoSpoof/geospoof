@@ -14,6 +14,7 @@ import {
   tabPageUrlCache,
   updateWorkerFilterSettings,
   hasWorkerTimezoneSource,
+  resolveWorkerPageUrl,
   workerPayloadFor,
 } from "@/background/worker-request-filter";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
@@ -301,6 +302,32 @@ describe("site locations", () => {
 
   test("workerPayloadFor is empty with no zone and no locale", () => {
     expect(workerPayloadFor({ ...IN_SCOPE_SETTINGS }, "https://example.com/")).toBe("");
+  });
+
+  test("a SharedWorker from an embedded frame resolves to the frame's top-level page", () => {
+    tabPageUrlCache.clear();
+    const base = { requestId: "sw-1", url: "https://chatgpt.com/sw.js", type: "script" };
+    const fromFrame = {
+      ...base,
+      method: "GET",
+      tabId: -1,
+      frameId: 9,
+      documentUrl: "https://chatgpt.com/embed",
+      frameAncestors: [{ url: "https://example.org/", frameId: 0 }],
+    };
+    expect(resolveWorkerPageUrl(fromFrame)).toBe("https://example.org/");
+    // So the worker gets the main zone, like the frame's realm.
+    expect(workerPayloadFor(SITE_SETTINGS, resolveWorkerPageUrl(fromFrame))).toContain(
+      '"Asia/Tokyo"'
+    );
+
+    // A top-level document has no ancestors and resolves to itself.
+    const fromTop = { ...fromFrame, documentUrl: "https://chatgpt.com/", frameAncestors: [] };
+    expect(resolveWorkerPageUrl(fromTop)).toBe("https://chatgpt.com/");
+    // The tab cache still wins when the request has a tab.
+    tabPageUrlCache.set(3, "https://chatgpt.com/c/1");
+    expect(resolveWorkerPageUrl({ ...fromFrame, tabId: 3 })).toBe("https://chatgpt.com/c/1");
+    tabPageUrlCache.clear();
   });
 
   test("hasWorkerTimezoneSource is true with only site locations", () => {
