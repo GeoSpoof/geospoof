@@ -20,7 +20,7 @@ import {
   usesPerTabRules,
 } from "@/background/accept-language";
 import { resolveLocale, resolvePageLocale } from "@/shared/locale/resolver";
-import { ENTRY_DUBLIN, ENTRY_MEXICO_CITY } from "../../helpers/site-locations";
+import { ENTRY_DUBLIN, ENTRY_MEXICO_CITY, makeSiteLocation } from "../../helpers/site-locations";
 
 function makeSettings(overrides?: Partial<Settings>): Settings {
   return {
@@ -221,25 +221,87 @@ describe("site locations", () => {
     expect(ACCEPT_LANGUAGE_RULE_IDS.at(-1)).toBe(8801 + MAX_SITE_LOCATIONS);
   });
 
+  /**
+   * The value Chromium sends for a tab: the highest-priority matching `set`
+   * wins, and a tab in `excludedTabIds` doesn't match the global rule.
+   */
+  const headerForTab = (
+    plan: ReturnType<typeof planAcceptLanguageRules>,
+    tabId: number
+  ): string | null => {
+    const matching = plan.filter((rule) =>
+      "tabIds" in rule.condition
+        ? rule.condition.tabIds.includes(tabId)
+        : !(rule.condition.excludedTabIds ?? []).includes(tabId)
+    );
+    matching.sort((a, b) => b.priority - a.priority);
+    return matching[0]?.value ?? null;
+  };
+
   test("with no site locations, 'all' mode keeps the single global rule", () => {
     const s = makeSettings({ localeSpoofing: { mode: "match" } });
     expect(usesPerTabRules(s)).toBe(false);
     expect(planAcceptLanguageRules(s, TABS)).toEqual([
-      { id: 8801, value: acceptFor("Europe/Paris"), condition: { urlFilter: "*" } },
+      { id: 8801, priority: 1, value: acceptFor("Europe/Paris"), condition: { urlFilter: "*" } },
     ]);
   });
 
-  test("Match mode with site locations groups tabs by value, sorted, with sequential ids", () => {
+  test("Match mode with site locations keeps the global rule and layers the differing groups over it", () => {
     const s = withSites();
     expect(usesPerTabRules(s)).toBe(true);
+    // Tab 3 (main location) needs no rule of its own: the global one covers it.
     const groups = [
       { value: acceptFor("Europe/Dublin"), tabIds: [1, 4] },
       { value: acceptFor("America/Mexico_City"), tabIds: [2] },
-      { value: acceptFor("Europe/Paris"), tabIds: [3] },
     ].sort((a, b) => (a.value < b.value ? -1 : 1));
-    expect(planAcceptLanguageRules(s, TABS)).toEqual(
-      groups.map((g, i) => ({ id: 8801 + i, value: g.value, condition: { tabIds: g.tabIds } }))
+    expect(planAcceptLanguageRules(s, TABS)).toEqual([
+      { id: 8801, priority: 1, value: acceptFor("Europe/Paris"), condition: { urlFilter: "*" } },
+      ...groups.map((g, i) => ({
+        id: 8802 + i,
+        priority: 2,
+        value: g.value,
+        condition: { tabIds: g.tabIds },
+      })),
+    ]);
+  });
+
+  test("a new tab, not yet in any rule, gets the main value from its first request", () => {
+    const plan = planAcceptLanguageRules(withSites(), TABS);
+    expect(headerForTab(plan, 99)).toBe(acceptFor("Europe/Paris"));
+    expect(headerForTab(plan, 3)).toBe(acceptFor("Europe/Paris"));
+    expect(headerForTab(plan, 5)).toBe(acceptFor("Europe/Paris")); // blank page, about to navigate
+    expect(headerForTab(plan, 1)).toBe(acceptFor("Europe/Dublin"));
+    expect(headerForTab(plan, 2)).toBe(acceptFor("America/Mexico_City"));
+  });
+
+  test("a site location whose zone yields no locale is excluded from the global rule", () => {
+    const atSea = makeSiteLocation({
+      id: "1700000000009",
+      patterns: ["sea.example"],
+      timezone: { identifier: "Etc/GMT+5", offset: -300, dstOffset: 0 },
+    });
+    const s = withSites({ siteLocations: [ENTRY_DUBLIN, atSea] });
+    expect(resolveAcceptLanguageFor(s, "https://sea.example/")).toBeNull();
+    const plan = planAcceptLanguageRules(s, [...TABS, { id: 6, url: "https://sea.example/" }]);
+    expect(plan[0]).toEqual({
+      id: 8801,
+      priority: 1,
+      value: acceptFor("Europe/Paris"),
+      condition: { urlFilter: "*", excludedTabIds: [6] },
+    });
+    expect(headerForTab(plan, 6)).toBeNull();
+    expect(headerForTab(plan, 99)).toBe(acceptFor("Europe/Paris"));
+  });
+
+  test("with no main zone, only the site-location groups get rules", () => {
+    const s = withSites({ timezone: null });
+    expect(planAcceptLanguageRules(s, TABS).map((r) => [r.priority, r.condition])).toEqual(
+      expect.arrayContaining([
+        [2, { tabIds: [1, 4] }],
+        [2, { tabIds: [2] }],
+      ])
     );
+    expect(planAcceptLanguageRules(s, TABS)).toHaveLength(2);
   });
 
   test("custom mode stays global: the locale doesn't follow the zone", () => {
@@ -253,8 +315,24 @@ describe("site locations", () => {
   test("Filters still decide: an out-of-scope tab gets no rule", () => {
     const s = withSites({ scopeMode: "allowlist", allowlist: ["twitch.tv"] });
     expect(planAcceptLanguageRules(s, TABS)).toEqual([
-      { id: 8801, value: acceptFor("America/Mexico_City"), condition: { tabIds: [2] } },
+      {
+        id: 8801,
+        priority: 1,
+        value: acceptFor("America/Mexico_City"),
+        condition: { tabIds: [2] },
+      },
     ]);
+  });
+
+  test("allowlist mode stays per-tab only, one group per value", () => {
+    const s = withSites({
+      scopeMode: "allowlist",
+      allowlist: ["chatgpt.com", "twitch.tv", "example.com"],
+    });
+    const plan = planAcceptLanguageRules(s, TABS);
+    expect(plan.every((r) => r.priority === 1 && "tabIds" in r.condition)).toBe(true);
+    expect(plan.map((r) => r.id)).toEqual([8801, 8802, 8803]);
+    expect(headerForTab(plan, 99)).toBeNull();
   });
 
   test("master off plans no rules", () => {

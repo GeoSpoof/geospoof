@@ -221,6 +221,32 @@ describe("Site locations: all consumers agree", () => {
     }
   });
 
+  // In "all" mode the DNR plan keeps the global rule and layers per-tab rules
+  // over it, so the header Chromium sends (the highest-priority matching `set`)
+  // still equals each tab's resolved value, and a tab no rule names yet gets
+  // the main value.
+  test("'all' mode: the layered DNR plan sends every tab its own value", async () => {
+    const { resolveAcceptLanguageFor, planAcceptLanguageRules } =
+      await import("@/background/accept-language");
+    const all: Settings = { ...SETTINGS, scopeMode: "all", allowlist: [] };
+    const plan = planAcceptLanguageRules(
+      all,
+      ROWS.map((r) => ({ id: r.tabId, url: r.url }))
+    );
+    const sent = (tabId: number): string | null =>
+      plan
+        .filter((rule) =>
+          "tabIds" in rule.condition
+            ? rule.condition.tabIds.includes(tabId)
+            : !(rule.condition.excludedTabIds ?? []).includes(tabId)
+        )
+        .sort((a, b) => b.priority - a.priority)[0]?.value ?? null;
+
+    expect(plan[0]).toMatchObject({ id: 8801, priority: 1, condition: { urlFilter: "*" } });
+    for (const row of ROWS) expect(sent(row.tabId)).toBe(resolveAcceptLanguageFor(all, row.url));
+    expect(sent(999)).toBe(resolveLocale({ mode: "match" }, "Asia/Tokyo")!.acceptLanguage);
+  });
+
   // The Firefox bootstrap script matching each row's top frame (if any) inlines
   // the same `timezone`, `location`, and `locale` as the payload above, and no
   // bootstrap script matches the out-of-scope row.
