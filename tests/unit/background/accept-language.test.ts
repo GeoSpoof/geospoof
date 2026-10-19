@@ -304,6 +304,28 @@ describe("site locations", () => {
     expect(planAcceptLanguageRules(s, TABS)).toHaveLength(2);
   });
 
+  test("Safari (no layering) keeps main's single global rule in 'all' mode, site locations or not", () => {
+    const safari = { layered: false };
+    const s = withSites();
+    expect(usesPerTabRules(s, safari)).toBe(false);
+    const plan = planAcceptLanguageRules(s, TABS, safari);
+    expect(plan).toEqual([
+      { id: 8801, priority: 1, value: acceptFor("Europe/Paris"), condition: { urlFilter: "*" } },
+    ]);
+    // A site-location tab sends the main location's language there.
+    expect(headerForTab(plan, 1)).toBe(acceptFor("Europe/Paris"));
+    expect(headerForTab(plan, 99)).toBe(acceptFor("Europe/Paris"));
+    // No main zone: no rule at all, as on main.
+    expect(planAcceptLanguageRules(withSites({ timezone: null }), TABS, safari)).toEqual([]);
+  });
+
+  test("Safari (no layering) leaves allowlist mode on per-tab rules", () => {
+    const safari = { layered: false };
+    const s = withSites({ scopeMode: "allowlist", allowlist: ["twitch.tv"] });
+    expect(usesPerTabRules(s, safari)).toBe(true);
+    expect(planAcceptLanguageRules(s, TABS, safari)).toEqual(planAcceptLanguageRules(s, TABS));
+  });
+
   test("custom mode stays global: the locale doesn't follow the zone", () => {
     const s = withSites({ localeSpoofing: { mode: "custom", locale: "fr-FR" } });
     expect(usesPerTabRules(s)).toBe(false);

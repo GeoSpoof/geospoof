@@ -46,10 +46,14 @@
  *     same global rule at priority 1, layered under priority-2 per-tab SESSION
  *     rules for the tabs whose site location changes the value. New tabs and
  *     unmatched sites keep the race-free global rule.
- *   - `allowlist` / `denylist` (and the Match-mode case on Safari, whose
- *     handling of overlapping priorities is unconfirmed) → per-tab SESSION
- *     rules only: open tabs grouped by their own resolved value, one rule per
- *     value with that group's `tabIds`.
+ *   - `scopeMode: "all"` on Safari → always the one global rule, from the main
+ *     zone, site locations or not. Safari's compat data lists no `tabIds`
+ *     condition and its handling of overlapping priorities is unconfirmed, so
+ *     it keeps the rule known to work there. The header on a site-location
+ *     site then names the main location's language.
+ *   - `allowlist` / `denylist` → per-tab SESSION rules only: open tabs grouped
+ *     by their own resolved value, one rule per value with that group's
+ *     `tabIds`.
  *
  * Per-tab rules (`planAcceptLanguageRules`) are rebuilt on settings changes and
  * on every top-level navigation (`refreshAcceptLanguageOnNavigation`),
@@ -227,13 +231,29 @@ export interface AcceptLanguageRulePlan {
   condition: { urlFilter: "*"; excludedTabIds?: number[] } | { tabIds: number[] };
 }
 
+/** Engine capabilities the planner depends on. */
+export interface AcceptLanguagePlanOptions {
+  /**
+   * Whether priority-2 per-tab rules may be layered over the global rule in
+   * "all" mode. False on Safari, which then keeps the single global rule.
+   */
+  layered: boolean;
+}
+
+/** This build's engine: Chromium layers, Safari doesn't. Tests pass their own. */
+const ENGINE_PLAN_OPTIONS: AcceptLanguagePlanOptions = { layered: !__SAFARI__ };
+
 /**
  * Whether the header needs per-tab rules rather than one global rule: Filters
- * narrow scope, or the locale follows the zone (Match mode) and some site
- * location can change that zone for one tab.
+ * narrow scope, or (where rules can be layered) the locale follows the zone
+ * (Match mode) and some site location can change that zone for one tab.
  */
-export function usesPerTabRules(settings: Settings): boolean {
+export function usesPerTabRules(
+  settings: Settings,
+  options: AcceptLanguagePlanOptions = ENGINE_PLAN_OPTIONS
+): boolean {
   if (settings.scopeMode !== "all") return true;
+  if (!options.layered) return false;
   const effective = computeEffectiveLocaleSpoofing(
     settings.localeSpoofing,
     settings.proFeaturesBlocked
@@ -248,9 +268,10 @@ export function usesPerTabRules(settings: Settings): boolean {
  * Plan the DNR rules for `settings` and the open `tabs`. Pure.
  *
  *   - Master off → no rules.
- *   - Global variant (`usesPerTabRules` false) → one unconditioned rule from the
- *     main zone, or none when no locale applies. Exact, with no first-request
- *     race.
+ *   - Global variant (`usesPerTabRules` false, which includes every "all"-mode
+ *     plan when `options.layered` is false, i.e. Safari) → one unconditioned
+ *     rule from the main zone, or none when no locale applies. Exact, with no
+ *     first-request race.
  *   - Layered variant (`scopeMode: "all"` with site locations in Match mode,
  *     Chromium) → the same global rule at priority 1, plus priority-2 `tabIds`
  *     rules (ids `RULE_ID + 1 + i`) only for groups whose value differs from
@@ -258,14 +279,14 @@ export function usesPerTabRules(settings: Settings): boolean {
  *     their first request. An in-scope tab whose site location yields no
  *     locale is excluded from the global rule, so it keeps the real header
  *     that matches its real `navigator.languages`.
- *   - Per-tab variant (allowlist/denylist, and Safari) → tabs grouped by their
- *     own `resolveAcceptLanguageFor` value (null values dropped), groups sorted
- *     by value, ids `RULE_ID + i`. Safari keeps this because its handling of
- *     overlapping rule priorities isn't confirmed.
+ *   - Per-tab variant (allowlist/denylist) → tabs grouped by their own
+ *     `resolveAcceptLanguageFor` value (null values dropped), groups sorted by
+ *     value, ids `RULE_ID + i`.
  */
 export function planAcceptLanguageRules(
   settings: Settings,
-  tabs: readonly { id?: number; url?: string }[]
+  tabs: readonly { id?: number; url?: string }[],
+  options: AcceptLanguagePlanOptions = ENGINE_PLAN_OPTIONS
 ): AcceptLanguageRulePlan[] {
   if (!settings.enabled) return [];
 
@@ -276,12 +297,13 @@ export function planAcceptLanguageRules(
   const globalValue =
     resolveLocale(effective, settings.timezone?.identifier ?? null)?.acceptLanguage ?? null;
 
-  if (!usesPerTabRules(settings)) {
+  if (!usesPerTabRules(settings, options)) {
     if (globalValue === null) return [];
     return [{ id: RULE_ID, priority: 1, value: globalValue, condition: { urlFilter: "*" } }];
   }
 
-  const layered = settings.scopeMode === "all" && !__SAFARI__;
+  // Reaching here in "all" mode implies `options.layered`.
+  const layered = settings.scopeMode === "all";
 
   const groups = new Map<string, number[]>();
   const noLocaleTabIds: number[] = [];
