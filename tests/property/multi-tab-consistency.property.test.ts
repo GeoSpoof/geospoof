@@ -47,6 +47,7 @@ function makeSettings(partial: Partial<Settings>): Settings {
     precisionSeed: 0,
     precisionCadence: "never" as const,
     localeSpoofing: { mode: "off" as const },
+    siteLocations: [],
     ...partial,
   };
 }

@@ -39,22 +39,39 @@
  * overrides correctly applied only under `/shop` — reintroducing exactly the
  * mismatch this module exists to prevent. So:
  *
- *   - `scopeMode: "all"` (the default) → one global rule. Exact, and no
- *     cold-start race because the rule is already in place for a tab's first
- *     request.
- *   - `allowlist` / `denylist` → a single SESSION rule whose `tabIds` lists the
- *     in-scope tabs, refreshed on navigation and settings changes. The header
- *     then rides on the same per-tab decision the payload builders use, rather
- *     than a second approximation of it.
+ *   - `scopeMode: "all"` (the default), with no site location able to change
+ *     the locale → one global rule. Exact, and no cold-start race because the
+ *     rule is already in place for a tab's first request.
+ *   - `scopeMode: "all"` in Match mode with site locations (Chromium) → the
+ *     same global rule at priority 1, layered under priority-2 per-tab SESSION
+ *     rules for the tabs whose site location changes the value. New tabs and
+ *     unmatched sites keep the race-free global rule.
+ *   - `scopeMode: "all"` on Safari → always the one global rule, from the main
+ *     zone, site locations or not. Safari's compat data lists no `tabIds`
+ *     condition and its handling of overlapping priorities is unconfirmed, so
+ *     it keeps the rule known to work there. The header on a site-location
+ *     site then names the main location's language.
+ *   - `allowlist` / `denylist` → per-tab SESSION rules only: open tabs grouped
+ *     by their own resolved value, one rule per value with that group's
+ *     `tabIds`.
  *
- * Known, accepted limits of the scoped variant (neither applies in `all` mode):
- * a tab's first document request can race the refresh, and requests with no tab
- * (`tabId === -1`, e.g. a service-worker fetch) are unmatched.
+ * Per-tab rules (`planAcceptLanguageRules`) are rebuilt on settings changes and
+ * on every top-level navigation (`refreshAcceptLanguageOnNavigation`),
+ * serialized through one queue. The header then rides on the same per-tab
+ * decision the payload builders use, rather than a second approximation of it.
+ *
+ * Known, accepted limits of per-tab rules (neither applies to the global rule):
+ * a tab's first document request can race the refresh, and requests with no
+ * tab (`tabId === -1`, e.g. a service-worker fetch) are unmatched. In the
+ * layered variant that race is limited to a navigation into or out of a
+ * site-location site.
  */
 
 import type { Settings } from "@/shared/types/settings";
+import { MAX_SITE_LOCATIONS } from "@/shared/types/settings";
 import { resolveLocale, computeEffectiveLocaleSpoofing } from "@/shared/locale/resolver";
-import { computeEffectiveEnabled } from "@/shared/utils/scope";
+import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
+import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
 import { isRestrictedUrl } from "./tabs";
 import { tabPageUrlCache } from "./worker-request-filter";
@@ -101,22 +118,16 @@ export function resolveAcceptLanguageFor(
   settings: Settings,
   topLevelUrl: string | undefined
 ): string | null {
-  const enabled = computeEffectiveEnabled({
-    masterEnabled: settings.enabled,
-    scopeMode: settings.scopeMode,
-    allowlist: settings.allowlist,
-    denylist: settings.denylist,
-    proFeaturesBlocked: settings.proFeaturesBlocked,
-    topLevelUrl,
-    isRestricted: isRestrictedUrl,
-  });
-  if (!enabled) return null;
+  // The same per-site resolution the page payload uses: Filters decide whether,
+  // a site location decides which zone (and so, in Match mode, which locale).
+  const r = resolveSiteSettings(settings, topLevelUrl, isRestrictedUrl);
+  if (!r.enabled) return null;
 
   const effective = computeEffectiveLocaleSpoofing(
     settings.localeSpoofing,
     settings.proFeaturesBlocked
   );
-  const resolved = resolveLocale(effective, settings.timezone?.identifier ?? null);
+  const resolved = resolveLocale(effective, r.settings.timezone?.identifier ?? null);
   return resolved?.acceptLanguage ?? null;
 }
 
@@ -197,78 +208,175 @@ function getDnr(): DnrApi | null {
 }
 
 /**
- * Collect the ids of tabs currently in scope for spoofing.
- *
- * Only needed for allowlist/denylist mode; `all` mode uses an unconditioned
- * rule instead, which avoids both the refresh race and this query.
+ * Every session-rule id this module may own: `RULE_ID` for the global rule or
+ * the first per-tab group, then one more per possible distinct value. A
+ * value comes from the main zone or one site location's, so there are at most
+ * `MAX_SITE_LOCATIONS + 1` groups. Each refresh removes all of them.
  */
-async function inScopeTabIds(settings: Settings): Promise<number[]> {
-  const tabs = await browser.tabs.query({});
-  const ids: number[] = [];
-  for (const tab of tabs) {
-    if (tab.id == null) continue;
-    const enabled = computeEffectiveEnabled({
-      masterEnabled: settings.enabled,
-      scopeMode: settings.scopeMode,
-      allowlist: settings.allowlist,
-      denylist: settings.denylist,
-      proFeaturesBlocked: settings.proFeaturesBlocked,
-      topLevelUrl: tab.url,
-      isRestricted: isRestrictedUrl,
-    });
-    if (enabled) ids.push(tab.id);
-  }
-  return ids;
+export const ACCEPT_LANGUAGE_RULE_IDS: readonly number[] = Array.from(
+  { length: MAX_SITE_LOCATIONS + 1 },
+  (_, i) => RULE_ID + i
+);
+
+/** One planned header rule, before the DNR action and resource types are attached. */
+export interface AcceptLanguageRulePlan {
+  id: number;
+  /**
+   * DNR priority. Chromium applies the highest-priority `set` on a header and
+   * ignores lower ones, so a priority-2 per-tab rule overrides the priority-1
+   * global rule for the tabs it names.
+   */
+  priority: 1 | 2;
+  value: string;
+  condition: { urlFilter: "*"; excludedTabIds?: number[] } | { tabIds: number[] };
+}
+
+/** Engine capabilities the planner depends on. */
+export interface AcceptLanguagePlanOptions {
+  /**
+   * Whether priority-2 per-tab rules may be layered over the global rule in
+   * "all" mode. False on Safari, which then keeps the single global rule.
+   */
+  layered: boolean;
+}
+
+/** This build's engine: Chromium layers, Safari doesn't. Tests pass their own. */
+const ENGINE_PLAN_OPTIONS: AcceptLanguagePlanOptions = { layered: !__SAFARI__ };
+
+/**
+ * Whether the header needs per-tab rules rather than one global rule: Filters
+ * narrow scope, or (where rules can be layered) the locale follows the zone
+ * (Match mode) and some site location can change that zone for one tab.
+ */
+export function usesPerTabRules(
+  settings: Settings,
+  options: AcceptLanguagePlanOptions = ENGINE_PLAN_OPTIONS
+): boolean {
+  if (settings.scopeMode !== "all") return true;
+  if (!options.layered) return false;
+  const effective = computeEffectiveLocaleSpoofing(
+    settings.localeSpoofing,
+    settings.proFeaturesBlocked
+  );
+  return (
+    effective.mode === "match" &&
+    computeEffectiveSiteLocations(settings.siteLocations, settings.proFeaturesBlocked).length > 0
+  );
 }
 
 /**
- * Rebuild the DNR rule to match the current settings, or remove it when no
- * locale applies.
+ * Plan the DNR rules for `settings` and the open `tabs`. Pure.
  *
- * Always removes first, so "no locale" and "changed locale" share one code path
- * and a stale rule can never survive a settings change.
+ *   - Master off → no rules.
+ *   - Global variant (`usesPerTabRules` false, which includes every "all"-mode
+ *     plan when `options.layered` is false, i.e. Safari) → one unconditioned
+ *     rule from the main zone, or none when no locale applies. Exact, with no
+ *     first-request race.
+ *   - Layered variant (`scopeMode: "all"` with site locations in Match mode,
+ *     Chromium) → the same global rule at priority 1, plus priority-2 `tabIds`
+ *     rules (ids `RULE_ID + 1 + i`) only for groups whose value differs from
+ *     it. New tabs and unmatched sites are covered by the global rule from
+ *     their first request. An in-scope tab whose site location yields no
+ *     locale is excluded from the global rule, so it keeps the real header
+ *     that matches its real `navigator.languages`.
+ *   - Per-tab variant (allowlist/denylist) → tabs grouped by their own
+ *     `resolveAcceptLanguageFor` value (null values dropped), groups sorted by
+ *     value, ids `RULE_ID + i`.
+ */
+export function planAcceptLanguageRules(
+  settings: Settings,
+  tabs: readonly { id?: number; url?: string }[],
+  options: AcceptLanguagePlanOptions = ENGINE_PLAN_OPTIONS
+): AcceptLanguageRulePlan[] {
+  if (!settings.enabled) return [];
+
+  const effective = computeEffectiveLocaleSpoofing(
+    settings.localeSpoofing,
+    settings.proFeaturesBlocked
+  );
+  const globalValue =
+    resolveLocale(effective, settings.timezone?.identifier ?? null)?.acceptLanguage ?? null;
+
+  if (!usesPerTabRules(settings, options)) {
+    if (globalValue === null) return [];
+    return [{ id: RULE_ID, priority: 1, value: globalValue, condition: { urlFilter: "*" } }];
+  }
+
+  // Reaching here in "all" mode implies `options.layered`.
+  const layered = settings.scopeMode === "all";
+
+  const groups = new Map<string, number[]>();
+  const noLocaleTabIds: number[] = [];
+  for (const tab of tabs) {
+    if (tab.id == null) continue;
+    const value = resolveAcceptLanguageFor(settings, tab.url);
+    if (value === null) {
+      // Only an in-scope tab is excluded: a restricted tab (a new tab's blank
+      // page) stays under the global rule so its first navigation is covered.
+      if (layered && resolveSiteSettings(settings, tab.url, isRestrictedUrl).enabled) {
+        noLocaleTabIds.push(tab.id);
+      }
+      continue;
+    }
+    if (layered && value === globalValue) continue;
+    const ids = groups.get(value);
+    if (ids) ids.push(tab.id);
+    else groups.set(value, [tab.id]);
+  }
+
+  const perTab = (offset: number, priority: 1 | 2): AcceptLanguageRulePlan[] =>
+    [...groups.keys()]
+      .sort()
+      .slice(0, ACCEPT_LANGUAGE_RULE_IDS.length - offset)
+      .map((value, i) => ({
+        id: RULE_ID + offset + i,
+        priority,
+        value,
+        condition: { tabIds: groups.get(value)!.sort((a, b) => a - b) },
+      }));
+
+  if (!layered) return perTab(0, 1);
+
+  const rules: AcceptLanguageRulePlan[] = [];
+  if (globalValue !== null) {
+    rules.push({
+      id: RULE_ID,
+      priority: 1,
+      value: globalValue,
+      condition:
+        noLocaleTabIds.length > 0
+          ? { urlFilter: "*", excludedTabIds: noLocaleTabIds.sort((a, b) => a - b) }
+          : { urlFilter: "*" },
+    });
+  }
+  return [...rules, ...perTab(1, 2)];
+}
+
+/**
+ * Rebuild the DNR rules to match the current settings and tabs.
+ *
+ * One `updateSessionRules` call removes every id this module owns and adds the
+ * new plan, so "no locale", "changed locale", and "fewer groups" share one code
+ * path and a stale rule can never survive.
  */
 async function refreshDnrRule(settings: Settings): Promise<void> {
   const dnr = getDnr();
   if (!dnr?.updateSessionRules) return;
 
   try {
-    // Resolve with no URL to answer "is a locale active at all". Scope is applied
-    // by the rule condition below, not here.
-    const effective = computeEffectiveLocaleSpoofing(
-      settings.localeSpoofing,
-      settings.proFeaturesBlocked
-    );
-    const resolved = resolveLocale(effective, settings.timezone?.identifier ?? null);
+    // Only the per-tab variant needs to know which tabs are open.
+    const tabs = settings.enabled && usesPerTabRules(settings) ? await browser.tabs.query({}) : [];
+    const addRules = planAcceptLanguageRules(settings, tabs).map((rule) => ({
+      id: rule.id,
+      priority: rule.priority,
+      action: {
+        type: "modifyHeaders",
+        requestHeaders: [{ header: "Accept-Language", operation: "set", value: rule.value }],
+      },
+      condition: { ...rule.condition, resourceTypes: RESOURCE_TYPES },
+    }));
 
-    if (!settings.enabled || !resolved) {
-      await dnr.updateSessionRules({ removeRuleIds: [RULE_ID] });
-      return;
-    }
-
-    const action = {
-      type: "modifyHeaders",
-      requestHeaders: [
-        { header: "Accept-Language", operation: "set", value: resolved.acceptLanguage },
-      ],
-    };
-
-    const condition: Record<string, unknown> =
-      settings.scopeMode === "all"
-        ? { urlFilter: "*", resourceTypes: RESOURCE_TYPES }
-        : { tabIds: await inScopeTabIds(settings), resourceTypes: RESOURCE_TYPES };
-
-    // An empty tabIds list is not a valid condition (and would mean "no tab is
-    // in scope"), so drop the rule entirely instead.
-    if (settings.scopeMode !== "all" && (condition.tabIds as number[] | undefined)?.length === 0) {
-      await dnr.updateSessionRules({ removeRuleIds: [RULE_ID] });
-      return;
-    }
-
-    await dnr.updateSessionRules({
-      removeRuleIds: [RULE_ID],
-      addRules: [{ id: RULE_ID, priority: 1, action, condition }],
-    });
+    await dnr.updateSessionRules({ removeRuleIds: [...ACCEPT_LANGUAGE_RULE_IDS], addRules });
   } catch (error) {
     // Never let header alignment break settings flow. The JS overrides still
     // apply; only the header stays unmodified.
@@ -277,6 +385,27 @@ async function refreshDnrRule(settings: Settings): Promise<void> {
       error instanceof Error ? error.message : String(error)
     );
   }
+}
+
+/**
+ * Serialize and coalesce DNR refreshes. Navigations and settings changes can
+ * fire in bursts; overlapping remove-then-add calls could interleave and leave
+ * an older plan in place. One promise chain runs refreshes in order, and any
+ * number of requests made while one is waiting collapse into a single run with
+ * the latest settings.
+ */
+let dnrChain: Promise<void> = Promise.resolve();
+let dnrPendingSettings: Settings | null = null;
+
+function queueDnrRefresh(settings: Settings): void {
+  const alreadyQueued = dnrPendingSettings !== null;
+  dnrPendingSettings = settings;
+  if (alreadyQueued) return;
+  dnrChain = dnrChain.then(async () => {
+    const latest = dnrPendingSettings;
+    dnrPendingSettings = null;
+    if (latest) await refreshDnrRule(latest);
+  });
 }
 
 /**
@@ -312,7 +441,21 @@ const RESOURCE_TYPES = [
 export function updateAcceptLanguageSettings(settings: Settings): void {
   cachedSettings = settings;
   if (!__FIREFOX__) {
-    void refreshDnrRule(settings);
+    queueDnrRefresh(settings);
+  }
+}
+
+/**
+ * Keep the header in step with a tab that just navigated. The per-tab DNR
+ * variant keys rules on tab ids, so a tab that moves to another site needs its
+ * group recomputed; the global variant (and Firefox, which resolves per
+ * request) needs only the snapshot. Called from both `tabs.onUpdated` branches
+ * in `index.ts` (same-document URL change and `status === "loading"`).
+ */
+export function refreshAcceptLanguageOnNavigation(settings: Settings): void {
+  cachedSettings = settings;
+  if (!__FIREFOX__ && usesPerTabRules(settings)) {
+    queueDnrRefresh(settings);
   }
 }
 
@@ -361,5 +504,7 @@ export function uninstallAcceptLanguageRewriter(): void {
 /** Test seam: reset the cached snapshot. */
 export function _resetAcceptLanguageStateForTest(): void {
   cachedSettings = null;
+  dnrPendingSettings = null;
+  dnrChain = Promise.resolve();
   beforeSendHeadersListener = null;
 }

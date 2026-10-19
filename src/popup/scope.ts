@@ -293,7 +293,7 @@ function monogramHue(domain: string): number {
  * request, even for a public icon, would reveal the list to that host or a
  * third-party favicon service).
  */
-function buildMonogram(domain: string): HTMLElement {
+export function buildMonogram(domain: string): HTMLElement {
   const tile = document.createElement("span");
   tile.className = "scope-site-icon";
   tile.setAttribute("aria-hidden", "true");

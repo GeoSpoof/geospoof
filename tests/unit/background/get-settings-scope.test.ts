@@ -50,6 +50,7 @@ function makeSettings(overrides?: Partial<Settings>): Settings {
     precisionSeed: 0,
     precisionCadence: "never" as const,
     localeSpoofing: { mode: "off" as const },
+    siteLocations: [],
     ...overrides,
   };
 }
@@ -79,6 +80,7 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
 
       expect(response).not.toHaveProperty("allowlist");
       expect(response).not.toHaveProperty("denylist");
+      expect(response).not.toHaveProperty("siteLocations");
       // It is the scoped payload shape, not the full Settings object.
       expect(response).not.toHaveProperty("scopeMode");
       expect(response).not.toHaveProperty("favorites");
@@ -134,6 +136,7 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
       expect(response.enabled).toBe(false);
       expect(response).not.toHaveProperty("allowlist");
       expect(response).not.toHaveProperty("denylist");
+      expect(response).not.toHaveProperty("siteLocations");
     });
 
     test("non-scope fields equal the persisted Settings values", async () => {

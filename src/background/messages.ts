@@ -22,7 +22,6 @@ import type {
   RemoveFavoritePayload,
   RenameFavoritePayload,
   FavoriteResponse,
-  UpdateSettingsPayload,
   SetScopeModePayload,
   ScopeSitePayload,
   ScopeResponse,
@@ -30,19 +29,33 @@ import type {
   SetPrecisionPayload,
   SetPrecisionCadencePayload,
   SetLocaleSpoofingPayload,
+  SaveSiteLocationPayload,
+  RemoveSiteLocationPayload,
+  SiteLocationResponse,
 } from "@/shared/types/messages";
-import type { LocationName, PrecisionCadence, Settings } from "@/shared/types/settings";
-import { MAX_FAVORITES } from "@/shared/types/settings";
-import { resolveAccuracy, computeEffectiveAccuracySetting } from "@/shared/accuracy/resolver";
+import type {
+  LocationName,
+  PrecisionCadence,
+  Settings,
+  SiteLocation,
+  Timezone,
+} from "@/shared/types/settings";
+import {
+  MAX_FAVORITES,
+  MAX_PATTERNS_PER_SITE_LOCATION,
+  MAX_SITE_LOCATIONS,
+} from "@/shared/types/settings";
+import {
+  normalizeSiteLocationLabel,
+  normalizeSiteLocationName,
+  parseSiteLocationPattern,
+} from "@/shared/utils/site-locations";
+import { isValidIANATimezone } from "@/shared/utils/type-guards";
+import { resolveAccuracy } from "@/shared/accuracy/resolver";
 import { detectDeviceClass } from "@/shared/accuracy/device-class";
-import { resolvePageLocale } from "@/shared/locale/resolver";
 import { isTimeCadence, validatePrecisionCadence } from "@/shared/precision/cadence";
 import { setDebugEnabled, setVerbosityLevel, createLogger } from "@/shared/utils/debug-logger";
-import {
-  computeEffectiveEnabled,
-  computeEffectivePreserveGeoPrompt,
-  parsePattern,
-} from "@/shared/utils/scope";
+import { parsePattern } from "@/shared/utils/scope";
 import {
   ensureValidPrecisionSeed,
   loadSettings,
@@ -57,23 +70,19 @@ const logger = createLogger("BG");
 import { geocodeQuery, reverseGeocode } from "./geocoding";
 import { getTimezoneForCoordinates } from "./timezone";
 import { setWebRTCProtection } from "./webrtc";
-import { updateBadge, setBadgeForTab, badgeStateFor } from "./badge";
+import { updateBadge, applyTabIndicator } from "./badge";
 import {
   broadcastSettingsToTabs,
   injectContentScriptIntoExistingTabs,
   checkTabInjection,
-  isRestrictedUrl,
 } from "./tabs";
+import { buildPagePayload } from "./page-payload";
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
 import { syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
-import {
-  adoptClockBucket,
-  reschedulePrecisionRollover,
-  resolveCurrentPageLocation,
-} from "./precision-cadence";
+import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
 
 export async function handleMessage(
   message: Message,
@@ -135,68 +144,26 @@ export async function handleMessage(
         logger.debug("Loaded settings (content script):", settings);
 
         const senderTabId = _sender.tab.id;
-        const senderTabUrl = _sender.tab.url;
 
         // Effective_Enabled resolves to false when the URL is missing,
-        // unparseable, restricted, or out of scope (Req 8.7).
-        const effectiveEnabled = computeEffectiveEnabled({
-          masterEnabled: settings.enabled,
-          scopeMode: settings.scopeMode,
-          allowlist: settings.allowlist,
-          denylist: settings.denylist,
-          proFeaturesBlocked: settings.proFeaturesBlocked,
-          topLevelUrl: senderTabUrl,
-          isRestricted: isRestrictedUrl,
-        });
+        // unparseable, restricted, or out of scope (Req 8.7). The shared
+        // builder also withholds the timezone in Chromium debugger mode, as the
+        // broadcast path does.
+        const payload = await buildPagePayload(settings, _sender.tab.url);
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
         // alive. Reflect the per-tab decision via the shared three-state badge
-        // mapping using the already-computed Effective_Enabled (Req 12.1–12.3).
-        // The badge reflects whether protection is active for the tab, so it
-        // stays on in debugger mode even though the injected path is suppressed.
+        // mapping using the payload's Effective_Enabled (Req 12.1–12.3). The
+        // badge reflects whether protection is active for the tab, so it stays
+        // on in debugger mode even though the injected path is suppressed.
+        // `applyTabIndicator` resolves through the same `resolveSiteSettings`
+        // as the payload, so its badge agrees with `payload.enabled`, and it
+        // also sets the title that names an applied site location.
         if (senderTabId != null) {
-          setBadgeForTab(senderTabId, badgeStateFor(settings.enabled, effectiveEnabled));
+          applyTabIndicator(senderTabId, settings, _sender.tab.url);
         }
 
-        // Suppress only the injected TIMEZONE path when browser-level
-        // (chrome.debugger) spoofing is active on Chromium — CDP owns the
-        // timezone. Keep `enabled` + `location` so the injected geolocation
-        // override still runs (reliably prompt-free, unlike CDP geo). WebRTC is
-        // independent. Mirrors the suppression in broadcastSettingsToTabs.
-        const debuggerActive = __CHROMIUM__ && settings.debuggerModeEnabled;
-
-        const scoped: UpdateSettingsPayload = {
-          enabled: effectiveEnabled,
-          // Apply the approximate-location offset (no-op in `exact` mode, and
-          // Pro-gated back to exact for a non-Pro iOS user). Uses the same
-          // shared resolver as the broadcast path (`resolveCurrentPageLocation`),
-          // so a freshly injected content script and a live one see the
-          // identical point for the current cadence period.
-          location: await resolveCurrentPageLocation(settings),
-          timezone: debuggerActive ? null : settings.timezone,
-          debugLogging: settings.debugLogging,
-          verbosityLevel: settings.verbosityLevel,
-          webrtcProtection: settings.webrtcProtection,
-          preserveGeolocationPrompt: computeEffectivePreserveGeoPrompt(
-            settings.preserveGeolocationPrompt,
-            settings.proFeaturesBlocked
-          ),
-          // Pro-gate custom accuracy on iOS Safari (force Realistic for a free
-          // user); fail-open + Safari-only, like the scope gate above.
-          accuracySetting: computeEffectiveAccuracySetting(
-            settings.accuracySetting,
-            settings.proFeaturesBlocked
-          ),
-          accuracySeed: settings.accuracySeed,
-          // Same shared resolver the broadcast path uses, so a freshly injected
-          // content script and a live one see the identical locale (Req 12.4).
-          locale: resolvePageLocale(
-            settings.localeSpoofing,
-            settings.timezone?.identifier ?? null,
-            settings.proFeaturesBlocked
-          ),
-        };
-        return scoped;
+        return payload;
       }
 
       case "SET_LOCATION":
@@ -391,6 +358,12 @@ export async function handleMessage(
 
       case "SET_LOCALE_SPOOFING":
         return await handleSetLocaleSpoofing(message.payload as SetLocaleSpoofingPayload);
+
+      case "SAVE_SITE_LOCATION":
+        return await handleSaveSiteLocation(message.payload as SaveSiteLocationPayload);
+
+      case "REMOVE_SITE_LOCATION":
+        return await handleRemoveSiteLocation(message.payload as RemoveSiteLocationPayload);
 
       default:
         logger.warn("Unknown message type:", message.type);
@@ -865,4 +838,233 @@ export async function handleSetLocaleSpoofing(
 
   await broadcastSettingsToTabs(settings);
   return { success: true };
+}
+
+/**
+ * The first pattern in `patterns` that an entry other than `selfId` already
+ * owns, as a PATTERN_IN_USE response naming that entry, or null.
+ */
+function findPatternConflict(
+  list: readonly SiteLocation[],
+  patterns: readonly string[],
+  selfId: string | undefined
+): SiteLocationResponse | null {
+  for (const pattern of patterns) {
+    const owner = list.find((e) => e.id !== selfId && e.patterns.includes(pattern));
+    if (owner) {
+      return { error: "PATTERN_IN_USE", pattern, ownerId: owner.id };
+    }
+  }
+  return null;
+}
+
+/** A `Date.now()`-style id, like favorites', bumped until it's unused in `list`. */
+function newSiteLocationId(list: readonly SiteLocation[]): string {
+  let n = Date.now();
+  while (list.some((e) => e.id === String(n))) n++;
+  return String(n);
+}
+
+/**
+ * SAVE_SITE_LOCATION handler: create or edit a site location.
+ *
+ * Validates the coordinates and patterns, rejects a pattern another entry
+ * owns or a new entry past the cap, resolves the timezone (reused when the
+ * coordinates are unchanged; a longitude fallback is refused, never stored),
+ * names the place, then RE-LOADS settings and re-checks conflicts and capacity
+ * before writing, because a concurrent save, VPN resync, or app adoption may
+ * have landed during the awaits. Broadcasts, re-badges, and re-syncs CDP after
+ * a successful save (`saveSettings` already pushes REGION_UPDATE and the
+ * bootstrap).
+ */
+export async function handleSaveSiteLocation(
+  payload: SaveSiteLocationPayload
+): Promise<SiteLocationResponse> {
+  // 1. Coordinates.
+  const latitude = payload?.latitude;
+  const longitude = payload?.longitude;
+  if (
+    typeof latitude !== "number" ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return { error: "INVALID_LOCATION" };
+  }
+
+  // 2. Patterns: canonical, deduped, 1..MAX_PATTERNS_PER_SITE_LOCATION.
+  if (!Array.isArray(payload.patterns)) {
+    return { error: "INVALID_PATTERN" };
+  }
+  const patterns: string[] = [];
+  for (const raw of payload.patterns as unknown[]) {
+    const canonical = typeof raw === "string" ? parseSiteLocationPattern(raw) : null;
+    if (canonical === null) {
+      return { error: "INVALID_PATTERN", pattern: String(raw) };
+    }
+    if (!patterns.includes(canonical)) patterns.push(canonical);
+  }
+  if (patterns.length === 0) {
+    return { error: "INVALID_PATTERN" };
+  }
+  if (patterns.length > MAX_PATTERNS_PER_SITE_LOCATION) {
+    return { error: "TOO_MANY_PATTERNS" };
+  }
+
+  // 3. The entry being edited, if any. An unknown id is saved as a new entry.
+  const settings = await loadSettings();
+  const existing =
+    typeof payload.id === "string"
+      ? settings.siteLocations.find((e) => e.id === payload.id)
+      : undefined;
+
+  // 4–5. Conflicts and capacity, against the list as loaded.
+  const conflict = findPatternConflict(settings.siteLocations, patterns, existing?.id);
+  if (conflict) return conflict;
+  if (!existing && settings.siteLocations.length >= MAX_SITE_LOCATIONS) {
+    return { error: "AT_CAPACITY" };
+  }
+
+  // 6. Timezone. A pattern-only edit keeps the stored one and needs no lookup.
+  const coordinatesUnchanged =
+    existing !== undefined &&
+    existing.location.latitude === latitude &&
+    existing.location.longitude === longitude;
+  let timezone: Timezone;
+  if (coordinatesUnchanged) {
+    timezone = existing.timezone;
+  } else {
+    let resolved: Timezone;
+    try {
+      resolved = await getTimezoneForCoordinates(latitude, longitude);
+    } catch (error) {
+      logger.warn("Site location timezone lookup failed:", error);
+      return { error: "TIMEZONE_UNAVAILABLE" };
+    }
+    // A longitude estimate has no DST awareness and would be wrong for the
+    // site's whole lifetime, so it's refused rather than stored.
+    if (resolved.fallback === true || !isValidIANATimezone(resolved.identifier)) {
+      return { error: "TIMEZONE_UNAVAILABLE" };
+    }
+    timezone = {
+      identifier: resolved.identifier,
+      offset: resolved.offset,
+      dstOffset: resolved.dstOffset,
+    };
+  }
+
+  // 7. Place name: the supplied one, else the stored one, else a lookup.
+  let locationName = normalizeSiteLocationName(payload.locationName);
+  if (locationName === null) {
+    if (coordinatesUnchanged) {
+      locationName = existing.locationName;
+    } else {
+      try {
+        locationName = normalizeSiteLocationName(await reverseGeocode(latitude, longitude));
+      } catch (error) {
+        logger.warn("Site location reverse geocoding failed:", error);
+        locationName = null;
+      }
+    }
+  }
+
+  // 8. Accuracy, as for the main location.
+  const accuracy = resolveAccuracy({
+    setting: settings.accuracySetting,
+    deviceClass: detectDeviceClass(),
+    seed: settings.accuracySeed,
+    latitude,
+    longitude,
+  });
+
+  // 10. Re-load after the awaits and re-check against the latest list.
+  const latest = await loadSettings();
+  const list = latest.siteLocations;
+  const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
+  const lateConflict = findPatternConflict(list, patterns, existing?.id);
+  if (lateConflict) return lateConflict;
+  if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
+    return { error: "AT_CAPACITY" };
+  }
+
+  // 9. The entry. An edited entry whose original vanished meanwhile keeps its
+  // id (it's unused now) and is appended.
+  const id = existing?.id ?? newSiteLocationId(list);
+  const entry: SiteLocation = {
+    id,
+    kind: "location",
+    patterns,
+    location: { latitude, longitude, accuracy },
+    timezone,
+    locationName,
+    label:
+      payload.label !== undefined
+        ? normalizeSiteLocationLabel(payload.label)
+        : (existing?.label ?? null),
+    updatedAt: Date.now(),
+  };
+  const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
+
+  let updated: Settings;
+  try {
+    updated = await updateSettings({ siteLocations: next });
+  } catch {
+    return { error: "STORAGE_ERROR" };
+  }
+
+  // 11. Deliver.
+  await broadcastSettingsToTabs(updated);
+  await updateBadge();
+  await syncDebuggerSpoofing(updated);
+  return { success: true, id };
+}
+
+/**
+ * REMOVE_SITE_LOCATION handler. With a `pattern`, removes just that pattern
+ * (this backs "Use main location" for one site of a multi-site entry) and the
+ * entry with it when it was the last. Without one, removes the entry. An
+ * unknown id or pattern is a no-op success. Broadcasts, re-badges, and
+ * re-syncs CDP after a successful save.
+ */
+export async function handleRemoveSiteLocation(
+  payload: RemoveSiteLocationPayload
+): Promise<SiteLocationResponse> {
+  const id = payload?.id;
+  const settings = await loadSettings();
+  const list = settings.siteLocations;
+  const entry = list.find((e) => e.id === id);
+  if (!entry) {
+    return { success: true, id };
+  }
+
+  let next: SiteLocation[];
+  if (typeof payload.pattern === "string") {
+    const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
+    if (!entry.patterns.includes(canonical)) {
+      return { success: true, id };
+    }
+    const remaining = entry.patterns.filter((p) => p !== canonical);
+    next =
+      remaining.length === 0
+        ? list.filter((e) => e.id !== id)
+        : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
+  } else {
+    next = list.filter((e) => e.id !== id);
+  }
+
+  let updated: Settings;
+  try {
+    updated = await updateSettings({ siteLocations: next });
+  } catch {
+    return { error: "STORAGE_ERROR" };
+  }
+
+  await broadcastSettingsToTabs(updated);
+  await updateBadge();
+  await syncDebuggerSpoofing(updated);
+  return { success: true, id };
 }

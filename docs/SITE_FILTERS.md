@@ -123,6 +123,33 @@ Anything invalid is rejected inline when you add it, so a bad pattern is never s
 - **Trailing slash / `:*`.** `example.com/` is treated the same as `example.com` (whole site), and `example.com:*` the same as `example.com` (any port).
 - **Case.** Scheme and host are case-insensitive; the path is case-sensitive.
 
+## Site locations
+
+The **Site locations** section below the filter list gives specific sites their own location. It's a second, separate setting, not a kind of filter:
+
+| Setting            | Decides                                               |
+| ------------------ | ----------------------------------------------------- |
+| **Filters** (mode) | **Whether** GeoSpoof is on for a site                 |
+| **Site locations** | **Which** location it reports on a site where it's on |
+
+Filters are checked first. If they keep GeoSpoof off for a site, its site location doesn't apply. Otherwise a matching site location replaces the location and time zone (and, with Reported Language on **Match my location**, the language); every other site keeps your main location. Neither setting changes your IP address. See [Site locations in the User Guide](USER_GUIDE.md#site-locations) for what that means in practice.
+
+**Patterns are host-only.** Site locations use the same pattern language as filters, minus two forms:
+
+- **No paths.** `example.com/app/*` is rejected: a page's location can't change with its path, and every frame in a tab already follows the top-level page.
+- **No bare `*`.** `*`, `*://*`, and `*:8080` are rejected: a site location names sites, and your main location already covers "everything else".
+
+Everything else works the same: `example.com` covers the site and its subdomains, `*.example.com` subdomains only, `*.ru` a whole TLD, plus ports (`localhost:3000`), schemes (`https://example.com`), and internationalized domains. Every pattern a site location accepts is also a valid filter pattern. One site location can list up to 10 sites, separated by commas, and you can have up to 50. A pattern can belong to only one site location.
+
+**The most specific pattern wins.** When several site locations match a page, the most specific pattern decides, whatever the order of the list:
+
+1. More host labels win: `www.example.com` beats `*.example.com`, which beats `*.com`.
+2. For the same host, `*.example.com` (subdomains only) beats `example.com`.
+3. Then an explicit `https://` or `http://` beats no scheme, which beats `*://`.
+4. Then an explicit port beats none.
+
+So on `https://www.example.com/`, a site location for `www.example.com` beats one for `*.example.com`, which beats one for `example.com`.
+
 ## Privacy
 
 Your filter lists **never leave your device**. GeoSpoof evaluates them entirely in the extension background and only ever tells a page whether spoofing is on or off for it — it never sends the page your list. (Even the little site icons in the list are generated locally, so no favicon request reveals your list to anyone.)

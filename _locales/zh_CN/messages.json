@@ -738,5 +738,233 @@
   "advanced_locale_proNote": {
     "message": "🔒 报告的语言是 GeoSpoof Pro 功能。请在 GeoSpoof 应用中升级，以更改网站看到的语言。",
     "description": "Shown for non-Pro users when the Reported Language control is disabled, explaining that it is a Pro feature."
+  },
+  "siteLocation_rowHeading": {
+    "message": "此网站",
+    "description": "Heading of the Main-tab row that shows which location the current tab's site gets (Site locations)."
+  },
+  "siteLocation_statusMain": {
+    "message": "$SITE$ · 主位置",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Status of the This site row when the site uses the global location. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
+  },
+  "siteLocation_statusNoMain": {
+    "message": "$SITE$ · 未伪装（未设置主位置）",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "example.org"
+      }
+    },
+    "description": "Status of the This site row when the site would use the main location but none is set, so GeoSpoof doesn't spoof it. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
+  },
+  "siteLocation_statusSite": {
+    "message": "$SITE$ · $PLACE$（网站位置）",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Mexico City"
+      }
+    },
+    "description": "Status of the This site row when a site location applies. $SITE$ is the host name, $PLACE$ the site location's name."
+  },
+  "siteLocation_statusFiltersOff": {
+    "message": "GeoSpoof 在此网站上已关闭（筛选）",
+    "description": "Status of the This site row when the user's Filters (allowlist/denylist) keep GeoSpoof off for the current site."
+  },
+  "siteLocation_useDifferent": {
+    "message": "在此使用其他位置",
+    "description": "Button on the This site row that opens the editor to give the current site its own location."
+  },
+  "siteLocation_change": {
+    "message": "更改",
+    "description": "Button on the This site row that edits the site location applied to the current site."
+  },
+  "siteLocation_useMain": {
+    "message": "使用主位置",
+    "description": "Button on the This site row that stops using a site location for the current site, so it uses the main (global) location again."
+  },
+  "siteLocation_hintAllowlist": {
+    "message": "筛选规则不会对此网站进行伪装。要将其添加到允许列表吗？",
+    "description": "Hint on the This site row in allowlist mode when the current site isn't on the allowlist."
+  },
+  "siteLocation_addToAllowlist": {
+    "message": "添加到允许列表",
+    "description": "One-tap button that adds the current site to the Filters allowlist."
+  },
+  "siteLocation_hintDenylist": {
+    "message": "此网站在你的拒绝列表中，因此筛选规则不会对其进行伪装。",
+    "description": "Hint on the This site row in denylist mode when the current site is blocked by the denylist."
+  },
+  "siteLocation_hintVpn": {
+    "message": "网站仍会看到你的 VPN 的 IP 地址。在此使用其他位置可能显得不一致。",
+    "description": "Hint shown with Sync with VPN on, explaining that a site location doesn't change the IP address sites see."
+  },
+  "siteLocation_reloadHint": {
+    "message": "请重新加载此网站的页面，使更改在所有地方生效。",
+    "description": "Hint shown after a site location change, because already-open pages keep their old values until reloaded."
+  },
+  "siteLocation_sitesLabel": {
+    "message": "网站",
+    "description": "Label of the site location editor's text field listing the sites the location applies to."
+  },
+  "siteLocation_sitesHint": {
+    "message": "用逗号分隔网站，例如 chatgpt.com, openai.com",
+    "description": "Help text under the Sites field. Keep the example domains unchanged."
+  },
+  "siteLocation_searchLabel": {
+    "message": "位置",
+    "description": "Label of the site location editor's location search field."
+  },
+  "siteLocation_favoriteLabel": {
+    "message": "或选择收藏",
+    "description": "Label of the site location editor's favorites dropdown."
+  },
+  "siteLocation_favoriteNone": {
+    "message": "选择收藏",
+    "description": "Placeholder option in the site location editor's favorites dropdown."
+  },
+  "siteLocation_chosenNone": {
+    "message": "尚未选择位置",
+    "description": "Shown in the site location editor before a location has been picked."
+  },
+  "siteLocation_explain": {
+    "message": "$SITES$ 上的页面及其中嵌入的所有内容将看到 $PLACE$。其他网站保持你的主位置。",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "chatgpt.com, openai.com"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Dublin"
+      }
+    },
+    "description": "Plain-language summary in the site location editor. $SITES$ is the comma-separated site list, $PLACE$ the chosen location."
+  },
+  "siteLocation_save": {
+    "message": "保存",
+    "description": "Button that saves the site location in the editor."
+  },
+  "siteLocation_cancel": {
+    "message": "取消",
+    "description": "Button that closes the site location editor without saving."
+  },
+  "siteLocation_errorPattern": {
+    "message": "请使用类似 example.com 的网站，不含路径，也不能只是 *。",
+    "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
+  },
+  "siteLocation_errorInUse": {
+    "message": "$SITE$ 已有网站位置（$PLACE$）。",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Mexico City"
+      }
+    },
+    "description": "Error when a site is already covered by another site location. $SITE$ is the site, $PLACE$ the other site location's name."
+  },
+  "siteLocation_editOwner": {
+    "message": "编辑那个",
+    "description": "Button next to the 'already has a site location' error that opens the other site location for editing."
+  },
+  "siteLocation_errorCapacity": {
+    "message": "最多可以有 $MAX$ 个网站位置。请先删除一个。",
+    "placeholders": {
+      "max": {
+        "content": "$1",
+        "example": "50"
+      }
+    },
+    "description": "Error when the maximum number of site locations is reached. $MAX$ is the limit."
+  },
+  "siteLocation_errorTooManySites": {
+    "message": "一个网站位置最多可覆盖 $MAX$ 个网站。",
+    "placeholders": {
+      "max": {
+        "content": "$1",
+        "example": "10"
+      }
+    },
+    "description": "Error when too many sites are listed for one site location. $MAX$ is the limit."
+  },
+  "siteLocation_errorTimezone": {
+    "message": "无法查询此地点的时区。请检查网络连接后重试。",
+    "description": "Error when the time zone of the chosen place couldn't be determined, so the site location wasn't saved."
+  },
+  "siteLocation_errorNoLocation": {
+    "message": "请先选择位置。",
+    "description": "Error when saving a site location before picking a location."
+  },
+  "siteLocation_sectionTitle": {
+    "message": "网站位置",
+    "description": "Heading of the Filters-tab section listing site locations. 'Site locations' is the feature's glossary name."
+  },
+  "siteLocation_sectionDesc": {
+    "message": "为特定网站设置专属位置。GeoSpoof 在哪里启用仍由筛选规则决定。",
+    "description": "Description under the Site locations heading on the Filters tab."
+  },
+  "siteLocation_add": {
+    "message": "添加网站位置",
+    "description": "Button on the Filters tab that opens the editor for a new site location."
+  },
+  "siteLocation_empty": {
+    "message": "暂无网站位置",
+    "description": "Shown on the Filters tab when there are no site locations."
+  },
+  "siteLocation_edit": {
+    "message": "编辑",
+    "description": "Button on a site location row that opens it for editing."
+  },
+  "siteLocation_editAriaLabel": {
+    "message": "编辑网站位置",
+    "description": "Accessible label prefix on a site location's edit button; the location's name follows."
+  },
+  "siteLocation_removeAriaLabel": {
+    "message": "删除网站位置",
+    "description": "Accessible label prefix on a site location's remove button; the location's name follows."
+  },
+  "siteLocation_listAriaLabel": {
+    "message": "网站位置",
+    "description": "Accessible label of the list of site locations on the Filters tab."
+  },
+  "siteLocation_proNote": {
+    "message": "🔒 网站位置是 GeoSpoof Pro 功能。请在 GeoSpoof 应用中升级，为网站设置专属位置。",
+    "description": "Shown for non-Pro users when site location controls are disabled, explaining that it is a Pro feature."
+  },
+  "details_siteLocation": {
+    "message": "网站位置",
+    "description": "Details tab heading for the site location applied to the current tab."
+  },
+  "details_siteLocationNone": {
+    "message": "无。此网站使用你的主位置。",
+    "description": "Details tab value when no site location applies to the current tab."
+  },
+  "badge_titleSiteLocation": {
+    "message": "GeoSpoof：$SITE$ 上的 $PLACE$",
+    "placeholders": {
+      "place": {
+        "content": "$1",
+        "example": "Dublin"
+      },
+      "site": {
+        "content": "$2",
+        "example": "chatgpt.com"
+      }
+    },
+    "description": "Toolbar button tooltip when a site location applies to the current tab. $PLACE$ is the site location's name, $SITE$ the host name."
   }
 }

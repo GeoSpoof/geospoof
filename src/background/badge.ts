@@ -10,11 +10,17 @@
  *
  * The orange `"!"` injection-failure badge written by the alarm path in
  * `index.ts` is orthogonal to scope state and lives there, not here.
+ *
+ * The per-tab title carries the site-location state (it names the place and
+ * the site), so no new badge color is needed and color is never the only
+ * signal.
  */
 
+import type { Settings } from "@/shared/types/settings";
 import { isRestrictedUrl } from "./tabs";
 import { loadSettings } from "./settings";
-import { computeEffectiveEnabled } from "@/shared/utils/scope";
+import type { SiteResolution } from "@/shared/utils/site-locations";
+import { resolveSiteSettings, siteLocationDisplayName } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
 
 const logger = createLogger("BG");
@@ -68,10 +74,11 @@ export function badgeStateFor(masterEnabled: boolean, effectiveEnabled: boolean)
 }
 
 /**
- * Refresh the badge on every open tab to reflect its current Effective_Enabled
- * value. Loads settings once, then resolves the per-tab decision against each
- * tab's top-level URL via the shared `computeEffectiveEnabled` source of truth
- * and applies the mapped state (Req 12.1–12.6).
+ * Refresh the badge and title on every open tab to reflect its current
+ * Effective_Enabled value and site location. Loads settings once, then resolves
+ * the per-tab decision against each tab's top-level URL via the shared
+ * `resolveSiteSettings` source of truth and applies the mapped state (Req
+ * 12.1–12.6).
  */
 export async function updateBadge(): Promise<void> {
   try {
@@ -82,20 +89,79 @@ export async function updateBadge(): Promise<void> {
       if (tab.id == null) {
         continue;
       }
-
-      const effectiveEnabled = computeEffectiveEnabled({
-        masterEnabled: settings.enabled,
-        scopeMode: settings.scopeMode,
-        allowlist: settings.allowlist,
-        denylist: settings.denylist,
-        proFeaturesBlocked: settings.proFeaturesBlocked,
-        topLevelUrl: tab.url,
-        isRestricted: isRestrictedUrl,
-      });
-
-      setBadgeForTab(tab.id, badgeStateFor(settings.enabled, effectiveEnabled));
+      applyTabIndicator(tab.id, settings, tab.url);
     }
   } catch (error) {
     logger.error("Failed to update badge:", error);
   }
+}
+
+/** A localized message, or null when the API is absent or the key is missing (""). */
+function message(key: string, substitutions?: string[]): string | null {
+  try {
+    const text = browser.i18n?.getMessage(key, substitutions);
+    return typeof text === "string" && text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The toolbar title for a tab. Pure apart from reading the localized strings.
+ *
+ * With a site location applied it names the place and the site, so the state
+ * is never carried by the badge color alone. Otherwise it's the plain extension
+ * name. Always explicit, because engines differ on whether clearing a per-tab
+ * title restores the default.
+ */
+export function tabTitleFor(resolution: SiteResolution, url: string | undefined): string {
+  const entry = resolution.siteLocation;
+  if (entry !== null) {
+    let hostname = "";
+    try {
+      hostname = url ? new URL(url).hostname : "";
+    } catch {
+      hostname = "";
+    }
+    const place = siteLocationDisplayName(entry);
+    return (
+      message("badge_titleSiteLocation", [place, hostname]) ?? `GeoSpoof: ${place} on ${hostname}`
+    );
+  }
+  return message("extensionName") ?? "GeoSpoof";
+}
+
+/**
+ * Set one tab's toolbar title. Best-effort like `setBadgeForTab`: the API is
+ * feature-detected (absent on mobile engines) and rejections (closed tab) are
+ * swallowed so they never surface as unhandled rejections.
+ */
+export function setTitleForTab(tabId: number, title: string): void {
+  const action = browser.action;
+  if (!action?.setTitle) {
+    return;
+  }
+  try {
+    void action.setTitle({ title, tabId }).catch((error: unknown) => {
+      logger.debug(`Title update skipped for tab ${tabId}:`, error);
+    });
+  } catch (error) {
+    logger.debug(`Title update skipped for tab ${tabId}:`, error);
+  }
+}
+
+/**
+ * Resolve a tab once and apply both indicators: the badge (scope state, colors
+ * unchanged) and the title (names a site location when one applies). Returns
+ * the resolution so callers can reuse `enabled`.
+ */
+export function applyTabIndicator(
+  tabId: number,
+  settings: Settings,
+  url: string | undefined
+): SiteResolution {
+  const r = resolveSiteSettings(settings, url, isRestrictedUrl);
+  setBadgeForTab(tabId, badgeStateFor(settings.enabled, r.enabled));
+  setTitleForTab(tabId, tabTitleFor(r, url));
+  return r;
 }

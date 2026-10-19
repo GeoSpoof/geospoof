@@ -159,6 +159,38 @@ export type LocaleSpoofing =
 export const DEFAULT_LOCALE_SPOOFING: LocaleSpoofing = { mode: "off" };
 
 /**
+ * A location used only on matching sites ("Site locations"). Filters still
+ * decide WHETHER GeoSpoof is on for a page; a matching site location decides
+ * WHICH location it reports there. Coordinates are a snapshot, never a
+ * reference to a favorite or to the main location.
+ */
+export interface SiteLocation {
+  /** Unique identifier — `Date.now().toString()`, like `Favorite.id` */
+  id: string;
+  /** Reserved discriminator; later kinds stay additive. Unknown kinds are dropped on load. */
+  kind: "location";
+  /**
+   * 1..MAX_PATTERNS_PER_SITE_LOCATION canonical host-only patterns (the
+   * Filters grammar without paths or a bare `*`), unique across all entries.
+   */
+  patterns: string[];
+  location: Location;
+  /** Resolved at save time; never a longitude fallback (no `fallback` key is stored). */
+  timezone: Timezone;
+  locationName: LocationName | null;
+  /** User-defined label; null = use the place name */
+  label: string | null;
+  /** Epoch milliseconds of the last save; the precedence tie-break */
+  updatedAt: number;
+}
+
+/** Maximum number of site locations. Keep this exact literal: a future geospoof-ios parity test greps it. */
+export const MAX_SITE_LOCATIONS = 50;
+
+/** Maximum number of patterns one site location may cover. */
+export const MAX_PATTERNS_PER_SITE_LOCATION = 10;
+
+/**
  * Complete extension settings persisted in browser.storage.local.
  */
 export interface Settings {
@@ -310,6 +342,12 @@ export interface Settings {
    * about GeoSpoof's UI, this one is about what sites see.
    */
   localeSpoofing: LocaleSpoofing;
+  /**
+   * Site locations: per-site overrides of location, timezone, and place name.
+   * Applied only where Filters keep GeoSpoof on; the most specific matching
+   * pattern wins. Never sent to pages — only the resolved values are.
+   */
+  siteLocations: SiteLocation[];
 }
 
 /**
@@ -349,4 +387,5 @@ export const DEFAULT_SETTINGS: Settings = {
   precisionSeed: 0,
   precisionCadence: "never",
   localeSpoofing: { mode: "off" },
+  siteLocations: [],
 };

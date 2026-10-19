@@ -537,6 +537,32 @@ describe("precisionCadence validation (AC1)", () => {
   });
 });
 
+describe("siteLocations validation", () => {
+  test("absent siteLocations repairs to []", async () => {
+    const { validateSettings } = await importBackground();
+    expect(validateSettings({}).siteLocations).toEqual([]);
+  });
+
+  test("a valid stored list round-trips unchanged", async () => {
+    const { validateSettings } = await importBackground();
+    const { validateSiteLocations } = await import("@/background/settings");
+    const siteLocations = [
+      {
+        id: "1700000000000",
+        kind: "location" as const,
+        patterns: ["chatgpt.com", "openai.com"],
+        location: { latitude: 53.3498, longitude: -6.2603, accuracy: 45 },
+        timezone: { identifier: "Europe/Dublin", offset: 0, dstOffset: 60 },
+        locationName: { city: "Dublin", country: "Ireland", displayName: "Dublin, Ireland" },
+        label: null,
+        updatedAt: 1700000000000,
+      },
+    ];
+    expect(validateSettings({ siteLocations }).siteLocations).toEqual(siteLocations);
+    expect(validateSiteLocations(siteLocations)).toEqual(siteLocations);
+  });
+});
+
 describe("ensureValidPrecisionSeed", () => {
   test("returns a valid seed unchanged", async () => {
     vi.resetModules();

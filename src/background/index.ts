@@ -8,24 +8,22 @@
  */
 
 import type { Runtime, Tabs, Alarms } from "webextension-polyfill";
-import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
+import type { Message } from "@/shared/types/messages";
+import type { Settings } from "@/shared/types/settings";
 import { loadSettings, saveSettings } from "./settings";
 import { setDebugEnabled, setVerbosityLevel, createLogger } from "@/shared/utils/debug-logger";
 import { now } from "@/shared/utils/safe-time";
 import { setWebRTCProtection } from "./webrtc";
-import { updateBadge, setBadgeForTab, badgeStateFor } from "./badge";
-import {
-  broadcastSettingsToTabs,
-  sendSettingsToTab,
-  isRestrictedUrl,
-  checkTabInjection,
-} from "./tabs";
-import { computeEffectiveEnabled, computeEffectivePreserveGeoPrompt } from "@/shared/utils/scope";
-import { computeEffectiveAccuracySetting } from "@/shared/accuracy/resolver";
+import { updateBadge, applyTabIndicator } from "./badge";
+import { broadcastSettingsToTabs, sendSettingsToTab, checkTabInjection } from "./tabs";
+import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
 import { computeEffectiveLocationPrecision } from "@/shared/precision/offset";
 import { isTimeCadence, validatePrecisionCadence } from "@/shared/precision/cadence";
-import { resolvePageLocale } from "@/shared/locale/resolver";
-import { installAcceptLanguageRewriter, updateAcceptLanguageSettings } from "./accept-language";
+import {
+  installAcceptLanguageRewriter,
+  refreshAcceptLanguageOnNavigation,
+  updateAcceptLanguageSettings,
+} from "./accept-language";
 import { handleMessage, handleSetLocation } from "./messages";
 import { syncVpnLocation } from "./vpn-sync";
 import { installProxyWatcher } from "./proxy-watcher";
@@ -38,8 +36,8 @@ import {
   advanceHeldBucketToClock,
   ensurePrecisionRollover,
   reschedulePrecisionRollover,
-  resolveCurrentPageLocation,
 } from "./precision-cadence";
+import { buildPagePayload } from "./page-payload";
 import { installDebuggerWatchers, syncDebuggerSpoofing, ensureTabSpoofed } from "./debugger-spoof";
 import {
   installWorkerRequestFilter,
@@ -48,6 +46,13 @@ import {
 } from "./worker-request-filter";
 
 const logger = createLogger("BG");
+
+/** Whether any site location applies on this engine (after the Safari Pro gate). */
+function hasEffectiveSiteLocations(settings: Settings): boolean {
+  return (
+    computeEffectiveSiteLocations(settings.siteLocations, settings.proFeaturesBlocked).length > 0
+  );
+}
 
 // Record the moment the background script first evaluates. Used to
 // correlate content-script request timestamps with background-worker
@@ -123,6 +128,8 @@ export {
   handleSetScopeMode,
   handleAddScopeSite,
   handleRemoveScopeSite,
+  handleSaveSiteLocation,
+  handleRemoveSiteLocation,
 } from "./messages";
 export {
   isValidIpAddress,
@@ -282,7 +289,8 @@ async function initialize(): Promise<void> {
     }
   }
 
-  if (settings.enabled && settings.location) {
+  // A site location is something to deliver even when no main location is set.
+  if (settings.enabled && (settings.location || hasEffectiveSiteLocations(settings))) {
     await broadcastSettingsToTabs(settings);
   }
 
@@ -415,15 +423,6 @@ async function onAlarm(alarm: Alarms.Alarm): Promise<void> {
   const { tabId, attempt } = parsed;
 
   const settings = await loadSettings();
-  const {
-    timezone,
-    debugLogging,
-    verbosityLevel,
-    webrtcProtection,
-    preserveGeolocationPrompt,
-    accuracySetting,
-    accuracySeed,
-  } = settings;
 
   try {
     const result = await checkTabInjection(tabId);
@@ -443,48 +442,13 @@ async function onAlarm(alarm: Alarms.Alarm): Promise<void> {
       } catch {
         tabUrl = undefined;
       }
-      const enabled = computeEffectiveEnabled({
-        masterEnabled: settings.enabled,
-        scopeMode: settings.scopeMode,
-        allowlist: settings.allowlist,
-        denylist: settings.denylist,
-        proFeaturesBlocked: settings.proFeaturesBlocked,
-        topLevelUrl: tabUrl,
-        isRestricted: isRestrictedUrl,
-      });
-      const scopedPayload: UpdateSettingsPayload = {
-        enabled,
-        // Apply the approximate-location offset, exactly as `sendSettingsToTab`
-        // does. Delivering `location` raw here was a real leak: a user who
-        // enabled approximate location still got their EXACT anchor coordinates
-        // on this path, which is the one thing the feature exists to prevent.
-        // `resolveCurrentPageLocation` is the shared resolver every page-bound
-        // builder uses, so this produces the identical point the broadcast path
-        // delivers for the current cadence period (location-precision Req 5.2).
-        location: await resolveCurrentPageLocation(settings),
-        timezone,
-        debugLogging,
-        verbosityLevel,
-        webrtcProtection,
-        preserveGeolocationPrompt: computeEffectivePreserveGeoPrompt(
-          preserveGeolocationPrompt,
-          settings.proFeaturesBlocked
-        ),
-        // Pro-gate custom accuracy on iOS Safari (force Realistic for a free
-        // user); fail-open + Safari-only, mirroring the scope gate above.
-        accuracySetting: computeEffectiveAccuracySetting(
-          accuracySetting,
-          settings.proFeaturesBlocked
-        ),
-        accuracySeed,
-        // Same shared resolver every other payload builder uses, so this
-        // late-injection path delivers the identical Reported Language.
-        locale: resolvePageLocale(
-          settings.localeSpoofing,
-          settings.timezone?.identifier ?? null,
-          settings.proFeaturesBlocked
-        ),
-      };
+      // Built by the shared page-payload module, never inline here. Duplicated
+      // builders once delivered the raw precision anchor on this path (a user
+      // who enabled approximate location still got their EXACT coordinates),
+      // and a consumer someone forgot to update is the likeliest bug for any
+      // per-tab feature, so every page-bound payload goes through
+      // `page-payload.ts`.
+      const scopedPayload = await buildPagePayload(settings, tabUrl);
 
       try {
         await browser.tabs.sendMessage(tabId, {
@@ -534,10 +498,16 @@ export async function onPrecisionRolloverAlarm(): Promise<void> {
       settings.locationPrecision,
       settings.proFeaturesBlocked
     );
-    // Protection off, no location, or effective Exact: the payload wouldn't
-    // change, so skip the push. The held bucket still advanced, so turning
-    // protection on or switching to Approximate later delivers the current one.
-    if (changed && settings.enabled && settings.location && effective.mode === "approximate") {
+    // Protection off, no location (main or site), or effective Exact: the
+    // payload wouldn't change, so skip the push. The held bucket still
+    // advanced, so turning protection on or switching to Approximate later
+    // delivers the current one. Site-location points move on the cadence too.
+    if (
+      changed &&
+      settings.enabled &&
+      (settings.location || hasEffectiveSiteLocations(settings)) &&
+      effective.mode === "approximate"
+    ) {
       // allSettled, not all: wait for both pushes to finish even when one
       // fails, so the reschedule below runs after them. broadcastSettingsToTabs
       // can reject (tabs.query); the bootstrap registration never does.
@@ -673,70 +643,22 @@ if (browser.tabs && browser.tabs.onCreated) {
 
     void (async () => {
       const settings = await loadSettings();
-      const {
-        timezone,
-        debugLogging,
-        verbosityLevel,
-        webrtcProtection,
-        preserveGeolocationPrompt,
-        accuracySetting,
-        accuracySeed,
-      } = settings;
-
-      // Resolve Effective_Enabled for the newly created tab from its top-level
-      // URL via the shared source of truth (Req 8.4, 9.3) rather than sending
-      // the global `enabled`. A missing/undeterminable URL resolves to false.
-      const enabled = computeEffectiveEnabled({
-        masterEnabled: settings.enabled,
-        scopeMode: settings.scopeMode,
-        allowlist: settings.allowlist,
-        denylist: settings.denylist,
-        proFeaturesBlocked: settings.proFeaturesBlocked,
-        topLevelUrl: tab.url,
-        isRestricted: isRestrictedUrl,
-      });
 
       setTimeout(() => {
         void (async () => {
           try {
             // Built at send time, not when the event fired, so a cadence
             // rollover inside the 100ms delay can't leave this tab on the
-            // previous period's point.
-            const scopedPayload: UpdateSettingsPayload = {
-              enabled,
-              // Apply the approximate-location offset, exactly as
-              // `sendSettingsToTab` does. Delivering `location` raw here was a
-              // real leak: a user who enabled approximate location still got
-              // their EXACT anchor coordinates on this path, which is the one
-              // thing the feature exists to prevent. `resolveCurrentPageLocation`
-              // is the shared resolver every page-bound builder uses, so this
-              // produces the identical point the broadcast path delivers
-              // (location-precision Req 5.2).
-              location: await resolveCurrentPageLocation(settings),
-              timezone,
-              debugLogging,
-              verbosityLevel,
-              webrtcProtection,
-              preserveGeolocationPrompt: computeEffectivePreserveGeoPrompt(
-                preserveGeolocationPrompt,
-                settings.proFeaturesBlocked
-              ),
-              // Pro-gate custom accuracy on iOS Safari (force Realistic for a
-              // free user); fail-open + Safari-only, mirroring the scope gate
-              // above.
-              accuracySetting: computeEffectiveAccuracySetting(
-                accuracySetting,
-                settings.proFeaturesBlocked
-              ),
-              accuracySeed,
-              // Same shared resolver every other payload builder uses, so a
-              // brand-new tab receives the identical Reported Language.
-              locale: resolvePageLocale(
-                settings.localeSpoofing,
-                settings.timezone?.identifier ?? null,
-                settings.proFeaturesBlocked
-              ),
-            };
+            // previous period's point. `enabled` is resolved from the new
+            // tab's top-level URL (Req 8.4, 9.3); a missing URL resolves to
+            // false.
+            //
+            // Built by the shared page-payload module, never inline here.
+            // Duplicated builders once delivered the raw precision anchor on
+            // this path, and a consumer someone forgot to update is the
+            // likeliest bug for any per-tab feature, so every page-bound
+            // payload goes through `page-payload.ts`.
+            const scopedPayload = await buildPagePayload(settings, tab.url);
             await browser.tabs.sendMessage(tab.id!, {
               type: "UPDATE_SETTINGS",
               payload: scopedPayload,
@@ -769,16 +691,11 @@ if (browser.tabs && browser.tabs.onUpdated) {
           const settings = await loadSettings();
           await sendSettingsToTab(tab, settings);
 
-          const effectiveEnabled = computeEffectiveEnabled({
-            masterEnabled: settings.enabled,
-            scopeMode: settings.scopeMode,
-            allowlist: settings.allowlist,
-            denylist: settings.denylist,
-            proFeaturesBlocked: settings.proFeaturesBlocked,
-            topLevelUrl: tab.url,
-            isRestricted: isRestrictedUrl,
-          });
-          setBadgeForTab(tabId, badgeStateFor(settings.enabled, effectiveEnabled));
+          // Badge + title (names a site location when the new route has one).
+          applyTabIndicator(tabId, settings, tab.url);
+          // Per-tab Accept-Language rules key on tab ids, so a route that
+          // crosses a scope or site-location boundary needs a re-plan.
+          refreshAcceptLanguageOnNavigation(settings);
 
           // Chromium debugger mode (CDP): a same-document navigation fires no
           // network request, so onBeforeNavigate never runs and the tab's
@@ -798,27 +715,19 @@ if (browser.tabs && browser.tabs.onUpdated) {
         void (async () => {
           const settings = await loadSettings();
 
-          // Resolve the tab's Effective_Enabled from its top-level URL via the
-          // shared source of truth, then map to the three-state badge (Req
-          // 12.1–12.5). Restricted/out-of-scope URLs resolve to false inside
-          // computeEffectiveEnabled and therefore show the out-of-scope badge.
-          const effectiveEnabled = computeEffectiveEnabled({
-            masterEnabled: settings.enabled,
-            scopeMode: settings.scopeMode,
-            allowlist: settings.allowlist,
-            denylist: settings.denylist,
-            proFeaturesBlocked: settings.proFeaturesBlocked,
-            topLevelUrl: tab.url,
-            isRestricted: isRestrictedUrl,
-          });
-
-          setBadgeForTab(tabId, badgeStateFor(settings.enabled, effectiveEnabled));
+          // Resolve the tab from its top-level URL via the shared source of
+          // truth, then map to the three-state badge (Req 12.1–12.5) and the
+          // title. Restricted/out-of-scope URLs resolve to disabled and
+          // therefore show the out-of-scope badge.
+          const r = applyTabIndicator(tabId, settings, tab.url);
+          // Re-plan per-tab Accept-Language rules for the new document.
+          refreshAcceptLanguageOnNavigation(settings);
 
           // Nothing to verify when spoofing isn't effectively enabled for this
           // tab (master off, restricted, or out of scope), so skip scheduling
           // injection checks — this also avoids the alarm path overwriting the
           // out-of-scope/master-off badge with the active state.
-          if (!effectiveEnabled) {
+          if (!r.enabled) {
             return;
           }
 

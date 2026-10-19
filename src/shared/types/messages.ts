@@ -1,6 +1,7 @@
 import type {
   AccuracySetting,
   Location,
+  LocationName,
   LocaleSpoofing,
   LocationPrecision,
   PrecisionCadence,
@@ -42,7 +43,9 @@ export type MessageType =
   | "SET_ACCURACY"
   | "SET_PRECISION"
   | "SET_PRECISION_CADENCE"
-  | "SET_LOCALE_SPOOFING";
+  | "SET_LOCALE_SPOOFING"
+  | "SAVE_SITE_LOCATION"
+  | "REMOVE_SITE_LOCATION";
 
 /**
  * Generic message structure for runtime messaging.
@@ -315,3 +318,51 @@ export interface ScopeErrorResponse {
 }
 
 export type ScopeResponse = ScopeSuccessResponse | ScopeErrorResponse;
+
+// --- Site-location payload and response types ---
+
+/**
+ * Create or edit a site location. The background re-parses every pattern,
+ * resolves the timezone (never storing a fallback), and computes accuracy, so
+ * the popup sends only what the user chose.
+ */
+export interface SaveSiteLocationPayload {
+  /** Present when editing; an unknown id is saved as a new entry. */
+  id?: string;
+  /** Raw site patterns (host-only grammar); re-parsed and deduped by the background. */
+  patterns: string[];
+  latitude: number;
+  longitude: number;
+  /** The chosen place's name; omitted or null means "look it up" (or keep it, when unchanged). */
+  locationName?: LocationName | null;
+  /** Omitted keeps the existing label on edit; null or "" clears it. */
+  label?: string | null;
+}
+
+/**
+ * Remove a site location, or just one of its patterns (the entry goes when its
+ * last pattern does). An unknown id or pattern is a no-op success.
+ */
+export interface RemoveSiteLocationPayload {
+  id: string;
+  pattern?: string;
+}
+
+export type SiteLocationErrorCode =
+  | "INVALID_PATTERN"
+  | "PATTERN_IN_USE"
+  | "AT_CAPACITY"
+  | "TOO_MANY_PATTERNS"
+  | "INVALID_LOCATION"
+  | "TIMEZONE_UNAVAILABLE"
+  | "STORAGE_ERROR";
+
+export type SiteLocationResponse =
+  | { success: true; id: string }
+  | {
+      error: SiteLocationErrorCode;
+      /** The offending pattern (INVALID_PATTERN, PATTERN_IN_USE). */
+      pattern?: string;
+      /** The entry that already owns `pattern` (PATTERN_IN_USE). */
+      ownerId?: string;
+    };
