@@ -2486,6 +2486,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   gap: 6px;
 }
 
+/* With every action hidden (Filters keep GeoSpoof off here), drop the empty
+   row so the status and the hint below it keep the row's 8px rhythm. */
+.this-site-actions:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
 .site-location-action,
 .site-location-cancel {
   padding: 7px 12px;
@@ -2645,9 +2651,11 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   gap: 4px;
 }
 
+/* --text-muted, not --text-subtle: this hint is the field's description
+   (aria-describedby), and #999 on the light editor is under 3:1. */
 .site-location-field-hint {
   font-size: 11px;
-  color: var(--text-subtle);
+  color: var(--text-muted);
   line-height: 1.4;
 }
 
