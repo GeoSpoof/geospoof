@@ -1,6 +1,6 @@
 # Privacy Policy for GeoSpoof
 
-**Last Updated:** July 3, 2026
+**Last Updated:** October 18, 2026
 
 ## Overview
 
@@ -59,12 +59,19 @@ Used when you search for a city or the extension performs reverse geocoding.
 Sends your search query (city name) or coordinates over HTTPS.
 [OpenStreetMap Privacy Policy](https://wiki.osmfoundation.org/wiki/Privacy_Policy)
 
-**Apple geocoding (`CLGeocoder`)** — _Companion app only._ When you set a manual
-location in the app, it uses Apple's on-device geocoding service to resolve the
-precise IANA timezone for the chosen coordinates. This is an Apple system API; if
-it returns nothing (offline), the app falls back to bundled offline boundary data
-and never leaves the device. City search in the app is fully offline (a bundled
-catalog) and makes no network request.
+**Apple Maps and geocoding (MapKit, `CLGeocoder`)** — _Companion app only._
+When you type in the app's location search, the text is sent to Apple's MapKit
+service as you type, from the second character, so that Apple can suggest
+matching addresses and places. Choosing a suggestion fetches its coordinates and
+time zone from Apple. The built-in city list is searched on your device and
+works offline. The Pro route builder uses the same Apple service to search for
+places and plan paths between them. When you set a location from coordinates or
+the map, the app asks Apple's geocoding service (`CLGeocoder`) for the time zone
+at that point, and falls back to bundled offline boundary data when offline. The
+app has no access to your device's location, so none is sent. As with any
+network request, Apple receives your IP address. These requests are governed by
+[Apple's Privacy Policy](https://www.apple.com/legal/privacy/), and the developer
+receives none of this data.
 
 ### 2. Timezone boundary data
 
@@ -97,8 +104,10 @@ and the requested path) transiently in order to deliver the file and may retain
 its own operational logs under its own policies. The IP is used only to deliver
 the requested file. The boundary data is cached by your browser for a long
 period, so after the first lookups the extension rarely needs to request it
-again. (The companion app instead ships this boundary data inside the app and
-resolves timezones entirely offline, making no network request.)
+again. (The companion app instead ships this boundary data inside the app, so it
+never fetches it from cdn.geospoof.com. It asks Apple for a location's time zone
+first, as described under Apple Maps and geocoding above, and uses the bundled
+data when offline.)
 
 ### 3. VPN Sync (optional — only when you enable "Sync with VPN")
 
@@ -228,7 +237,7 @@ If you are located in the EEA, UK, or Switzerland, the following applies to you 
 
 **Legal basis for processing:** Two kinds of personal data may be processed, both limited to your public IP address. (1) When you explicitly enable the "Sync with VPN" feature, your public IP is sent to the IP-detection and geolocation services listed above; we rely on your consent (GDPR Art. 6(1)(a)), which you give by enabling the feature and can withdraw at any time by disabling "Sync with VPN" in the extension popup. (2) Whenever the extension resolves a timezone, it fetches boundary data from `cdn.geospoof.com`, which — like any web request — transmits your IP to the developer's content-delivery host (Amazon CloudFront/S3); we rely on legitimate interests (GDPR Art. 6(1)(f)) in delivering the boundary data needed for the location-spoofing you requested, and the IP is used only to serve the file and is not retained or otherwise processed by the developer. Withdrawing consent does not affect the lawfulness of processing based on consent before its withdrawal.
 
-**International transfers:** The third-party services listed above (AWS, Cloudflare, Akamai, ipify, GeoJS, FreeIPAPI, ReallyFreeGeoIP, ipinfo.io, Google STUN, and Nominatim) are operated outside the EEA, including in the United States; each is an independent controller and determines its own transfer mechanisms. Separately, the timezone boundary data is served from the developer's own domain `cdn.geospoof.com`, hosted on Amazon Web Services (CloudFront/S3), whose infrastructure is also located outside the EEA, including in the United States. (Older extension versions that still fetch from `geospoof.com` use the developer's Vercel host, likewise located in the United States.) When you use features that contact any of these endpoints, your public IP is transferred to that infrastructure. Apart from serving that static boundary data, the extension developer operates no server and performs no other cross-border transfer of its own.
+**International transfers:** The third-party services listed above (AWS, Cloudflare, Akamai, ipify, GeoJS, FreeIPAPI, ReallyFreeGeoIP, ipinfo.io, Google STUN, Nominatim, and, for the companion app, Apple's MapKit and geocoding services) are operated outside the EEA, including in the United States; each is an independent controller and determines its own transfer mechanisms. Separately, the timezone boundary data is served from the developer's own domain `cdn.geospoof.com`, hosted on Amazon Web Services (CloudFront/S3), whose infrastructure is also located outside the EEA, including in the United States. (Older extension versions that still fetch from `geospoof.com` use the developer's Vercel host, likewise located in the United States.) When you use features that contact any of these endpoints, your public IP is transferred to that infrastructure. Apart from serving that static boundary data, the extension developer operates no server and performs no other cross-border transfer of its own.
 
 **Your rights under GDPR / UK GDPR:** you have the right to access, rectify, erase, restrict, object to, and port your personal data, and to withdraw consent at any time. Because the extension stores no personal data on any server controlled by the developer, most of these rights are exercised directly by you within the extension: uninstalling the extension or disabling "Sync with VPN" fully erases everything the developer could ever access. You also have the right to lodge a complaint with your local data protection authority.
 
