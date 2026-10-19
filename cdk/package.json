@@ -12,8 +12,10 @@
     "clean:dist": "rm -rf dist",
     "clean:cdk": "rm -rf cdk.out",
     "clean:node": "rm -rf node_modules package-lock.json",
-    "deploy:dev": "npm run build:full && cdk deploy --all --require-approval never --context env=dev --profile geospoof-dev",
-    "deploy:prod": "npm run build:full && cdk deploy --all --require-approval never --context env=prod --profile geospoof-prod",
+    "deploy:dev": "npm run build:full && cdk deploy GeoSpoofGeoTzCdn-dev --exclusively --require-approval never --context env=dev --profile geospoof-dev",
+    "deploy:prod": "npm run build:full && cdk deploy GeoSpoofGeoTzCdn-prod --exclusively --require-approval never --context env=prod --profile geospoof-prod",
+    "deploy:relay:dev": "npm run build:full && cdk deploy GeoSpoofApnsRelay-dev --exclusively --context env=dev --profile geospoof-dev",
+    "deploy:relay:prod": "npm run build:full && cdk deploy GeoSpoofApnsRelay-prod --exclusively --context env=prod --profile geospoof-prod",
     "diff:dev": "cdk diff --all --context env=dev --profile geospoof-dev",
     "diff:prod": "cdk diff --all --context env=prod --profile geospoof-prod",
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
@@ -25,10 +27,12 @@
     "watch": "tsc -w"
   },
   "devDependencies": {
+    "@aws-sdk/client-secrets-manager": "3.1149.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.10.1",
     "@vitest/coverage-v8": "5.0.3",
     "aws-cdk": "2.1144.0",
+    "esbuild": "0.28.2",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",
@@ -38,6 +42,7 @@
     "vitest": "5.0.3"
   },
   "dependencies": {
+    "@apple/app-store-server-library": "3.1.0",
     "aws-cdk-lib": "^2.260.0",
     "constructs": "^10.5.0",
     "geo-tz": "8.1.6"

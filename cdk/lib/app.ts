@@ -2,6 +2,7 @@
 import * as cdk from "aws-cdk-lib";
 import { environments, EnvName } from "./config/app";
 import { GeoTzCdnStack } from "./stacks/geo-tz-cdn-stack";
+import { ApnsRelayStack } from "./stacks/apns-relay-stack";
 
 const app = new cdk.App();
 
@@ -27,6 +28,18 @@ for (const name of selected) {
     env: { account: envConfig.account, region: envConfig.region },
     description: `GeoSpoof geo-tz boundary data CDN (${envConfig.name})`,
   });
+  // A separate stack, so a relay deploy never touches the CDN. Note that the
+  // deploy:* scripts run `cdk deploy --all` and so include it; deploy it alone
+  // with `npx cdk deploy GeoSpoofApnsRelay-<env> --context env=<env> ...`.
+  if (envConfig.apnsRelay) {
+    new ApnsRelayStack(app, `GeoSpoofApnsRelay-${envConfig.name}`, {
+      envName: envConfig.name,
+      relay: envConfig.apnsRelay,
+      alarmEmail: envConfig.alarmEmail,
+      env: { account: envConfig.account, region: envConfig.region },
+      description: `GeoSpoof APNs relay for Live Activity push (${envConfig.name})`,
+    });
+  }
 }
 
 app.synth();

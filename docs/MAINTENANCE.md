@@ -11,7 +11,7 @@ Principles:
 
 ## Dependencies
 
-**What we depend on:** four runtime packages in the extension (`browser-geo-tz`, `tr46`, `urlpattern-polyfill`, `webextension-polyfill`). Everything else is build, lint, and test tooling. `cdk/` is a separate project with its own lockfile.
+**What we depend on:** four runtime packages in the extension (`browser-geo-tz`, `tr46`, `urlpattern-polyfill`, `webextension-polyfill`). Everything else is build, lint, and test tooling. `cdk/` is a separate project with its own lockfile. It also bundles the APNs relay Lambda, whose one runtime dependency is `@apple/app-store-server-library` (exact pin); `esbuild` is exact-pinned for bundling, and `@aws-sdk/client-secrets-manager` is dev-only because the Lambda runtime provides it.
 
 **Version pinning:** exact pins for anything whose output we ship or test against (`vite`, `vitest`, `esbuild`, `jsdom`, runtime packages, `geo-tz`); caret ranges for low-risk tooling. Lockfiles are always committed, and CI installs with `npm ci`.
 
