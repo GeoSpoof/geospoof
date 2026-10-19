@@ -845,6 +845,14 @@ Caps: `MAX_SITE_LOCATIONS = 50` entries and `MAX_PATTERNS_PER_SITE_LOCATION = 10
 
 **Pro.** On Safari, `proFeaturesBlocked` disables the overlay (`computeEffectiveSiteLocations` returns `[]`), and the popup disables the controls. Firefox and Chromium have no gate.
 
+**Safari app bridge.** The list crosses the bridge as one JSON string, like `favorites`. The extension half ships first and stays inert until the app learns the keys:
+
+- **Extension → app.** `REGION_UPDATE.siteLocations` carries `JSON.stringify(settings.siteLocations)` after every successful save, as the last key. The native handler stores it as `region_siteLocations` verbatim; an older handler drops the unknown key.
+- **App → extension.** The app writes `pending_siteLocations`, relayed as `pending.siteLocations`, only once it has read `region_siteLocations` or the user edited the list in the app. Until then it leaves the key unset, because `[]` means "clear the list".
+- **Adoption.** Step 9 of `adoptPendingSnapshot` runs after step 8 in its own try/catch. An absent key is a no-op, and invalid JSON or a non-array is ignored, never a wipe. An empty array is adopted as a clear. A bare IANA id in place of a `timezone` object (or an object with non-finite offsets) is repaired with `computeOffsets`; then every entry is re-validated by `validateSiteLocations`, so invalid entries are dropped. An unchanged list saves nothing; a changed one is saved, broadcast, and badged.
+- **Swift must preserve unknown fields and kinds verbatim**, so an entry shape or `kind` added later survives an app round trip. The app mirrors `MAX_SITE_LOCATIONS` (50) and `MAX_PATTERNS_PER_SITE_LOCATION` (10), and validates patterns against `tests/fixtures/site-location-vectors.json`.
+- **Pro.** The app's UI gate is a convenience; `proFeaturesBlocked` is what enforces it, disabling the overlay for a non-Pro user while the stored list is kept.
+
 ### Location precision and cadence
 
 Every page-bound builder (the per-tab broadcast in `sendSettingsToTab`, the content-script `GET_SETTINGS` reply, `tabs.onCreated`, the injection-check alarm, and the Firefox bootstrap) is built in one module, `src/background/page-payload.ts`, and gets `location` from one resolver, `resolveCurrentPageLocation` in `src/background/precision-cadence.ts`:

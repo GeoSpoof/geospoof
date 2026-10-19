@@ -11,9 +11,10 @@
  */
 
 import { createLogger } from "@/shared/utils/debug-logger";
-import type { Favorite, ScopeMode, Settings } from "@/shared/types/settings";
+import type { Favorite, ScopeMode, Settings, Timezone } from "@/shared/types/settings";
 import { MAX_FAVORITES } from "@/shared/types/settings";
 import { parsePattern } from "@/shared/utils/scope";
+import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import {
   loadSettings,
@@ -21,7 +22,9 @@ import {
   validateAccuracySetting,
   validateLocationPrecision,
   validateLocaleSpoofing,
+  validateSiteLocations,
 } from "./settings";
+import { computeOffsets } from "./timezone";
 import {
   applyPrecisionCadence,
   handleSetLocation,
@@ -95,6 +98,13 @@ export interface PendingSettings {
    * validatePrecisionCadence on adoption; period state never crosses.
    */
   precisionCadence?: string;
+  /**
+   * JSON-encoded SiteLocation[] from the app. Unset until learned: the app must
+   * not write pending_siteLocations until it has read region_siteLocations or
+   * the user edited the list there, because `[]` is a real "clear the list".
+   * Re-validated through validateSiteLocations on adoption (step 9).
+   */
+  siteLocations?: string;
 }
 
 interface PendingResponse {
@@ -103,6 +113,40 @@ interface PendingResponse {
 
 function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
+}
+
+/** `{ identifier, ...computeOffsets(identifier) }`, or null when the lookup throws. */
+function bridgedTimezone(identifier: string): Timezone | null {
+  try {
+    return { identifier, ...computeOffsets(identifier) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Give bridged site locations full timezones before validation. The app may
+ * store just the IANA id, or an object whose offsets didn't survive the trip;
+ * both are recomputed here. Anything else passes through unchanged, and an
+ * unrepairable zone is left as-is so validateSiteLocations drops the entry.
+ */
+function repairBridgedSiteLocationTimezones(entries: unknown[]): unknown[] {
+  return entries.map((entry) => {
+    if (!entry || typeof entry !== "object") return entry;
+    const tz = (entry as Record<string, unknown>).timezone;
+    let identifier: string | null = null;
+    if (typeof tz === "string") {
+      identifier = tz;
+    } else if (tz && typeof tz === "object") {
+      const { identifier: id, offset, dstOffset } = tz as Record<string, unknown>;
+      if (typeof id === "string" && !(Number.isFinite(offset) && Number.isFinite(dstOffset))) {
+        identifier = id;
+      }
+    }
+    if (identifier === null || !isValidIANATimezone(identifier)) return entry;
+    const repaired = bridgedTimezone(identifier);
+    return repaired ? { ...entry, timezone: repaired } : entry;
+  });
 }
 
 /**
@@ -464,6 +508,28 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
         }
       } catch (error) {
         logger.debug("adoptPendingSettingsFromApp: localeSpoofing parse failed:", error);
+      }
+    }
+
+    // 9. Site locations — adopt the app's list when present and changed. Rides
+    // as a JSON string like favorites. A non-array or invalid JSON is a no-op,
+    // never a wipe; `[]` is a real "the app cleared the list". Bare IANA zone
+    // ids are repaired with offsets, then every entry is re-validated, so the
+    // extension stays the source of truth for list hygiene. Its own try/catch
+    // so a failure here never undoes the steps above.
+    if (typeof pending.siteLocations === "string") {
+      try {
+        const parsed: unknown = JSON.parse(pending.siteLocations);
+        if (!Array.isArray(parsed)) throw new Error("siteLocations is not an array");
+        const next = validateSiteLocations(repairBridgedSiteLocationTimezones(parsed));
+        const latestForSites = await loadSettings();
+        if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
+          const updated = await updateSettings({ siteLocations: next });
+          await broadcastSettingsToTabs(updated);
+          await updateBadge();
+        }
+      } catch (error) {
+        logger.debug("adoptPendingSettingsFromApp: siteLocations adoption failed:", error);
       }
     }
 

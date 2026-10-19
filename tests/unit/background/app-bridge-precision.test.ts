@@ -161,6 +161,7 @@ describe("precisionCadence crosses the bridge as a plain string", () => {
       "locationPrecision",
       "precisionCadence",
       "localeSpoofing",
+      "siteLocations",
     ]);
     // A plain string, not JSON; locationPrecision's JSON is unchanged.
     expect(body).toContain("precisionCadence: settings.precisionCadence,");

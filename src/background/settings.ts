@@ -574,6 +574,10 @@ async function pushRegionToNativeHost(settings: Settings): Promise<void> {
       // preference crosses the bridge — the *resolved* locale is derived in the
       // background per payload, never bridged.
       localeSpoofing: JSON.stringify(settings.localeSpoofing),
+      // Site locations ride as a JSON string like favorites. The native handler
+      // stores it as region_siteLocations verbatim; an older handler drops the
+      // unknown key, so this stays inert until the app learns it.
+      siteLocations: JSON.stringify(settings.siteLocations),
     });
   } catch (error) {
     // Swallow — native messaging may not be available in all contexts
