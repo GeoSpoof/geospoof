@@ -22,7 +22,6 @@ import type {
   RemoveFavoritePayload,
   RenameFavoritePayload,
   FavoriteResponse,
-  UpdateSettingsPayload,
   SetScopeModePayload,
   ScopeSitePayload,
   ScopeResponse,
@@ -33,16 +32,11 @@ import type {
 } from "@/shared/types/messages";
 import type { LocationName, PrecisionCadence, Settings } from "@/shared/types/settings";
 import { MAX_FAVORITES } from "@/shared/types/settings";
-import { resolveAccuracy, computeEffectiveAccuracySetting } from "@/shared/accuracy/resolver";
+import { resolveAccuracy } from "@/shared/accuracy/resolver";
 import { detectDeviceClass } from "@/shared/accuracy/device-class";
-import { resolvePageLocale } from "@/shared/locale/resolver";
 import { isTimeCadence, validatePrecisionCadence } from "@/shared/precision/cadence";
 import { setDebugEnabled, setVerbosityLevel, createLogger } from "@/shared/utils/debug-logger";
-import {
-  computeEffectiveEnabled,
-  computeEffectivePreserveGeoPrompt,
-  parsePattern,
-} from "@/shared/utils/scope";
+import { parsePattern } from "@/shared/utils/scope";
 import {
   ensureValidPrecisionSeed,
   loadSettings,
@@ -62,18 +56,14 @@ import {
   broadcastSettingsToTabs,
   injectContentScriptIntoExistingTabs,
   checkTabInjection,
-  isRestrictedUrl,
 } from "./tabs";
+import { buildPagePayload } from "./page-payload";
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
 import { syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
-import {
-  adoptClockBucket,
-  reschedulePrecisionRollover,
-  resolveCurrentPageLocation,
-} from "./precision-cadence";
+import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
 
 export async function handleMessage(
   message: Message,
@@ -135,68 +125,23 @@ export async function handleMessage(
         logger.debug("Loaded settings (content script):", settings);
 
         const senderTabId = _sender.tab.id;
-        const senderTabUrl = _sender.tab.url;
 
         // Effective_Enabled resolves to false when the URL is missing,
-        // unparseable, restricted, or out of scope (Req 8.7).
-        const effectiveEnabled = computeEffectiveEnabled({
-          masterEnabled: settings.enabled,
-          scopeMode: settings.scopeMode,
-          allowlist: settings.allowlist,
-          denylist: settings.denylist,
-          proFeaturesBlocked: settings.proFeaturesBlocked,
-          topLevelUrl: senderTabUrl,
-          isRestricted: isRestrictedUrl,
-        });
+        // unparseable, restricted, or out of scope (Req 8.7). The shared
+        // builder also withholds the timezone in Chromium debugger mode, as the
+        // broadcast path does.
+        const payload = await buildPagePayload(settings, _sender.tab.url);
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
         // alive. Reflect the per-tab decision via the shared three-state badge
-        // mapping using the already-computed Effective_Enabled (Req 12.1–12.3).
-        // The badge reflects whether protection is active for the tab, so it
-        // stays on in debugger mode even though the injected path is suppressed.
+        // mapping using the payload's Effective_Enabled (Req 12.1–12.3). The
+        // badge reflects whether protection is active for the tab, so it stays
+        // on in debugger mode even though the injected path is suppressed.
         if (senderTabId != null) {
-          setBadgeForTab(senderTabId, badgeStateFor(settings.enabled, effectiveEnabled));
+          setBadgeForTab(senderTabId, badgeStateFor(settings.enabled, payload.enabled));
         }
 
-        // Suppress only the injected TIMEZONE path when browser-level
-        // (chrome.debugger) spoofing is active on Chromium — CDP owns the
-        // timezone. Keep `enabled` + `location` so the injected geolocation
-        // override still runs (reliably prompt-free, unlike CDP geo). WebRTC is
-        // independent. Mirrors the suppression in broadcastSettingsToTabs.
-        const debuggerActive = __CHROMIUM__ && settings.debuggerModeEnabled;
-
-        const scoped: UpdateSettingsPayload = {
-          enabled: effectiveEnabled,
-          // Apply the approximate-location offset (no-op in `exact` mode, and
-          // Pro-gated back to exact for a non-Pro iOS user). Uses the same
-          // shared resolver as the broadcast path (`resolveCurrentPageLocation`),
-          // so a freshly injected content script and a live one see the
-          // identical point for the current cadence period.
-          location: await resolveCurrentPageLocation(settings),
-          timezone: debuggerActive ? null : settings.timezone,
-          debugLogging: settings.debugLogging,
-          verbosityLevel: settings.verbosityLevel,
-          webrtcProtection: settings.webrtcProtection,
-          preserveGeolocationPrompt: computeEffectivePreserveGeoPrompt(
-            settings.preserveGeolocationPrompt,
-            settings.proFeaturesBlocked
-          ),
-          // Pro-gate custom accuracy on iOS Safari (force Realistic for a free
-          // user); fail-open + Safari-only, like the scope gate above.
-          accuracySetting: computeEffectiveAccuracySetting(
-            settings.accuracySetting,
-            settings.proFeaturesBlocked
-          ),
-          accuracySeed: settings.accuracySeed,
-          // Same shared resolver the broadcast path uses, so a freshly injected
-          // content script and a live one see the identical locale (Req 12.4).
-          locale: resolvePageLocale(
-            settings.localeSpoofing,
-            settings.timezone?.identifier ?? null,
-            settings.proFeaturesBlocked
-          ),
-        };
-        return scoped;
+        return payload;
       }
 
       case "SET_LOCATION":

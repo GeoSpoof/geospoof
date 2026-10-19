@@ -35,9 +35,8 @@
  */
 
 import type { Settings } from "@/shared/types/settings";
-import { resolvePageLocale } from "@/shared/locale/resolver";
 import { createLogger } from "@/shared/utils/debug-logger";
-import { resolveCurrentPageLocation } from "./precision-cadence";
+import { buildBootstrapPayload } from "./page-payload";
 
 /* eslint-disable no-var */
 declare var process: { env: Record<string, string | undefined> };
@@ -144,27 +143,9 @@ async function registerNow(settings: Settings): Promise<void> {
       return;
     }
 
-    const payload = {
-      enabled: true,
-      timezone: settings.timezone,
-      // Offset the location for approximate-precision mode so the exact anchor
-      // is never inlined into the MAIN-world global (and any early geolocation
-      // read at cold start sees the same point the async path delivers). The
-      // shared resolver gives the point for the current cadence period, the
-      // same one every other page-bound builder delivers.
-      location: await resolveCurrentPageLocation(settings),
-      webrtcProtection: settings.webrtcProtection,
-      // Inline the resolved locale so a page's very first synchronous
-      // `navigator.language` / `Intl` read is already spoofed instead of racing
-      // the async settings path. Resolution is deterministic, so this value is
-      // identical to the one the async path delivers moments later — no
-      // cold-start flip.
-      locale: resolvePageLocale(
-        settings.localeSpoofing,
-        settings.timezone?.identifier ?? null,
-        settings.proFeaturesBlocked
-      ),
-    };
+    // Built by the shared page-payload module, so the inlined point and locale
+    // match what the async path delivers moments later.
+    const payload = await buildBootstrapPayload(settings);
 
     // Re-register from scratch so the inlined payload always reflects the
     // latest settings (userScripts has no in-place "replace code" guarantee
