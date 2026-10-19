@@ -18,6 +18,7 @@ import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
 import { resolveLocale, resolvePageLocale } from "@/shared/locale/resolver";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { mocks } from "../../helpers/cadence";
+import { scriptMatchesUrl } from "../../helpers/match-pattern";
 import {
   ENTRY_DUBLIN,
   ENTRY_MEXICO_CITY,
@@ -220,9 +221,28 @@ describe("Site locations: all consumers agree", () => {
     }
   });
 
-  // FEAT-003 bootstrap row: once `planBootstrapScripts` lands, assert here that
-  // the Firefox bootstrap script matching each row's top frame (if any) inlines
-  // the same `timezone`, `location`, and `locale` as the payload above, and
-  // that no bootstrap script matches the out-of-scope row.
-  describe.todo("Firefox bootstrap agrees with the page payload (FEAT-003)");
+  // The Firefox bootstrap script matching each row's top frame (if any) inlines
+  // the same `timezone`, `location`, and `locale` as the payload above, and no
+  // bootstrap script matches the out-of-scope row.
+  describe("Firefox bootstrap agrees with the page payload", () => {
+    test.each(ROWS)("$label", async (row) => {
+      const [payload] = await collectPayloads(row.url);
+      const { planBootstrapScripts } = await import("@/background/bootstrap-register");
+      const { buildBootstrapPayload } = await import("@/background/page-payload");
+
+      const hits = planBootstrapScripts(SETTINGS).filter((item) => scriptMatchesUrl(item, row.url));
+      expect(hits.length).toBeLessThanOrEqual(1);
+      if (!payload.enabled) {
+        expect(hits).toEqual([]);
+        return;
+      }
+      // Every in-scope row here has a seedable pattern, so it gets a script.
+      expect(hits).toHaveLength(1);
+      const boot = await buildBootstrapPayload(hits[0].settings);
+      expect(boot.timezone).toEqual(payload.timezone);
+      expect(boot.location).toEqual(payload.location);
+      expect(boot.locale).toEqual(payload.locale);
+      expect(hits[0].settings.locationName?.city ?? null).toBe(row.place ?? "Tokyo");
+    });
+  });
 });
