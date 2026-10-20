@@ -125,7 +125,7 @@ Anything invalid is rejected inline when you add it, so a bad pattern is never s
 
 ## Site locations
 
-The **Site locations** section below the filter list gives specific sites their own location. It's a second, separate setting, not a kind of filter:
+The optional **Site locations** list at the bottom of the Filters tab gives specific sites their own location. It's a second, separate setting, not a kind of filter:
 
 | Setting            | Decides                                               |
 | ------------------ | ----------------------------------------------------- |
