@@ -735,32 +735,8 @@
     "message": "🔒 «Сообщаемый язык» — функция GeoSpoof Pro. Оформите Pro в приложении GeoSpoof, чтобы изменить язык, который видят сайты.",
     "description": "Shown for non-Pro users when the Reported Language control is disabled, explaining that it is a Pro feature."
   },
-  "siteLocation_rowHeading": {
-    "message": "Этот сайт",
-    "description": "Heading of the Main-tab row that shows which location the current tab's site gets (Site locations)."
-  },
-  "siteLocation_statusMain": {
-    "message": "$SITE$ · Основное местоположение",
-    "placeholders": {
-      "site": {
-        "content": "$1",
-        "example": "twitch.tv"
-      }
-    },
-    "description": "Status of the This site row when the site uses the global location. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
-  },
-  "siteLocation_statusNoMain": {
-    "message": "$SITE$ · Не подменяется (основное местоположение не задано)",
-    "placeholders": {
-      "site": {
-        "content": "$1",
-        "example": "example.org"
-      }
-    },
-    "description": "Status of the This site row when the site would use the main location but none is set, so GeoSpoof doesn't spoof it. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
-  },
   "siteLocation_statusSite": {
-    "message": "$SITE$ · $PLACE$ (местоположение для сайта)",
+    "message": "На $SITE$: $PLACE$",
     "placeholders": {
       "site": {
         "content": "$1",
@@ -771,43 +747,31 @@
         "example": "Mexico City"
       }
     },
-    "description": "Status of the This site row when a site location applies. $SITE$ is the host name, $PLACE$ the site location's name."
-  },
-  "siteLocation_statusFiltersOff": {
-    "message": "GeoSpoof отключён на этом сайте (Фильтры)",
-    "description": "Status of the This site row when the user's Filters (allowlist/denylist) keep GeoSpoof off for the current site."
-  },
-  "siteLocation_useDifferent": {
-    "message": "Использовать здесь другое местоположение",
-    "description": "Button on the This site row that opens the editor to give the current site its own location."
-  },
-  "siteLocation_change": {
-    "message": "Изменить",
-    "description": "Button on the This site row that edits the site location applied to the current site."
+    "description": "Compact line on the Main tab, shown only when a site location applies to the current tab. $SITE$ is the site's host name without a leading www., $PLACE$ the site location's name."
   },
   "siteLocation_useMain": {
     "message": "Использовать основное местоположение",
-    "description": "Button on the This site row that stops using a site location for the current site, so it uses the main (global) location again."
+    "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
   },
   "siteLocation_hintAllowlist": {
     "message": "Фильтры не подменяют данные на этом сайте. Добавить его в белый список?",
-    "description": "Hint on the This site row in allowlist mode when the current site isn't on the allowlist."
+    "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
   },
   "siteLocation_addToAllowlist": {
     "message": "Добавить в белый список",
-    "description": "One-tap button that adds the current site to the Filters allowlist."
+    "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
   },
   "siteLocation_hintDenylist": {
     "message": "Фильтры не подменяют данные на этом сайте, потому что он в вашем чёрном списке.",
-    "description": "Hint on the This site row in denylist mode when the current site is blocked by the denylist."
+    "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
   },
   "siteLocation_hintVpn": {
     "message": "Сайты по-прежнему видят IP-адрес вашего VPN. Другое местоположение здесь может выглядеть несогласованным.",
-    "description": "Hint shown with Sync with VPN on, explaining that a site location doesn't change the IP address sites see."
+    "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
   },
   "siteLocation_reloadHint": {
     "message": "Перезагрузите страницы этого сайта, чтобы изменение применилось везде.",
-    "description": "Hint shown after a site location change, because already-open pages keep their old values until reloaded."
+    "description": "Hint shown right after a site location change made from the popup, because already-open pages keep their old values until reloaded."
   },
   "siteLocation_sitesLabel": {
     "message": "Сайты",
@@ -906,24 +870,20 @@
     "description": "Error when saving a site location before picking a location."
   },
   "siteLocation_sectionTitle": {
-    "message": "Местоположения для сайтов",
-    "description": "Heading of the Filters-tab section listing site locations. 'Site locations' is the feature's glossary name."
+    "message": "Местоположения для сайтов (необязательно)",
+    "description": "Label of the collapsed, optional Site locations disclosure at the bottom of the Filters tab. 'Site locations' is the feature's glossary name; keep its existing translation and add 'optional'."
   },
   "siteLocation_sectionDesc": {
-    "message": "Задайте отдельным сайтам собственное местоположение. Где работает GeoSpoof, по-прежнему решают фильтры.",
-    "description": "Description under the Site locations heading on the Filters tab."
+    "message": "Используйте другое местоположение на отдельных сайтах.",
+    "description": "One short line under the Site locations disclosure label on the Filters tab."
   },
   "siteLocation_add": {
-    "message": "Добавить местоположение для сайта",
-    "description": "Button on the Filters tab that opens the editor for a new site location."
-  },
-  "siteLocation_empty": {
-    "message": "Местоположений для сайтов пока нет",
-    "description": "Shown on the Filters tab when there are no site locations."
+    "message": "Задать местоположение для сайта",
+    "description": "Button inside the Site locations disclosure on the Filters tab that opens the editor for a new site location. Worded so it can't be read as adding a filter."
   },
   "siteLocation_edit": {
     "message": "Изменить",
-    "description": "Button on a site location row that opens it for editing."
+    "description": "Button on a site location row on the Filters tab, and on the Main-tab site location line, that opens the site location for editing."
   },
   "siteLocation_editAriaLabel": {
     "message": "Изменить местоположение для сайта",
@@ -939,15 +899,11 @@
   },
   "siteLocation_proNote": {
     "message": "🔒 «Местоположения для сайтов» — функция GeoSpoof Pro. Оформите Pro в приложении GeoSpoof, чтобы задавать сайтам собственное местоположение.",
-    "description": "Shown for non-Pro users when site location controls are disabled, explaining that it is a Pro feature."
+    "description": "Shown inside the Site locations disclosure on the Filters tab for non-Pro users, whose site location controls are disabled, explaining that it is a Pro feature."
   },
   "details_siteLocation": {
     "message": "Местоположение для сайта",
-    "description": "Details tab heading for the site location applied to the current tab."
-  },
-  "details_siteLocationNone": {
-    "message": "Нет. Этот сайт использует основное местоположение.",
-    "description": "Details tab value when no site location applies to the current tab."
+    "description": "Details tab heading for the site location applied to the current tab. Shown only when one applies."
   },
   "badge_titleSiteLocation": {
     "message": "GeoSpoof: $PLACE$ на $SITE$",

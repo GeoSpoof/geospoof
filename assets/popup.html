@@ -235,6 +235,59 @@
           </button>
         </div>
 
+        <!-- Site location for this tab (Site locations, #177). Shown only when one
+             applies here, or right after "Use main location" (the reload hint).
+             Hidden otherwise, so it takes no space. Text carries the state. -->
+        <div class="site-location-line" id="siteLocationLine" hidden>
+          <div class="site-location-line-main" id="siteLocationLineMain">
+            <span
+              class="site-location-line-status"
+              id="siteLocationLineStatus"
+              role="status"
+              aria-live="polite"
+            ></span>
+            <span class="site-location-line-actions">
+              <button
+                type="button"
+                class="site-location-link"
+                id="siteLocationLineEdit"
+                data-i18n="siteLocation_edit"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                class="site-location-link"
+                id="siteLocationLineUseMain"
+                data-i18n="siteLocation_useMain"
+              >
+                Use main location
+              </button>
+            </span>
+          </div>
+          <div
+            class="site-location-hint"
+            id="siteLocationLineVpnHint"
+            data-i18n="siteLocation_hintVpn"
+            hidden
+          >
+            Sites still see your VPN's IP address. A different location here can look inconsistent.
+          </div>
+          <!-- tabindex="-1": "Use main location" hides itself, so focus moves
+               here to read the confirmation; not a tab stop. -->
+          <div
+            class="site-location-hint"
+            id="siteLocationLineReloadHint"
+            role="status"
+            tabindex="-1"
+            data-i18n="siteLocation_reloadHint"
+            hidden
+          >
+            Reload pages on this site to apply the change everywhere.
+          </div>
+          <div class="scope-inline-msg" id="siteLocationLineError" role="alert" hidden></div>
+        </div>
+
         <!-- Favorites Chip Row -->
         <div class="favorites-chip-wrapper" id="favoritesChipWrapper" style="display: none">
           <div
@@ -244,81 +297,6 @@
             aria-label="Saved favorites"
           ></div>
         </div>
-
-        <!-- This site (Site locations): which location the active tab's site
-             gets. Hidden on restricted pages. The status line is a polite live
-             region so a change of state is announced; state is always carried
-             by its text, never by colour alone. The shared editor
-             (#siteLocationEditor) is moved into #thisSiteEditorHost when it's
-             opened from here. -->
-        <section class="this-site-row" id="thisSiteRow" aria-labelledby="thisSiteHeading" hidden>
-          <div class="section-heading" id="thisSiteHeading" data-i18n="siteLocation_rowHeading">
-            This site
-          </div>
-          <div class="this-site-status" id="thisSiteStatus" role="status" aria-live="polite"></div>
-          <div class="this-site-actions">
-            <button
-              type="button"
-              class="site-location-action"
-              id="thisSiteUseDifferent"
-              data-i18n="siteLocation_useDifferent"
-            >
-              Use a different location here
-            </button>
-            <button
-              type="button"
-              class="site-location-action"
-              id="thisSiteChange"
-              data-i18n="siteLocation_change"
-              hidden
-            >
-              Change
-            </button>
-            <button
-              type="button"
-              class="site-location-action"
-              id="thisSiteUseMain"
-              data-i18n="siteLocation_useMain"
-              hidden
-            >
-              Use main location
-            </button>
-          </div>
-          <div class="site-location-hint" id="thisSiteFiltersHint" hidden>
-            <span id="thisSiteFiltersHintText"></span>
-            <button
-              type="button"
-              class="site-location-link"
-              id="thisSiteAddToAllowlist"
-              data-i18n="siteLocation_addToAllowlist"
-              hidden
-            >
-              Add to allowlist
-            </button>
-          </div>
-          <div
-            class="site-location-hint"
-            id="thisSiteVpnHint"
-            data-i18n="siteLocation_hintVpn"
-            hidden
-          >
-            Sites still see your VPN's IP address. A different location here can look inconsistent.
-          </div>
-          <div
-            class="site-location-hint"
-            id="thisSiteReloadHint"
-            data-i18n="siteLocation_reloadHint"
-            hidden
-          >
-            Reload pages on this site to apply the change everywhere.
-          </div>
-          <div class="scope-inline-msg" id="thisSiteError" role="alert" hidden></div>
-          <div class="pro-lock-note" id="thisSiteProNote" data-i18n="siteLocation_proNote" hidden>
-            🔒 Site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give sites
-            their own location.
-          </div>
-          <div class="site-location-editor-host" id="thisSiteEditorHost"></div>
-        </section>
 
         <!-- VPN Sync Toggle -->
         <div class="vpn-sync-toggle">
@@ -753,68 +731,75 @@
           <div class="scope-list" id="scopeList" role="list" aria-label="Scoped sites"></div>
         </div>
 
-        <!-- Site locations (always visible): sites that get their own location.
-             A second axis to the mode above: Filters decide WHETHER GeoSpoof is
-             on for a site, a site location decides WHICH location it reports. -->
-        <section
-          class="site-locations-section"
-          id="siteLocationsSection"
-          aria-labelledby="siteLocationsTitle"
-        >
-          <hr class="section-divider" />
-          <div class="scope-list-header">
-            <span
-              class="scope-list-title"
-              id="siteLocationsTitle"
-              data-i18n="siteLocation_sectionTitle"
-              >Site locations</span
+        <!-- Site locations (#177): optional and secondary, so a collapsed disclosure
+             at the bottom of the tab. Filters decide WHETHER GeoSpoof is on for a
+             site; a site location decides WHICH location it reports there. Native
+             <details> like #scopeSyntax, so it's keyboard- and screen-reader-
+             operable with no extra JS. The divider ends the Filters group, so in
+             list modes this bar can't read as another Filters bar like
+             #scopeSyntax. -->
+        <hr class="section-divider site-locations-divider" />
+        <details class="site-locations-disclosure" id="siteLocationsDisclosure">
+          <summary class="site-locations-summary">
+            <span class="site-locations-chevron" aria-hidden="true">▶</span>
+            <span class="site-locations-summary-text">
+              <span class="site-locations-summary-title" data-i18n="siteLocation_sectionTitle"
+                >Site locations (optional)</span
+              >
+              <span class="site-locations-summary-desc" data-i18n="siteLocation_sectionDesc"
+                >Use a different location on specific sites.</span
+              >
+            </span>
+            <span class="scope-list-count" id="siteLocationsCount" hidden>0</span>
+          </summary>
+          <div class="site-locations-body">
+            <div
+              class="pro-lock-note"
+              id="siteLocationsProNote"
+              data-i18n="siteLocation_proNote"
+              hidden
             >
-            <span class="scope-list-count" id="siteLocationsCount">0</span>
-          </div>
-          <div class="scope-mode-desc" id="siteLocationsDesc" data-i18n="siteLocation_sectionDesc">
-            Give specific sites their own location. Filters still decide where GeoSpoof is on.
-          </div>
-          <div
-            class="pro-lock-note"
-            id="siteLocationsProNote"
-            data-i18n="siteLocation_proNote"
-            hidden
-          >
-            🔒 Site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give sites
-            their own location.
-          </div>
-          <div class="scope-empty" id="siteLocationsEmpty" data-i18n="siteLocation_empty">
-            No site locations yet
-          </div>
-          <div
-            class="scope-list site-locations-list"
-            id="siteLocationsList"
-            role="list"
-            aria-label="Site locations"
-            data-i18n-aria-label="siteLocation_listAriaLabel"
-          ></div>
-          <div
-            class="scope-inline-msg"
-            id="siteLocationsError"
-            role="alert"
-            data-i18n="filters_notSaved"
-            hidden
-          >
-            ⚠ Change not saved
-          </div>
-          <div class="scope-add-current-row site-locations-add-row">
-            <button
-              type="button"
-              class="scope-add-current"
-              id="siteLocationsAddButton"
-              data-i18n="siteLocation_add"
+              🔒 Site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give
+              sites their own location.
+            </div>
+            <div
+              class="scope-list site-locations-list"
+              id="siteLocationsList"
+              role="list"
+              aria-label="Site locations"
+              data-i18n-aria-label="siteLocation_listAriaLabel"
+            ></div>
+            <div
+              class="scope-inline-msg"
+              id="siteLocationsError"
+              role="alert"
+              data-i18n="filters_notSaved"
+              hidden
             >
-              Add site location
-            </button>
-          </div>
-          <div class="site-location-editor-host" id="siteLocationsEditorHost">
-            <!-- The one shared editor. Moved into whichever host opens it, so
-                 its ids stay unique. -->
+              ⚠ Change not saved
+            </div>
+            <!-- tabindex="-1": the editor's one-tap "Add to allowlist" hides
+                 itself, so focus moves here to read the confirmation. -->
+            <div
+              class="site-location-hint"
+              id="siteLocationsReloadHint"
+              role="status"
+              tabindex="-1"
+              data-i18n="siteLocation_reloadHint"
+              hidden
+            >
+              Reload pages on this site to apply the change everywhere.
+            </div>
+            <div class="site-locations-add-row" id="siteLocationsAddRow">
+              <button
+                type="button"
+                class="site-location-action"
+                id="siteLocationsAddButton"
+                data-i18n="siteLocation_add"
+              >
+                Set a location for a site
+              </button>
+            </div>
             <div class="site-location-editor" id="siteLocationEditor" hidden>
               <label
                 class="site-location-label"
@@ -868,6 +853,29 @@
               <div class="site-location-chosen" id="siteLocationChosen" aria-live="polite"></div>
               <div class="site-location-explain" id="siteLocationExplain"></div>
 
+              <!-- In-context hints: only while this editor is open. -->
+              <div class="site-location-hint" id="siteLocationFiltersHint" hidden>
+                <span id="siteLocationFiltersHintText"></span>
+                <button
+                  type="button"
+                  class="site-location-link"
+                  id="siteLocationAddToAllowlist"
+                  data-i18n="siteLocation_addToAllowlist"
+                  hidden
+                >
+                  Add to allowlist
+                </button>
+              </div>
+              <div
+                class="site-location-hint"
+                id="siteLocationVpnHint"
+                data-i18n="siteLocation_hintVpn"
+                hidden
+              >
+                Sites still see your VPN's IP address. A different location here can look
+                inconsistent.
+              </div>
+
               <div class="site-location-error" id="siteLocationError" role="alert" hidden>
                 <span id="siteLocationErrorText"></span>
                 <button
@@ -901,7 +909,7 @@
               </div>
             </div>
           </div>
-        </section>
+        </details>
       </div>
       <!-- End Filters View -->
 
@@ -919,12 +927,10 @@
           <div id="detailTimezone" class="detail-value">Not configured</div>
         </div>
 
-        <!-- Site location applied to the active tab, if any -->
-        <div class="detail-section" id="detailSiteLocationSection">
+        <!-- Site location applied to the active tab. Hidden unless one applies. -->
+        <div class="detail-section" id="detailSiteLocationSection" hidden>
           <div class="detail-label" data-i18n="details_siteLocation">Site location</div>
-          <div id="detailSiteLocation" class="detail-value">
-            None. This site uses your main location.
-          </div>
+          <div id="detailSiteLocation" class="detail-value"></div>
         </div>
 
         <!-- WebRTC Details -->

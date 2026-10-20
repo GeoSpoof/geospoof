@@ -77,7 +77,7 @@ Give specific sites their own location while every other site keeps your **main 
 
 **What it changes, and what it doesn't.** A site location changes what that site's pages can read from your browser: the location they get if they ask for it, the time zone in dates and clocks, and the language if **Reported Language** is set to **Match my location**. It doesn't change your IP address, your account details, or where you legally live, and those are what services usually use for ads, prices, and which terms apply to you. So a site location alone won't remove ads that are decided by your IP, and it won't change how a service classifies your account. For the most consistent result, pair a site location with a VPN exit in the same place.
 
-**Filters still decide where GeoSpoof is on.** Site Filters and site locations are two separate settings. Filters decide whether GeoSpoof runs on a site at all; a site location only decides which location it reports there. If Filters keep GeoSpoof off for a site, its site location doesn't apply, and the popup says so.
+**Filters still decide where GeoSpoof is on.** Site Filters and site locations are two separate settings. Filters decide whether GeoSpoof runs on a site at all; a site location only decides which location it reports there. If Filters keep GeoSpoof off for a site, its site location doesn't apply, and the site location editor tells you.
 
 **One site location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, in one site location. Then the same company sees one location throughout.
 
@@ -111,16 +111,16 @@ Give specific sites their own location while every other site keeps your **main 
 
 ### Giving a Site Its Own Location
 
-1. Open the site, then open GeoSpoof. The **This site** row on the Main tab shows which location the site gets now, for example `twitch.tv · Main location`.
-2. Click **Use a different location here**. The **Sites** field is filled in with the current site (without `www.`); edit it or add more sites, separated by commas.
+1. Open the site, then open GeoSpoof and go to the **Filters** tab.
+2. Open **Site locations (optional)** at the bottom and click **Set a location for a site**. The **Sites** field is filled in with the current site (without `www.`); edit it or add more sites, separated by commas.
 3. Search for a place, or pick one of your favorites, then click **Save**.
 4. Reload the site's open pages so every page picks up the change.
 
-The row now reads, for example, `twitch.tv · Mexico City (site location)`. Use **Change** to edit it, or **Use main location** to go back to your main location on this site. The **Site locations** section on the Filters tab lists every site location, where you can add, edit, or remove them. The **Details** tab shows the site location applied to the current site, if any.
+Back on the Main tab, a short line under your location shows it while you're on that site, for example `On twitch.tv: Mexico City`, with **Edit** and **Use main location** (go back to your main location on this site). Sites without a site location show nothing extra. **Site locations (optional)** on the Filters tab lists every site location, where you can add, edit, or remove them. The **Details** tab shows the site location only on a site that has one.
 
-If Filters keep GeoSpoof off for a site, the row says **GeoSpoof is off on this site (Filters)**. In Allowlist mode it offers **Add to allowlist** in one click.
+If Filters keep GeoSpoof off for the site you're editing, the site location editor says so. In Allowlist mode it offers **Add to allowlist** in one click.
 
-Site locations work without a main location. Sites without their own location then get no spoofing, and the row says so, for example `example.org · Not spoofed (no main location set)`.
+Site locations work without a main location. Other sites then aren't spoofed, and the Main tab shows the usual **Protection enabled but no location set** warning on them.
 
 ### Enabling Protection
 

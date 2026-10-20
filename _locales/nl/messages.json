@@ -735,32 +735,8 @@
     "message": "🔒 Doorgegeven taal is een functie van GeoSpoof Pro. Upgrade in de GeoSpoof-app om de taal te wijzigen die sites zien.",
     "description": "Shown for non-Pro users when the Reported Language control is disabled, explaining that it is a Pro feature."
   },
-  "siteLocation_rowHeading": {
-    "message": "Deze site",
-    "description": "Heading of the Main-tab row that shows which location the current tab's site gets (Site locations)."
-  },
-  "siteLocation_statusMain": {
-    "message": "$SITE$ · Hoofdlocatie",
-    "placeholders": {
-      "site": {
-        "content": "$1",
-        "example": "twitch.tv"
-      }
-    },
-    "description": "Status of the This site row when the site uses the global location. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
-  },
-  "siteLocation_statusNoMain": {
-    "message": "$SITE$ · Niet vervalst (geen hoofdlocatie ingesteld)",
-    "placeholders": {
-      "site": {
-        "content": "$1",
-        "example": "example.org"
-      }
-    },
-    "description": "Status of the This site row when the site would use the main location but none is set, so GeoSpoof doesn't spoof it. $SITE$ is the site's host name. 'Main location' is the glossary term for the global location."
-  },
   "siteLocation_statusSite": {
-    "message": "$SITE$ · $PLACE$ (sitelocatie)",
+    "message": "Op $SITE$: $PLACE$",
     "placeholders": {
       "site": {
         "content": "$1",
@@ -771,43 +747,31 @@
         "example": "Mexico City"
       }
     },
-    "description": "Status of the This site row when a site location applies. $SITE$ is the host name, $PLACE$ the site location's name."
-  },
-  "siteLocation_statusFiltersOff": {
-    "message": "GeoSpoof staat uit op deze site (Filters)",
-    "description": "Status of the This site row when the user's Filters (allowlist/denylist) keep GeoSpoof off for the current site."
-  },
-  "siteLocation_useDifferent": {
-    "message": "Hier een andere locatie gebruiken",
-    "description": "Button on the This site row that opens the editor to give the current site its own location."
-  },
-  "siteLocation_change": {
-    "message": "Wijzigen",
-    "description": "Button on the This site row that edits the site location applied to the current site."
+    "description": "Compact line on the Main tab, shown only when a site location applies to the current tab. $SITE$ is the site's host name without a leading www., $PLACE$ the site location's name."
   },
   "siteLocation_useMain": {
     "message": "Hoofdlocatie gebruiken",
-    "description": "Button on the This site row that stops using a site location for the current site, so it uses the main (global) location again."
+    "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
   },
   "siteLocation_hintAllowlist": {
     "message": "Filters vervalsen deze site niet. Toevoegen aan de toegestane sites?",
-    "description": "Hint on the This site row in allowlist mode when the current site isn't on the allowlist."
+    "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
   },
   "siteLocation_addToAllowlist": {
     "message": "Toevoegen aan toegestane sites",
-    "description": "One-tap button that adds the current site to the Filters allowlist."
+    "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
   },
   "siteLocation_hintDenylist": {
     "message": "Filters vervalsen deze site niet, omdat hij op je blokkeerlijst staat.",
-    "description": "Hint on the This site row in denylist mode when the current site is blocked by the denylist."
+    "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
   },
   "siteLocation_hintVpn": {
     "message": "Sites zien nog steeds het IP-adres van je VPN. Een andere locatie hier kan inconsistent overkomen.",
-    "description": "Hint shown with Sync with VPN on, explaining that a site location doesn't change the IP address sites see."
+    "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
   },
   "siteLocation_reloadHint": {
     "message": "Laad pagina's van deze site opnieuw om de wijziging overal toe te passen.",
-    "description": "Hint shown after a site location change, because already-open pages keep their old values until reloaded."
+    "description": "Hint shown right after a site location change made from the popup, because already-open pages keep their old values until reloaded."
   },
   "siteLocation_sitesLabel": {
     "message": "Sites",
@@ -906,24 +870,20 @@
     "description": "Error when saving a site location before picking a location."
   },
   "siteLocation_sectionTitle": {
-    "message": "Sitelocaties",
-    "description": "Heading of the Filters-tab section listing site locations. 'Site locations' is the feature's glossary name."
+    "message": "Sitelocaties (optioneel)",
+    "description": "Label of the collapsed, optional Site locations disclosure at the bottom of the Filters tab. 'Site locations' is the feature's glossary name; keep its existing translation and add 'optional'."
   },
   "siteLocation_sectionDesc": {
-    "message": "Geef specifieke sites hun eigen locatie. Filters bepalen nog steeds waar GeoSpoof aan staat.",
-    "description": "Description under the Site locations heading on the Filters tab."
+    "message": "Gebruik een andere locatie op specifieke sites.",
+    "description": "One short line under the Site locations disclosure label on the Filters tab."
   },
   "siteLocation_add": {
-    "message": "Sitelocatie toevoegen",
-    "description": "Button on the Filters tab that opens the editor for a new site location."
-  },
-  "siteLocation_empty": {
-    "message": "Nog geen sitelocaties",
-    "description": "Shown on the Filters tab when there are no site locations."
+    "message": "Een locatie voor een site instellen",
+    "description": "Button inside the Site locations disclosure on the Filters tab that opens the editor for a new site location. Worded so it can't be read as adding a filter."
   },
   "siteLocation_edit": {
     "message": "Bewerken",
-    "description": "Button on a site location row that opens it for editing."
+    "description": "Button on a site location row on the Filters tab, and on the Main-tab site location line, that opens the site location for editing."
   },
   "siteLocation_editAriaLabel": {
     "message": "Sitelocatie bewerken",
@@ -939,15 +899,11 @@
   },
   "siteLocation_proNote": {
     "message": "🔒 Sitelocaties zijn een functie van GeoSpoof Pro. Upgrade in de GeoSpoof-app om sites hun eigen locatie te geven.",
-    "description": "Shown for non-Pro users when site location controls are disabled, explaining that it is a Pro feature."
+    "description": "Shown inside the Site locations disclosure on the Filters tab for non-Pro users, whose site location controls are disabled, explaining that it is a Pro feature."
   },
   "details_siteLocation": {
     "message": "Sitelocatie",
-    "description": "Details tab heading for the site location applied to the current tab."
-  },
-  "details_siteLocationNone": {
-    "message": "Geen. Deze site gebruikt je hoofdlocatie.",
-    "description": "Details tab value when no site location applies to the current tab."
+    "description": "Details tab heading for the site location applied to the current tab. Shown only when one applies."
   },
   "badge_titleSiteLocation": {
     "message": "GeoSpoof: $PLACE$ op $SITE$",
