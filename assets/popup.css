@@ -2537,6 +2537,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   transform: rotate(90deg);
 }
 
+/* --badge-bg equals --surface in dark mode, which would leave a bare number
+   on the summary card; the secondary-button fill reads as a chip in both. */
+.site-locations-summary .scope-list-count {
+  background: var(--btn-secondary);
+}
+
 .site-locations-summary-text {
   flex: 1;
   min-width: 0;
@@ -2610,6 +2616,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 /* Keep editor hints from running into the explanation line above them. */
 .site-location-editor .site-location-hint {
   margin-top: 4px;
+}
+
+/* In the editor the link follows its sentence after a plain space; a margin
+   would indent it when it wraps onto its own line. */
+.site-location-editor .site-location-link {
+  margin-left: 0;
 }
 
 /* Text-style button for inline follow-ups ("Edit", "Use main location",
