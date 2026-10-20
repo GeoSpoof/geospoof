@@ -824,7 +824,7 @@
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
   "siteLocation_errorInUse": {
-    "message": "$SITE$ har redan en plats för webbplats ($PLACE$).",
+    "message": "$SITE$ använder redan $PLACE$.",
     "placeholders": {
       "site": {
         "content": "$1",
@@ -835,31 +835,31 @@
         "example": "Mexico City"
       }
     },
-    "description": "Error when a site is already covered by another site location. $SITE$ is the site, $PLACE$ the other site location's name."
+    "description": "Error when a site already belongs to another entry in Per-site locations. $SITE$ is the site, $PLACE$ the name of the location it already uses."
   },
   "siteLocation_editOwner": {
     "message": "Redigera den",
-    "description": "Button next to the 'already has a site location' error that opens the other site location for editing."
+    "description": "Button next to the siteLocation_errorInUse error that opens the other entry for editing."
   },
   "siteLocation_errorCapacity": {
-    "message": "Du kan ha upp till $MAX$ platser för webbplatser. Ta bort en först.",
+    "message": "Du kan ha upp till $MAX$ platser här. Ta bort en först.",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "50"
       }
     },
-    "description": "Error when the maximum number of site locations is reached. $MAX$ is the limit."
+    "description": "Error when Per-site locations already holds the maximum number of entries. $MAX$ is the limit. 'here' means this list; avoid wording that reads as a limit per site."
   },
   "siteLocation_errorTooManySites": {
-    "message": "En plats för webbplats kan omfatta upp till $MAX$ webbplatser.",
+    "message": "En plats kan omfatta upp till $MAX$ webbplatser.",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "10"
       }
     },
-    "description": "Error when too many sites are listed for one site location. $MAX$ is the limit."
+    "description": "Error when too many sites are listed for one location in Per-site locations. $MAX$ is the limit."
   },
   "siteLocation_errorTimezone": {
     "message": "Kunde inte hämta tidszonen för den här platsen. Kontrollera anslutningen och försök igen.",
@@ -870,40 +870,40 @@
     "description": "Error when saving a site location before picking a location."
   },
   "siteLocation_sectionTitle": {
-    "message": "Platser för webbplatser (valfritt)",
-    "description": "Label of the collapsed, optional Site locations disclosure at the bottom of the Filters tab. 'Site locations' is the feature's glossary name; keep its existing translation and add 'optional'."
+    "message": "Platser per webbplats",
+    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
     "message": "Använd en annan plats på vissa webbplatser.",
-    "description": "One short line under the Site locations disclosure label on the Filters tab."
+    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
   },
   "siteLocation_add": {
     "message": "Ange en plats för en webbplats",
-    "description": "Button inside the Site locations disclosure on the Filters tab that opens the editor for a new site location. Worded so it can't be read as adding a filter."
+    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
   },
   "siteLocation_edit": {
     "message": "Redigera",
     "description": "Button on a site location row on the Filters tab, and on the Main-tab site location line, that opens the site location for editing."
   },
   "siteLocation_editAriaLabel": {
-    "message": "Redigera plats för webbplats",
-    "description": "Accessible label prefix on a site location's edit button; the location's name follows."
+    "message": "Redigera plats",
+    "description": "Accessible label prefix on the edit button of an entry in Per-site locations; the location's name follows (e.g. 'Edit location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_removeAriaLabel": {
-    "message": "Ta bort plats för webbplats",
-    "description": "Accessible label prefix on a site location's remove button; the location's name follows."
+    "message": "Ta bort plats",
+    "description": "Accessible label prefix on the remove button of an entry in Per-site locations; the location's name follows (e.g. 'Remove location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_listAriaLabel": {
-    "message": "Platser för webbplatser",
-    "description": "Accessible label of the list of site locations on the Filters tab."
+    "message": "Platser per webbplats",
+    "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
-    "message": "🔒 Platser för webbplatser är en funktion i GeoSpoof Pro. Uppgradera i GeoSpoof-appen för att ge webbplatser en egen plats.",
-    "description": "Shown inside the Site locations disclosure on the Filters tab for non-Pro users, whose site location controls are disabled, explaining that it is a Pro feature."
+    "message": "🔒 Platser per webbplats är en funktion i GeoSpoof Pro. Uppgradera i GeoSpoof-appen för att ge webbplatser en egen plats.",
+    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
   },
   "details_siteLocation": {
-    "message": "Plats för webbplats",
-    "description": "Details tab heading for the site location applied to the current tab. Shown only when one applies."
+    "message": "På den här webbplatsen",
+    "description": "Details tab heading for the location Per-site locations applies to the current tab; the value names the place, the site, and the time zone. Shown only when one applies."
   },
   "badge_titleSiteLocation": {
     "message": "GeoSpoof: $PLACE$ på $SITE$",

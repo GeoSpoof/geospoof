@@ -173,9 +173,9 @@ High-resolution timing via [`SharedArrayBuffer`](https://developer.mozilla.org/e
 
 ### Per-site variation
 
-Site locations give different sites different locations and time zones. Each site sees one consistent identity, because every frame and worker in a tab follows the top-level page. A third party embedded on many sites (ad tech, analytics) sees more: one IP address and one device fingerprint whose time zone depends on which site it's embedded in. That combination is rare in real populations, so it can make a browser more distinctive to trackers that join visits by IP or fingerprint. Storage partitioning stops cookie-based joins, not these, and companies that own several sites can correlate them on their own servers.
+Per-site locations give different sites different locations and time zones. Each site sees one consistent identity, because every frame and worker in a tab follows the top-level page. A third party embedded on many sites (ad tech, analytics) sees more: one IP address and one device fingerprint whose time zone depends on which site it's embedded in. That combination is rare in real populations, so it can make a browser more distinctive to trackers that join visits by IP or fingerprint. Storage partitioning stops cookie-based joins, not these, and companies that own several sites can correlate them on their own servers.
 
-Site locations are a compatibility and preference feature, not an anti-tracking one, and they don't change the IP address. Choosing site locations in the same time zone as the main location reduces the variation, and pairing a site location with a VPN exit in the same place avoids the IP-versus-time-zone contradiction described in [Why Signal Consistency Matters](#why-signal-consistency-matters).
+Per-site locations are a compatibility and preference feature, not an anti-tracking one, and they don't change the IP address. Choosing per-site locations in the same time zone as the main location reduces the variation, and pairing each one with a VPN exit in the same place avoids the IP-versus-time-zone contradiction described in [Why Signal Consistency Matters](#why-signal-consistency-matters).
 
 ### Full Undetectability
 

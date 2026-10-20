@@ -158,11 +158,11 @@ describe("Advanced Filtering syntax keys are present in every locale", () => {
 });
 
 /**
- * Site locations (GeoSpoof/geospoof#177): every new string is user-facing in
- * every language, and "Site locations" / "Main location" are glossary terms
- * the native app derives from these files.
+ * Per-site locations (GeoSpoof/geospoof#177): every new string is user-facing
+ * in every language, and "Per-site locations" / "Main location" are glossary
+ * terms the native app derives from these files.
  */
-describe("Site locations keys are present in every locale", () => {
+describe("Per-site locations keys are present in every locale", () => {
   const REQUIRED_KEYS = [
     "siteLocation_statusSite",
     "siteLocation_useMain",
@@ -207,7 +207,7 @@ describe("Site locations keys are present in every locale", () => {
     });
   });
 
-  test("every data-i18n* key in the Site locations popup regions exists in en", () => {
+  test("every data-i18n* key in the Per-site locations popup regions exists in en", () => {
     const html = readFileSync(resolve(__dirname, "../../assets/popup.html"), "utf-8");
     const doc = new DOMParser().parseFromString(html, "text/html");
     const regions = [
@@ -234,7 +234,7 @@ describe("Site locations keys are present in every locale", () => {
 
   // Keys that lose their last use get removed, so translators aren't asked to
   // maintain strings nobody sees.
-  test("every Site locations key in en is used", () => {
+  test("every Per-site locations key in en is used", () => {
     const tsFiles: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir)) {

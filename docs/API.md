@@ -804,13 +804,13 @@ Persisted in `browser.storage.local` under the key `"settings"`.
   precisionCadence: "never" | "session" | "hour" | "day", // default "never"; bridged to the Safari app as a plain string
   version: string,
   lastUpdated: number,              // epoch ms; default 0 (never-saved sentinel — see app-bridge.ts)
-  siteLocations: SiteLocation[]     // default []; see Site locations below
+  siteLocations: SiteLocation[]     // default []; see Per-site locations below
 }
 ```
 
-### Site locations
+### Per-site locations
 
-A site location gives specific sites their own location. It's a second axis next to Site Filters: Filters decide **whether** GeoSpoof is on for a tab, and a site location decides **which** location it reports there. Neither changes the IP address, which is what most services use for region decisions.
+Per-site locations (`siteLocations`) give specific sites their own location. They're a second axis next to Site Filters: Filters decide **whether** GeoSpoof is on for a tab, and a matching entry (a `SiteLocation`, "site location" below) decides **which** location it reports there. Neither changes the IP address, which is what most services use for region decisions.
 
 **Stored shape** (`SiteLocation` in `src/shared/types/settings.ts`):
 
@@ -829,7 +829,7 @@ A site location gives specific sites their own location. It's a second axis next
 
 Caps: `MAX_SITE_LOCATIONS = 50` entries and `MAX_PATTERNS_PER_SITE_LOCATION = 10` patterns per entry. Coordinates and zone are a snapshot, so changing the main location or a favorite never moves a site location, and VPN resync updates only the main location. `validateSiteLocations` repairs rather than rejects: an absent field becomes `[]`, an entry failing any rule is dropped whole, and a pattern already claimed by an earlier entry is dropped from the later one.
 
-**Pattern grammar.** The [Site Filters](SITE_FILTERS.md#site-locations) grammar without paths and without a wildcard-only host (`*`, `*://*`, `https://*:8080`). Every accepted pattern is also a valid Filters pattern with the identical canonical form. `tests/fixtures/site-location-vectors.json` pins the accept/reject cases for other implementations.
+**Pattern grammar.** The [Site Filters](SITE_FILTERS.md#per-site-locations) grammar without paths and without a wildcard-only host (`*`, `*://*`, `https://*:8080`). Every accepted pattern is also a valid Filters pattern with the identical canonical form. `tests/fixtures/site-location-vectors.json` pins the accept/reject cases for other implementations.
 
 **Resolution order**, per tab, from the tab's top-level URL (`resolveSiteSettings` in `src/shared/utils/site-locations.ts`):
 
@@ -1004,7 +1004,7 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 
 9. **Precision cadence timing** — Under Every hour and Every day the reported point moves while pages are open, at an install-specific time that can be late (alarm scheduling, sleep) but never early, and redrawing gives a site more samples to average. See [Location precision and cadence](#location-precision-and-cadence) for these and the other cadence limits.
 
-10. **Site locations: the Firefox bootstrap is narrower.** Instant timezone protection follows one rule, _the bootstrap may be absent but must never be wrong_ (`planBootstrapScripts` in `src/background/bootstrap-register.ts`). Wherever the userScripts match patterns can't say exactly which pages a value belongs to, no early value is seeded, and those pages get the right one from the async path a few milliseconds later, inside the window described in #3. In practice:
+10. **Per-site locations: the Firefox bootstrap is narrower.** Instant timezone protection follows one rule, _the bootstrap may be absent but must never be wrong_ (`planBootstrapScripts` in `src/background/bootstrap-register.ts`). Wherever the userScripts match patterns can't say exactly which pages a value belongs to, no early value is seeded, and those pages get the right one from the async path a few milliseconds later, inside the window described in #3. In practice:
     - With any site location, or with Filters in Allowlist or Denylist mode, only top frames are seeded, never subframes, because userScripts match each frame's own URL while the decision follows the top-level page.
     - A site-location pattern with a port (`example.com:8080`) gets no early seed, and its host is left unseeded on every port.
     - A denylist entry leaves its whole host unseeded on every scheme, port, and path; a denylisted `*` turns the bootstrap off entirely.
@@ -1014,11 +1014,11 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 
     Chromium and Safari have no bootstrap.
 
-11. **Site locations: the Accept-Language header (Chromium, Safari).** On Chromium, with Filters set to every site, the main location's header stays a global `declarativeNetRequest` rule, so new tabs and sites without a site location are covered from their first request. Tabs on a site location whose language differs get a higher-priority per-tab session rule, refreshed when a tab starts navigating, so only a navigation into or out of such a site can send its first request with the previous site's value. In Allowlist or Denylist mode every tab's header comes from per-tab rules, as it did before site locations, so a new tab's first request can go out unmodified. On Safari, with Filters set to every site, the header stays the main location's on every site, including site-location sites, because MDN's compatibility data lists no per-tab rule condition for Safari and its handling of overlapping rule priorities isn't confirmed. So on a site-location site in Match mode, the header and `navigator.languages` can name different languages. Firefox sets the header per request and has no such race.
+11. **Per-site locations: the Accept-Language header (Chromium, Safari).** On Chromium, with Filters set to every site, the main location's header stays a global `declarativeNetRequest` rule, so new tabs and sites without a site location are covered from their first request. Tabs on a site location whose language differs get a higher-priority per-tab session rule, refreshed when a tab starts navigating, so only a navigation into or out of such a site can send its first request with the previous site's value. In Allowlist or Denylist mode every tab's header comes from per-tab rules, as it did before site locations, so a new tab's first request can go out unmodified. On Safari, with Filters set to every site, the header stays the main location's on every site, including site-location sites, because MDN's compatibility data lists no per-tab rule condition for Safari and its handling of overlapping rule priorities isn't confirmed. So on a site-location site in Match mode, the header and `navigator.languages` can name different languages. Firefox sets the header per request and has no such race.
 
-12. **Site locations: embedded content follows the page it's in.** Every frame and worker in a tab gets the top-level page's decision. A Twitch player embedded on another site gets that site's location, not Twitch's, and a page embedded inside `twitch.tv` gets Twitch's. A SharedWorker isn't tied to a tab, so on Firefox it resolves through the request's `frameAncestors` to the top-level page of the frame that started it. Where Firefox doesn't report that, it follows the frame's own URL, and since a SharedWorker can be shared across tabs, it keeps the site location of the page that started it.
+12. **Per-site locations: embedded content follows the page it's in.** Every frame and worker in a tab gets the top-level page's decision. A Twitch player embedded on another site gets that site's location, not Twitch's, and a page embedded inside `twitch.tv` gets Twitch's. A SharedWorker isn't tied to a tab, so on Firefox it resolves through the request's `frameAncestors` to the top-level page of the frame that started it. Where Firefox doesn't report that, it follows the frame's own URL, and since a SharedWorker can be shared across tabs, it keeps the site location of the page that started it.
 
-13. **Site locations: some open pages keep old values until reloaded.** A change is pushed to open tabs right away, as for any settings change, but a page restored from the back/forward cache and a worker that's already running keep the values they started with. A value changing under a live page is also a visible discontinuity, so the popup suggests reloading after each change.
+13. **Per-site locations: some open pages keep old values until reloaded.** A change is pushed to open tabs right away, as for any settings change, but a page restored from the back/forward cache and a worker that's already running keep the values they started with. A value changing under a live page is also a visible discontinuity, so the popup suggests reloading after each change.
 
 ## Performance Targets
 

@@ -824,7 +824,7 @@
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
   "siteLocation_errorInUse": {
-    "message": "$SITE$ đã có vị trí theo trang ($PLACE$).",
+    "message": "$SITE$ đã dùng $PLACE$.",
     "placeholders": {
       "site": {
         "content": "$1",
@@ -835,31 +835,31 @@
         "example": "Mexico City"
       }
     },
-    "description": "Error when a site is already covered by another site location. $SITE$ is the site, $PLACE$ the other site location's name."
+    "description": "Error when a site already belongs to another entry in Per-site locations. $SITE$ is the site, $PLACE$ the name of the location it already uses."
   },
   "siteLocation_editOwner": {
     "message": "Sửa mục đó",
-    "description": "Button next to the 'already has a site location' error that opens the other site location for editing."
+    "description": "Button next to the siteLocation_errorInUse error that opens the other entry for editing."
   },
   "siteLocation_errorCapacity": {
-    "message": "Bạn có thể có tối đa $MAX$ vị trí theo trang. Hãy xóa một mục trước.",
+    "message": "Bạn có thể có tối đa $MAX$ vị trí ở đây. Hãy xóa một mục trước.",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "50"
       }
     },
-    "description": "Error when the maximum number of site locations is reached. $MAX$ is the limit."
+    "description": "Error when Per-site locations already holds the maximum number of entries. $MAX$ is the limit. 'here' means this list; avoid wording that reads as a limit per site."
   },
   "siteLocation_errorTooManySites": {
-    "message": "Một vị trí theo trang có thể áp dụng cho tối đa $MAX$ trang.",
+    "message": "Một vị trí có thể áp dụng cho tối đa $MAX$ trang.",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "10"
       }
     },
-    "description": "Error when too many sites are listed for one site location. $MAX$ is the limit."
+    "description": "Error when too many sites are listed for one location in Per-site locations. $MAX$ is the limit."
   },
   "siteLocation_errorTimezone": {
     "message": "Không tra được múi giờ của địa điểm này. Hãy kiểm tra kết nối và thử lại.",
@@ -870,40 +870,40 @@
     "description": "Error when saving a site location before picking a location."
   },
   "siteLocation_sectionTitle": {
-    "message": "Vị trí theo trang (tùy chọn)",
-    "description": "Label of the collapsed, optional Site locations disclosure at the bottom of the Filters tab. 'Site locations' is the feature's glossary name; keep its existing translation and add 'optional'."
+    "message": "Vị trí theo trang",
+    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
     "message": "Dùng vị trí khác trên các trang cụ thể.",
-    "description": "One short line under the Site locations disclosure label on the Filters tab."
+    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
   },
   "siteLocation_add": {
     "message": "Đặt vị trí cho một trang",
-    "description": "Button inside the Site locations disclosure on the Filters tab that opens the editor for a new site location. Worded so it can't be read as adding a filter."
+    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
   },
   "siteLocation_edit": {
     "message": "Sửa",
     "description": "Button on a site location row on the Filters tab, and on the Main-tab site location line, that opens the site location for editing."
   },
   "siteLocation_editAriaLabel": {
-    "message": "Sửa vị trí theo trang",
-    "description": "Accessible label prefix on a site location's edit button; the location's name follows."
+    "message": "Sửa vị trí",
+    "description": "Accessible label prefix on the edit button of an entry in Per-site locations; the location's name follows (e.g. 'Edit location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_removeAriaLabel": {
-    "message": "Xóa vị trí theo trang",
-    "description": "Accessible label prefix on a site location's remove button; the location's name follows."
+    "message": "Xóa vị trí",
+    "description": "Accessible label prefix on the remove button of an entry in Per-site locations; the location's name follows (e.g. 'Remove location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_listAriaLabel": {
     "message": "Vị trí theo trang",
-    "description": "Accessible label of the list of site locations on the Filters tab."
+    "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
     "message": "🔒 Vị trí theo trang là tính năng của GeoSpoof Pro. Hãy nâng cấp trong ứng dụng GeoSpoof để đặt vị trí riêng cho các trang web.",
-    "description": "Shown inside the Site locations disclosure on the Filters tab for non-Pro users, whose site location controls are disabled, explaining that it is a Pro feature."
+    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
   },
   "details_siteLocation": {
-    "message": "Vị trí theo trang",
-    "description": "Details tab heading for the site location applied to the current tab. Shown only when one applies."
+    "message": "Trên trang này",
+    "description": "Details tab heading for the location Per-site locations applies to the current tab; the value names the place, the site, and the time zone. Shown only when one applies."
   },
   "badge_titleSiteLocation": {
     "message": "GeoSpoof: $PLACE$ trên $SITE$",
