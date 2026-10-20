@@ -824,7 +824,7 @@
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
   "siteLocation_errorInUse": {
-    "message": "$SITE$ sudah memiliki lokasi situs ($PLACE$).",
+    "message": "$SITE$ sudah menggunakan $PLACE$.",
     "placeholders": {
       "site": {
         "content": "$1",
@@ -835,31 +835,31 @@
         "example": "Mexico City"
       }
     },
-    "description": "Error when a site is already covered by another site location. $SITE$ is the site, $PLACE$ the other site location's name."
+    "description": "Error when a site already belongs to another entry in Per-site locations. $SITE$ is the site, $PLACE$ the name of the location it already uses."
   },
   "siteLocation_editOwner": {
     "message": "Edit yang itu",
-    "description": "Button next to the 'already has a site location' error that opens the other site location for editing."
+    "description": "Button next to the siteLocation_errorInUse error that opens the other entry for editing."
   },
   "siteLocation_errorCapacity": {
-    "message": "Anda dapat memiliki hingga $MAX$ lokasi situs. Hapus satu terlebih dahulu.",
+    "message": "Anda dapat memiliki hingga $MAX$ lokasi di sini. Hapus satu terlebih dahulu.",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "50"
       }
     },
-    "description": "Error when the maximum number of site locations is reached. $MAX$ is the limit."
+    "description": "Error when Per-site locations already holds the maximum number of entries. $MAX$ is the limit. 'here' means this list; avoid wording that reads as a limit per site."
   },
   "siteLocation_errorTooManySites": {
-    "message": "Satu lokasi situs dapat mencakup hingga $MAX$ situs.",
+    "message": "Satu lokasi dapat mencakup hingga $MAX$ situs.",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "10"
       }
     },
-    "description": "Error when too many sites are listed for one site location. $MAX$ is the limit."
+    "description": "Error when too many sites are listed for one location in Per-site locations. $MAX$ is the limit."
   },
   "siteLocation_errorTimezone": {
     "message": "Tidak dapat menemukan zona waktu tempat ini. Periksa koneksi Anda dan coba lagi.",
@@ -870,40 +870,40 @@
     "description": "Error when saving a site location before picking a location."
   },
   "siteLocation_sectionTitle": {
-    "message": "Lokasi situs (opsional)",
-    "description": "Label of the collapsed, optional Site locations disclosure at the bottom of the Filters tab. 'Site locations' is the feature's glossary name; keep its existing translation and add 'optional'."
+    "message": "Lokasi per situs",
+    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
     "message": "Gunakan lokasi lain di situs tertentu.",
-    "description": "One short line under the Site locations disclosure label on the Filters tab."
+    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
   },
   "siteLocation_add": {
     "message": "Atur lokasi untuk situs",
-    "description": "Button inside the Site locations disclosure on the Filters tab that opens the editor for a new site location. Worded so it can't be read as adding a filter."
+    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
   },
   "siteLocation_edit": {
     "message": "Edit",
     "description": "Button on a site location row on the Filters tab, and on the Main-tab site location line, that opens the site location for editing."
   },
   "siteLocation_editAriaLabel": {
-    "message": "Edit lokasi situs",
-    "description": "Accessible label prefix on a site location's edit button; the location's name follows."
+    "message": "Edit lokasi",
+    "description": "Accessible label prefix on the edit button of an entry in Per-site locations; the location's name follows (e.g. 'Edit location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_removeAriaLabel": {
-    "message": "Hapus lokasi situs",
-    "description": "Accessible label prefix on a site location's remove button; the location's name follows."
+    "message": "Hapus lokasi",
+    "description": "Accessible label prefix on the remove button of an entry in Per-site locations; the location's name follows (e.g. 'Remove location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_listAriaLabel": {
-    "message": "Lokasi situs",
-    "description": "Accessible label of the list of site locations on the Filters tab."
+    "message": "Lokasi per situs",
+    "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
-    "message": "🔒 Lokasi situs adalah fitur GeoSpoof Pro. Tingkatkan di aplikasi GeoSpoof untuk memberi situs lokasinya sendiri.",
-    "description": "Shown inside the Site locations disclosure on the Filters tab for non-Pro users, whose site location controls are disabled, explaining that it is a Pro feature."
+    "message": "🔒 Lokasi per situs adalah fitur GeoSpoof Pro. Tingkatkan di aplikasi GeoSpoof untuk memberi situs lokasinya sendiri.",
+    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
   },
   "details_siteLocation": {
-    "message": "Lokasi situs",
-    "description": "Details tab heading for the site location applied to the current tab. Shown only when one applies."
+    "message": "Di situs ini",
+    "description": "Details tab heading for the location Per-site locations applies to the current tab; the value names the place, the site, and the time zone. Shown only when one applies."
   },
   "badge_titleSiteLocation": {
     "message": "GeoSpoof: $PLACE$ di $SITE$",

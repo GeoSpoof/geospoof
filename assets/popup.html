@@ -235,7 +235,7 @@
           </button>
         </div>
 
-        <!-- Site location for this tab (Site locations, #177). Shown only when one
+        <!-- This tab's own location (Per-site locations, #177). Shown only when one
              applies here, or right after "Use main location" (the reload hint).
              Hidden otherwise, so it takes no space. Text carries the state. -->
         <div class="site-location-line" id="siteLocationLine" hidden>
@@ -731,7 +731,7 @@
           <div class="scope-list" id="scopeList" role="list" aria-label="Scoped sites"></div>
         </div>
 
-        <!-- Site locations (#177): optional and secondary, so a collapsed disclosure
+        <!-- Per-site locations (#177): optional and secondary, so a collapsed disclosure
              at the bottom of the tab. Filters decide WHETHER GeoSpoof is on for a
              site; a site location decides WHICH location it reports there. Native
              <details> like #scopeSyntax, so it's keyboard- and screen-reader-
@@ -744,7 +744,7 @@
             <span class="site-locations-chevron" aria-hidden="true">▶</span>
             <span class="site-locations-summary-text">
               <span class="site-locations-summary-title" data-i18n="siteLocation_sectionTitle"
-                >Site locations (optional)</span
+                >Per-site locations</span
               >
               <span class="site-locations-summary-desc" data-i18n="siteLocation_sectionDesc"
                 >Use a different location on specific sites.</span
@@ -759,14 +759,14 @@
               data-i18n="siteLocation_proNote"
               hidden
             >
-              🔒 Site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give
+              🔒 Per-site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give
               sites their own location.
             </div>
             <div
               class="scope-list site-locations-list"
               id="siteLocationsList"
               role="list"
-              aria-label="Site locations"
+              aria-label="Per-site locations"
               data-i18n-aria-label="siteLocation_listAriaLabel"
             ></div>
             <div
@@ -927,9 +927,9 @@
           <div id="detailTimezone" class="detail-value">Not configured</div>
         </div>
 
-        <!-- Site location applied to the active tab. Hidden unless one applies. -->
+        <!-- The active tab's own location (Per-site locations). Hidden unless one applies. -->
         <div class="detail-section" id="detailSiteLocationSection" hidden>
-          <div class="detail-label" data-i18n="details_siteLocation">Site location</div>
+          <div class="detail-label" data-i18n="details_siteLocation">On this site</div>
           <div id="detailSiteLocation" class="detail-value"></div>
         </div>
 

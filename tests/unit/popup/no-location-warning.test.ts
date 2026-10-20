@@ -1,5 +1,5 @@
 /**
- * The "Protection enabled but no location set" warning with Site locations
+ * The "Protection enabled but no location set" warning with Per-site locations
  * (GeoSpoof/geospoof#177). A site location still spoofs its own site without a
  * main location, so the warning is hidden only on a tab one applies to; on
  * every other tab nothing is spoofed, so it shows as it did before #177.
@@ -42,7 +42,7 @@ async function warningOn(url: string, settings: Settings): Promise<string> {
   return document.getElementById("warningMessage")!.style.display;
 }
 
-describe("No-main-location warning with Site locations", () => {
+describe("No-main-location warning with Per-site locations", () => {
   beforeEach(() => {
     document.documentElement.innerHTML = HTML;
     __resetSiteLocationsForTest();

@@ -1,12 +1,12 @@
 /**
- * Popup Site locations
+ * Popup Per-site locations
  *
- * Site locations are optional, so they stay out of the way until they're used.
+ * Per-site locations are optional, so they stay out of the way until used.
  * Three surfaces onto `settings.siteLocations`:
  *   - the Main tab's one-line note (`#siteLocationLine`), rendered only when a
  *     site location applies to the active tab: "On twitch.tv: Mexico City",
  *     with Edit and Use main location. Nothing renders anywhere else;
- *   - the Filters tab's collapsed "Site locations (optional)" disclosure at the
+ *   - the Filters tab's collapsed "Per-site locations" disclosure at the
  *     bottom: every entry, with edit and remove (optimistic, reverted on failure
  *     like the scope list), and the one editor;
  *   - the Details tab's readout, shown only when a site location applies.
@@ -232,7 +232,7 @@ export function renderSiteLocationLine(
     }
     editBtn?.setAttribute(
       "aria-label",
-      `${t("siteLocation_editAriaLabel") || "Edit site location"} ${place}`
+      `${t("siteLocation_editAriaLabel") || "Edit location"} ${place}`
     );
   } else {
     if (status) status.textContent = "";
@@ -326,7 +326,7 @@ function focusReloadHint(id: string): void {
   if (isFocusable(hint)) hint.focus();
 }
 
-// ── Filters tab: the "Site locations (optional)" disclosure ─────────────────
+// ── Filters tab: the "Per-site locations" disclosure ────────────────────────
 
 /** Render the Filters-tab disclosure and its list of site locations. */
 export function renderSiteLocationsSection(
@@ -411,7 +411,7 @@ function buildSiteLocationRow(entry: SiteLocation, proLocked: boolean): HTMLElem
   editBtn.textContent = t("siteLocation_edit") || "Edit";
   editBtn.setAttribute(
     "aria-label",
-    `${t("siteLocation_editAriaLabel") || "Edit site location"} ${name}`
+    `${t("siteLocation_editAriaLabel") || "Edit location"} ${name}`
   );
   editBtn.disabled = proLocked;
   editBtn.addEventListener("click", () => {
@@ -425,7 +425,7 @@ function buildSiteLocationRow(entry: SiteLocation, proLocked: boolean): HTMLElem
   removeBtn.textContent = "✕";
   removeBtn.setAttribute(
     "aria-label",
-    `${t("siteLocation_removeAriaLabel") || "Remove site location"} ${name}`
+    `${t("siteLocation_removeAriaLabel") || "Remove location"} ${name}`
   );
   removeBtn.disabled = proLocked;
   removeBtn.addEventListener("click", () => {
@@ -724,9 +724,7 @@ function patternError(): string {
 
 function tooManySitesError(): string {
   const max = String(MAX_PATTERNS_PER_SITE_LOCATION);
-  return (
-    t("siteLocation_errorTooManySites", [max]) || `One site location can cover up to ${max} sites.`
-  );
+  return t("siteLocation_errorTooManySites", [max]) || `One location can cover up to ${max} sites.`;
 }
 
 function wireEditorOnce(): void {
@@ -876,9 +874,7 @@ function saveErrorText(result: Extract<SiteLocationResponse, { error: unknown }>
       const site = result.pattern ?? "";
       const place = owner ? siteLocationDisplayName(owner) : "";
       return {
-        text:
-          t("siteLocation_errorInUse", [site, place]) ||
-          `${site} already has a site location (${place}).`,
+        text: t("siteLocation_errorInUse", [site, place]) || `${site} already uses ${place}.`,
         ownerId: owner ? owner.id : null,
       };
     }
@@ -887,7 +883,7 @@ function saveErrorText(result: Extract<SiteLocationResponse, { error: unknown }>
       return {
         text:
           t("siteLocation_errorCapacity", [max]) ||
-          `You can have up to ${max} site locations. Remove one first.`,
+          `You can have up to ${max} locations here. Remove one first.`,
         ownerId: null,
       };
     }

@@ -1,6 +1,6 @@
 /**
- * Popup Site locations (GeoSpoof/geospoof#177): the Main-tab line (only when a
- * site location applies), the Filters-tab "Site locations (optional)"
+ * Popup Per-site locations (GeoSpoof/geospoof#177): the Main-tab line (only
+ * when a site location applies), the Filters-tab "Per-site locations"
  * disclosure, the shared editor and its in-context hints, and the Details
  * readout, exercised in jsdom against the real assets/popup.html markup.
  */
@@ -193,7 +193,7 @@ describe("Main tab: the line when a site location applies", () => {
     expect(isShown("siteLocationLineEdit")).toBe(true);
     expect(isShown("siteLocationLineUseMain")).toBe(true);
     expect(byId("siteLocationLineEdit").getAttribute("aria-label")).toBe(
-      "Edit site location Mexico City"
+      "Edit location Mexico City"
     );
     expect(isShown("siteLocationLineVpnHint")).toBe(false);
     expect(isShown("siteLocationLineReloadHint")).toBe(false);
@@ -320,7 +320,7 @@ describe("Main tab: the line when a site location applies", () => {
   });
 });
 
-describe("Filters tab: the Site locations disclosure", () => {
+describe("Filters tab: the Per-site locations disclosure", () => {
   test("is a native <details> at the bottom of the Filters tab, after the filter list", () => {
     const details = disclosure();
     expect(details.tagName).toBe("DETAILS");
@@ -343,7 +343,8 @@ describe("Filters tab: the Site locations disclosure", () => {
     expect(details.querySelector(".scope-empty, .scope-list-title, .section-heading")).toBeNull();
 
     const summary = details.querySelector("summary")!;
-    expect(summary.textContent).toContain("Site locations (optional)");
+    expect(summary.textContent).toContain("Per-site locations");
+    expect(summary.textContent).not.toContain("optional");
     expect(summary.textContent).toContain("Use a different location on specific sites.");
     expect(summary.querySelector("[aria-hidden='true']")?.textContent).toBe("▶");
   });
@@ -391,10 +392,10 @@ describe("Filters tab: the Site locations disclosure", () => {
     );
     expect(rows[0].querySelector(".scope-site-icon")).not.toBeNull();
     expect(rows[0].querySelector(".site-location-edit")?.getAttribute("aria-label")).toBe(
-      "Edit site location Dublin"
+      "Edit location Dublin"
     );
     expect(rows[1].querySelector(".scope-site-remove")?.getAttribute("aria-label")).toBe(
-      "Remove site location Mexico City"
+      "Remove location Mexico City"
     );
   });
 
@@ -601,9 +602,7 @@ describe("Editor", () => {
     byId("siteLocationSave").click();
     await flush();
 
-    expect(text("siteLocationErrorText")).toBe(
-      "twitch.tv already has a site location (Mexico City)."
-    );
+    expect(text("siteLocationErrorText")).toBe("twitch.tv already uses Mexico City.");
     expect(isShown("siteLocationEditOwner")).toBe(true);
 
     byId("siteLocationEditOwner").click();
@@ -613,8 +612,8 @@ describe("Editor", () => {
   });
 
   test.each([
-    ["AT_CAPACITY", "You can have up to 50 site locations. Remove one first."],
-    ["TOO_MANY_PATTERNS", "One site location can cover up to 10 sites."],
+    ["AT_CAPACITY", "You can have up to 50 locations here. Remove one first."],
+    ["TOO_MANY_PATTERNS", "One location can cover up to 10 sites."],
     [
       "TIMEZONE_UNAVAILABLE",
       "Couldn't look up this place's time zone. Check your connection and try again.",

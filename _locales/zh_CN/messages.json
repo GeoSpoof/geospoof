@@ -824,7 +824,7 @@
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
   "siteLocation_errorInUse": {
-    "message": "$SITE$ 已有网站位置（$PLACE$）。",
+    "message": "$SITE$ 已在使用 $PLACE$。",
     "placeholders": {
       "site": {
         "content": "$1",
@@ -835,31 +835,31 @@
         "example": "Mexico City"
       }
     },
-    "description": "Error when a site is already covered by another site location. $SITE$ is the site, $PLACE$ the other site location's name."
+    "description": "Error when a site already belongs to another entry in Per-site locations. $SITE$ is the site, $PLACE$ the name of the location it already uses."
   },
   "siteLocation_editOwner": {
     "message": "编辑那个",
-    "description": "Button next to the 'already has a site location' error that opens the other site location for editing."
+    "description": "Button next to the siteLocation_errorInUse error that opens the other entry for editing."
   },
   "siteLocation_errorCapacity": {
-    "message": "最多可以有 $MAX$ 个网站位置。请先删除一个。",
+    "message": "此处最多可以有 $MAX$ 个位置。请先删除一个。",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "50"
       }
     },
-    "description": "Error when the maximum number of site locations is reached. $MAX$ is the limit."
+    "description": "Error when Per-site locations already holds the maximum number of entries. $MAX$ is the limit. 'here' means this list; avoid wording that reads as a limit per site."
   },
   "siteLocation_errorTooManySites": {
-    "message": "一个网站位置最多可覆盖 $MAX$ 个网站。",
+    "message": "一个位置最多可覆盖 $MAX$ 个网站。",
     "placeholders": {
       "max": {
         "content": "$1",
         "example": "10"
       }
     },
-    "description": "Error when too many sites are listed for one site location. $MAX$ is the limit."
+    "description": "Error when too many sites are listed for one location in Per-site locations. $MAX$ is the limit."
   },
   "siteLocation_errorTimezone": {
     "message": "无法查询此地点的时区。请检查网络连接后重试。",
@@ -870,40 +870,40 @@
     "description": "Error when saving a site location before picking a location."
   },
   "siteLocation_sectionTitle": {
-    "message": "网站位置（可选）",
-    "description": "Label of the collapsed, optional Site locations disclosure at the bottom of the Filters tab. 'Site locations' is the feature's glossary name; keep its existing translation and add 'optional'."
+    "message": "网站专属位置",
+    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
     "message": "在特定网站上使用不同的位置。",
-    "description": "One short line under the Site locations disclosure label on the Filters tab."
+    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
   },
   "siteLocation_add": {
     "message": "为网站设置位置",
-    "description": "Button inside the Site locations disclosure on the Filters tab that opens the editor for a new site location. Worded so it can't be read as adding a filter."
+    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
   },
   "siteLocation_edit": {
     "message": "编辑",
     "description": "Button on a site location row on the Filters tab, and on the Main-tab site location line, that opens the site location for editing."
   },
   "siteLocation_editAriaLabel": {
-    "message": "编辑网站位置",
-    "description": "Accessible label prefix on a site location's edit button; the location's name follows."
+    "message": "编辑位置",
+    "description": "Accessible label prefix on the edit button of an entry in Per-site locations; the location's name follows (e.g. 'Edit location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_removeAriaLabel": {
-    "message": "删除网站位置",
-    "description": "Accessible label prefix on a site location's remove button; the location's name follows."
+    "message": "删除位置",
+    "description": "Accessible label prefix on the remove button of an entry in Per-site locations; the location's name follows (e.g. 'Remove location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_listAriaLabel": {
-    "message": "网站位置",
-    "description": "Accessible label of the list of site locations on the Filters tab."
+    "message": "网站专属位置",
+    "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
-    "message": "🔒 网站位置是 GeoSpoof Pro 功能。请在 GeoSpoof 应用中升级，为网站设置专属位置。",
-    "description": "Shown inside the Site locations disclosure on the Filters tab for non-Pro users, whose site location controls are disabled, explaining that it is a Pro feature."
+    "message": "🔒 网站专属位置是 GeoSpoof Pro 功能。请在 GeoSpoof 应用中升级，为网站设置专属位置。",
+    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
   },
   "details_siteLocation": {
-    "message": "网站位置",
-    "description": "Details tab heading for the site location applied to the current tab. Shown only when one applies."
+    "message": "在此网站上",
+    "description": "Details tab heading for the location Per-site locations applies to the current tab; the value names the place, the site, and the time zone. Shown only when one applies."
   },
   "badge_titleSiteLocation": {
     "message": "GeoSpoof：$SITE$ 上的 $PLACE$",

@@ -2445,7 +2445,7 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
-   Site locations: the Main-tab line (only when one applies), the Filters-tab
+   Per-site locations: the Main-tab line (only when one applies), the Filters-tab
    disclosure, the shared editor, and its search results. Optional and
    secondary, so low emphasis throughout. State is always spelled out in text,
    never colour alone.
