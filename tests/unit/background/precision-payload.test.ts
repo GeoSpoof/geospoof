@@ -55,6 +55,7 @@ function makeSettings(overrides?: Partial<Settings>): Settings {
     precisionSeed: SEED,
     precisionCadence: "never" as const,
     localeSpoofing: { mode: "off" as const },
+    siteLocations: [],
     ...overrides,
   };
 }
@@ -231,27 +232,38 @@ describe("every page-bound builder offsets the location (Req 5.2)", () => {
     expect(broadcast.location).toEqual({ ...ANCHOR });
   });
 
-  test("src/background/index.ts routes every payload site through the cadence resolver", async () => {
+  test("page-bound payloads are built only in page-payload.ts", async () => {
     // A structural guard, because the behavioural tests can only reach the
-    // paths a unit test can drive. This catches a regression at any future
-    // builder added to this file that runtime coverage would miss.
+    // paths a unit test can drive. Duplicated builders are how the raw anchor
+    // leaked before, so a new builder anywhere else in the background fails
+    // here even when no runtime test reaches it.
     const fs = await import("node:fs");
-    const src = fs.readFileSync("src/background/index.ts", "utf8");
+    const read = (f: string): string => fs.readFileSync(`src/background/${f}`, "utf8");
+    const files = fs
+      .readdirSync("src/background")
+      .filter((f) => f.endsWith(".ts") && f !== "page-payload.ts");
+    expect(files.length).toBeGreaterThan(0);
 
-    // Count payload literals against resolver calls: every `UpdateSettingsPayload`
-    // built in this file must resolve its location through the shared resolver.
-    const payloadSites = (src.match(/: UpdateSettingsPayload = \{/g) ?? []).length;
-    const resolverCalls = (
-      src.match(/location: await resolveCurrentPageLocation\(settings\)/g) ?? []
-    ).length;
-    expect(payloadSites).toBeGreaterThan(0);
-    expect(resolverCalls, "a payload in index.ts bypasses the cadence resolver").toBe(payloadSites);
+    for (const f of files) {
+      const src = read(f).replace("export async function resolveCurrentPageLocation(", "");
+      expect(src, `${f} builds an UpdateSettingsPayload literal`).not.toContain(
+        ": UpdateSettingsPayload = {"
+      );
+      expect(src, `${f} resolves a page location itself`).not.toMatch(
+        /resolveCurrentPageLocation\(/
+      );
+    }
 
+    for (const f of ["tabs.ts", "messages.ts", "index.ts"]) {
+      expect(read(f), `${f} doesn't use the shared builder`).toContain("buildPagePayload(");
+    }
+    expect(read("bootstrap-register.ts")).toContain("buildBootstrapPayload(");
+
+    const index = read("index.ts");
     // No inline offset that could skip the cadence period.
-    expect(src).not.toContain("applyPrecisionOffset");
-
+    expect(index).not.toContain("applyPrecisionOffset");
     // And none may pass the bare destructured `location` through.
-    expect(src).not.toMatch(/\n\s+enabled,\n\s+location,\n/);
+    expect(index).not.toMatch(/\n\s+enabled,\n\s+location,\n/);
   });
 
   test("applyPrecisionOffset( is called only inside shared/precision", async () => {
@@ -348,6 +360,90 @@ describe("location-precision cadence through the page-bound builders", () => {
     } finally {
       userScripts.restore();
       mocks.alarmsGet().mockResolvedValue(undefined);
+    }
+  });
+
+  test("the four page builders deliver byte-identical payloads", async () => {
+    // Every non-default field is set, so a builder that dropped, reordered, or
+    // recomputed any key differently would serialize differently.
+    const s = makeSettings({
+      locationPrecision: { mode: "approximate", radiusMeters: RADIUS },
+      localeSpoofing: { mode: "custom", locale: "fr-FR" },
+      accuracySetting: { mode: "fixed", meters: 25 },
+      webrtcProtection: true,
+      preserveGeolocationPrompt: true,
+      debugLogging: true,
+    });
+    const URL = "https://example.com/page";
+    const userScripts = installUserScriptsMock();
+
+    try {
+      const bg = await importBackgroundWith(s);
+      const { updateBootstrapRegistration } = await import("@/background/bootstrap-register");
+      const payloads: UpdateSettingsPayload[] = [];
+
+      const sent: Array<{ tabId: number; payload: UpdateSettingsPayload }> = [];
+      const record = (): void => {
+        browser.tabs.sendMessage = vi
+          .fn()
+          .mockImplementation((tabId: number, message: Message<UpdateSettingsPayload>) => {
+            if (message.type === "UPDATE_SETTINGS" && message.payload) {
+              sent.push({ tabId, payload: message.payload });
+            }
+            return Promise.resolve();
+          });
+      };
+
+      // 1. sendSettingsToTab, via the broadcast.
+      browser.tabs.query = vi.fn().mockResolvedValue([{ id: 1, url: URL }]);
+      record();
+      await bg.broadcastSettingsToTabs(s);
+      payloads.push(sent.find((m) => m.tabId === 1)!.payload);
+
+      // 2. Content-script GET_SETTINGS.
+      payloads.push(
+        (await bg.handleMessage(
+          { type: "GET_SETTINGS" },
+          { tab: { id: 2, url: URL } as browser.tabs.Tab }
+        )) as UpdateSettingsPayload
+      );
+
+      // 3. tabs.onCreated, sent after its 100ms delay.
+      const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
+        ((tab: { id?: number; url?: string }) => void) | undefined;
+      expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+      vi.useFakeTimers();
+      try {
+        onCreated!({ id: 42, url: URL });
+        await vi.waitFor(() => expect(sent.some((m) => m.tabId === 42)).toBe(true), {
+          timeout: 2000,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+      payloads.push(sent.find((m) => m.tabId === 42)!.payload);
+
+      // 4. The injection-check alarm builder (PING resolves → injected).
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 7, url: URL });
+      await bg.onAlarm({ name: "injection-check:7:0", scheduledTime: Date.now() });
+      const late = sent.find((m) => m.tabId === 7);
+      expect(late, "the injection-check alarm sent no UPDATE_SETTINGS").toBeDefined();
+      payloads.push(late!.payload);
+
+      expect(payloads).toHaveLength(4);
+      const [broadcast, ...rest] = payloads.map((p) => JSON.stringify(p));
+      for (const other of rest) expect(other).toBe(broadcast);
+
+      // The Firefox bootstrap carries a subset; each shared key must agree.
+      await updateBootstrapRegistration(s);
+      const boot = lastRegisteredPayload(userScripts.register);
+      const first = payloads[0];
+      expect(boot.timezone).toEqual(first.timezone);
+      expect(boot.location).toEqual(first.location);
+      expect(boot.webrtcProtection).toBe(first.webrtcProtection);
+      expect(boot.locale).toEqual(first.locale);
+    } finally {
+      userScripts.restore();
     }
   });
 

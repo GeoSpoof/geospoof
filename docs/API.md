@@ -691,7 +691,7 @@ Response: `{ injected: boolean, error: string | null }`.
 { type: "RENAME_FAVORITE", payload: { id: string, label: string } }
 ```
 
-Response: `{ success: true }` or `{ error: "AT_CAPACITY" | "STORAGE_ERROR" }`. Capacity is 10; saves dedupe by coordinates rounded to 4 decimal places.
+Response: `{ success: true }` or `{ error: "AT_CAPACITY" | "STORAGE_ERROR" }`. Capacity is 50 (`MAX_FAVORITES`); saves dedupe by coordinates rounded to 4 decimal places.
 
 #### SET_PRECISION
 
@@ -710,6 +710,39 @@ Response: `{ success: true }` or `{ error: "STORAGE_ERROR" }`.
 
 Any other value (including `"page"`) is stored as `"never"` and still returns `{ success: true }`. A non-Never cadence persists a valid `precisionSeed` when none is stored; a valid stored seed is never changed, and `locationPrecision` is never touched. Switching to `hour` or `day` starts from the clock's current bucket; re-selecting the current cadence keeps the held one. After the save it re-registers the Firefox bootstrap, broadcasts, and creates (hour, day) or clears (never, session) the `precision-rollover` alarm. See [Location precision and cadence](#location-precision-and-cadence). Implemented by `applyPrecisionCadence`, which the Safari app bridge also calls.
 Response: `{ success: true }`; `{ error: "STORAGE_ERROR" }` when the save fails (nothing changes); or `{ error: message }` when the broadcast fails (the save and the alarm stand).
+
+#### SAVE_SITE_LOCATION / REMOVE_SITE_LOCATION
+
+```typescript
+{
+  type: "SAVE_SITE_LOCATION",
+  payload: {
+    id?: string,                          // present when editing; an unknown id saves a new entry
+    patterns: string[],                   // host-only patterns; re-parsed and deduped
+    latitude: number,
+    longitude: number,
+    locationName?: LocationName | null,   // omitted or null: keep the stored name when the coordinates are unchanged, else reverse-geocode
+    label?: string | null                 // omitted keeps the stored label; null or "" clears it
+  }
+}
+{ type: "REMOVE_SITE_LOCATION", payload: { id: string, pattern?: string } }
+```
+
+`SAVE_SITE_LOCATION` validates the coordinates and every pattern (`parseSiteLocationPattern`), rejects a pattern another entry owns and a new entry past the cap, then resolves the time zone. A pattern-only edit keeps the stored zone; a longitude estimate (`fallback: true`) is refused, never stored. Because a concurrent save, VPN resync, or app adoption can land during the lookups, it re-loads settings and re-checks conflicts and capacity before writing. It then broadcasts, re-badges, and re-syncs Chromium's engine-level spoofing; the save itself pushes `REGION_UPDATE` and re-registers the Firefox bootstrap.
+
+`REMOVE_SITE_LOCATION` with a `pattern` removes just that pattern (the popup's "Use main location" for one site of a multi-site entry), and the entry goes with its last pattern. Without one it removes the entry. An unknown id or pattern is a no-op success.
+
+Response: `{ success: true, id: string }` or `{ error: SiteLocationErrorCode, pattern?: string, ownerId?: string }`:
+
+| Error                  | When                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `INVALID_PATTERN`      | A pattern isn't a valid site-location pattern, or the list is empty. `pattern` names the bad one |
+| `PATTERN_IN_USE`       | Another entry already has the pattern. `pattern` and `ownerId` name it                           |
+| `AT_CAPACITY`          | A new entry would exceed `MAX_SITE_LOCATIONS` (50)                                               |
+| `TOO_MANY_PATTERNS`    | More than `MAX_PATTERNS_PER_SITE_LOCATION` (10) distinct patterns                                |
+| `INVALID_LOCATION`     | The coordinates aren't finite or are out of range                                                |
+| `TIMEZONE_UNAVAILABLE` | The lookup failed or returned only a longitude estimate                                          |
+| `STORAGE_ERROR`        | `storage.local.set` rejected                                                                     |
 
 ### Content Script → Background Messages
 
@@ -770,13 +803,59 @@ Persisted in `browser.storage.local` under the key `"settings"`.
   precisionSeed: number,            // per-install seed for the approximate offset; 0 = unseeded
   precisionCadence: "never" | "session" | "hour" | "day", // default "never"; bridged to the Safari app as a plain string
   version: string,
-  lastUpdated: number               // epoch ms; default 0 (never-saved sentinel — see app-bridge.ts)
+  lastUpdated: number,              // epoch ms; default 0 (never-saved sentinel — see app-bridge.ts)
+  siteLocations: SiteLocation[]     // default []; see Site locations below
 }
 ```
 
+### Site locations
+
+A site location gives specific sites their own location. It's a second axis next to Site Filters: Filters decide **whether** GeoSpoof is on for a tab, and a site location decides **which** location it reports there. Neither changes the IP address, which is what most services use for region decisions.
+
+**Stored shape** (`SiteLocation` in `src/shared/types/settings.ts`):
+
+```typescript
+{
+  id: string,                    // Date.now()-style string, at most 64 chars, unique
+  kind: "location",              // reserved discriminator; unknown kinds are dropped
+  patterns: string[],            // 1–10 canonical host-only patterns, unique across all entries
+  location: { latitude, longitude, accuracy },
+  timezone: { identifier, offset, dstOffset }, // resolved at save time; never a fallback
+  locationName: LocationName | null,
+  label: string | null,          // trimmed, at most 100 chars
+  updatedAt: number              // epoch ms
+}
+```
+
+Caps: `MAX_SITE_LOCATIONS = 50` entries and `MAX_PATTERNS_PER_SITE_LOCATION = 10` patterns per entry. Coordinates and zone are a snapshot, so changing the main location or a favorite never moves a site location, and VPN resync updates only the main location. `validateSiteLocations` repairs rather than rejects: an absent field becomes `[]`, an entry failing any rule is dropped whole, and a pattern already claimed by an earlier entry is dropped from the later one.
+
+**Pattern grammar.** The [Site Filters](SITE_FILTERS.md#site-locations) grammar without paths and without a wildcard-only host (`*`, `*://*`, `https://*:8080`). Every accepted pattern is also a valid Filters pattern with the identical canonical form. `tests/fixtures/site-location-vectors.json` pins the accept/reject cases for other implementations.
+
+**Resolution order**, per tab, from the tab's top-level URL (`resolveSiteSettings` in `src/shared/utils/site-locations.ts`):
+
+1. Master switch off → nothing applies.
+2. Restricted or host-less URL → nothing applies.
+3. Filters (`computeEffectiveEnabled`) decide whether GeoSpoof is on. Out of scope, no site location applies, so an entry's coordinates never reach a page Filters keep GeoSpoof off.
+4. The most specific matching site location decides which location applies. No match keeps the main settings, by reference.
+5. Per-page transforms (approximate precision, cadence, Reported Language) run on the result.
+
+**Precedence.** Each entry scores the highest specificity among its patterns that match, as the tuple `[labels, subdomainsOnly, scheme, port]` compared left to right: more host labels win, then `*.L` over `L`, then an explicit `http`/`https` over an unset scheme over `*`, then an explicit port. For `https://www.example.com/` that orders `www.example.com` > `*.example.com` > `https://example.com` > `example.com` > `*://example.com` > `*.com`. Ties, which cross-entry uniqueness makes defensive only, go to the higher `updatedAt`, then to the smaller `id` by plain `<`. The result doesn't depend on list order.
+
+**Overlay.** A match replaces exactly `location`, `timezone`, and `locationName`; every other field stays global. Language follows the site location's zone when Reported Language is **Match my location**. Accuracy is resolved when the entry is saved, and approximate precision and cadence then apply to its coordinates as they do to the main location's. The background is the only place this runs, and every consumer (page payloads, the Firefox bootstrap, Firefox workers, Accept-Language, Chromium engine-level spoofing, and the toolbar title) goes through the same resolver, so they resolve a tab the same way, within the limits listed under [Known Limitations](#known-limitations); see Known Limitation #11 for the Accept-Language header. `UpdateSettingsPayload` has no list keys, so neither the list nor any pattern or id ever reaches a page.
+
+**Pro.** On Safari, `proFeaturesBlocked` disables the overlay (`computeEffectiveSiteLocations` returns `[]`), and the popup disables the controls. Firefox and Chromium have no gate.
+
+**Safari app bridge.** The list crosses the bridge as one JSON string, like `favorites`. The extension half ships first and stays inert until the app learns the keys:
+
+- **Extension → app.** `REGION_UPDATE.siteLocations` carries `JSON.stringify(settings.siteLocations)` after every successful save, as the last key. The native handler stores it as `region_siteLocations` verbatim; an older handler drops the unknown key.
+- **App → extension.** The app writes `pending_siteLocations`, relayed as `pending.siteLocations`, only once it has read `region_siteLocations` or the user edited the list in the app. Until then it leaves the key unset, because `[]` means "clear the list".
+- **Adoption.** Step 9 of `adoptPendingSnapshot` runs after step 8 in its own try/catch. An absent key is a no-op, and invalid JSON or a non-array is ignored, never a wipe. An empty array is adopted as a clear. A bare IANA id in place of a `timezone` object (or an object with non-finite offsets) is repaired with `computeOffsets`; then every entry is re-validated by `validateSiteLocations`, so invalid entries are dropped. An unchanged list saves nothing; a changed one is saved, broadcast, and badged.
+- **Swift must preserve unknown fields and kinds verbatim**, so an entry shape or `kind` added later survives an app round trip. The app mirrors `MAX_SITE_LOCATIONS` (50) and `MAX_PATTERNS_PER_SITE_LOCATION` (10), and validates patterns against `tests/fixtures/site-location-vectors.json`.
+- **Pro.** The app's UI gate is a convenience; `proFeaturesBlocked` is what enforces it, disabling the overlay for a non-Pro user while the stored list is kept.
+
 ### Location precision and cadence
 
-Every page-bound builder (the per-tab broadcast in `sendSettingsToTab`, the content-script `GET_SETTINGS` reply, `tabs.onCreated`, the injection-check alarm, and the Firefox bootstrap) gets `location` from one resolver, `resolveCurrentPageLocation` in `src/background/precision-cadence.ts`:
+Every page-bound builder (the per-tab broadcast in `sendSettingsToTab`, the content-script `GET_SETTINGS` reply, `tabs.onCreated`, the injection-check alarm, and the Firefox bootstrap) is built in one module, `src/background/page-payload.ts`, and gets `location` from one resolver, `resolveCurrentPageLocation` in `src/background/precision-cadence.ts`:
 
 ```text
 point      = applyPrecisionOffset(anchor, effectivePrecision, periodSeed)
@@ -924,6 +1003,22 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 8. **WebRTC IP leaks** — Without `browser.privacy.network.webRTCIPHandlingPolicy` set to `disable_non_proxied_udp`, WebRTC ICE gathering can expose the real public IP via server-reflexive (srflx) candidates, even when geolocation is spoofed. On Firefox this only holds when behind a proxy/VPN; on Chromium it's strict. Safari doesn't expose `browser.privacy`.
 
 9. **Precision cadence timing** — Under Every hour and Every day the reported point moves while pages are open, at an install-specific time that can be late (alarm scheduling, sleep) but never early, and redrawing gives a site more samples to average. See [Location precision and cadence](#location-precision-and-cadence) for these and the other cadence limits.
+
+10. **Site locations: the Firefox bootstrap is narrower.** Instant timezone protection follows one rule, _the bootstrap may be absent but must never be wrong_ (`planBootstrapScripts` in `src/background/bootstrap-register.ts`). Wherever the userScripts match patterns can't say exactly which pages a value belongs to, no early value is seeded, and those pages get the right one from the async path a few milliseconds later, inside the window described in #3. In practice:
+    - With any site location, or with Filters in Allowlist or Denylist mode, only top frames are seeded, never subframes, because userScripts match each frame's own URL while the decision follows the top-level page.
+    - A site-location pattern with a port (`example.com:8080`) gets no early seed, and its host is left unseeded on every port.
+    - A denylist entry leaves its whole host unseeded on every scheme, port, and path; a denylisted `*` turns the bootstrap off entirely.
+    - In Allowlist mode, entries with a path or port seed nothing, and a site location only gets a seed where a path-free, port-free allowlist entry covers all of it.
+    - A `*.example.com` site location leaves the apex `example.com` unseeded unless another pattern covers it, and where two site locations' hosts overlap, the broader one doesn't seed the narrower one's host.
+    - With no main location, only site-location pages are seeded.
+
+    Chromium and Safari have no bootstrap.
+
+11. **Site locations: the Accept-Language header (Chromium, Safari).** On Chromium, with Filters set to every site, the main location's header stays a global `declarativeNetRequest` rule, so new tabs and sites without a site location are covered from their first request. Tabs on a site location whose language differs get a higher-priority per-tab session rule, refreshed when a tab starts navigating, so only a navigation into or out of such a site can send its first request with the previous site's value. In Allowlist or Denylist mode every tab's header comes from per-tab rules, as it did before site locations, so a new tab's first request can go out unmodified. On Safari, with Filters set to every site, the header stays the main location's on every site, including site-location sites, because MDN's compatibility data lists no per-tab rule condition for Safari and its handling of overlapping rule priorities isn't confirmed. So on a site-location site in Match mode, the header and `navigator.languages` can name different languages. Firefox sets the header per request and has no such race.
+
+12. **Site locations: embedded content follows the page it's in.** Every frame and worker in a tab gets the top-level page's decision. A Twitch player embedded on another site gets that site's location, not Twitch's, and a page embedded inside `twitch.tv` gets Twitch's. A SharedWorker isn't tied to a tab, so on Firefox it resolves through the request's `frameAncestors` to the top-level page of the frame that started it. Where Firefox doesn't report that, it follows the frame's own URL, and since a SharedWorker can be shared across tabs, it keeps the site location of the page that started it.
+
+13. **Site locations: some open pages keep old values until reloaded.** A change is pushed to open tabs right away, as for any settings change, but a page restored from the back/forward cache and a worker that's already running keep the values they started with. A value changing under a live page is also a visible discontinuity, so the popup suggests reloading after each change.
 
 ## Performance Targets
 

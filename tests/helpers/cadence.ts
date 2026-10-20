@@ -40,6 +40,7 @@ export function makeCadenceSettings(overrides?: Partial<Settings>): Settings {
     precisionSeed: CADENCE_SEED,
     precisionCadence: "hour",
     localeSpoofing: { mode: "off" },
+    siteLocations: [],
     ...overrides,
   };
 }

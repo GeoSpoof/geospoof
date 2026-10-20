@@ -99,6 +99,7 @@ GeoSpoof overrides every one of those channels so your browser reports a consist
 - **Manual control** — search for a city or enter coordinates directly.
 - **Full signal alignment** — geolocation, timezone, Date APIs, Intl, Temporal, and WebRTC all report the same place.
 - **Reported Language (opt-in)** — optionally report a language to match, so `navigator.language`, every `Intl` format, and the `Accept-Language` header agree instead of announcing where you actually come from.
+- **Site locations** — give specific sites their own location (say, `twitch.tv` in one place and `chatgpt.com` in another) while every other site keeps your main location. Set it from the **This site** row in the popup. Free on Firefox and Chrome; part of GeoSpoof Pro on Safari. See the [User Guide](docs/USER_GUIDE.md#site-locations).
 - **Anti-fingerprinting** — overrides are disguised to pass native code checks used by real-world fingerprinting scripts.
 - **Cross-browser** — Firefox, Chrome, Brave, Edge, and Safari. Single codebase, MV3.
 
@@ -111,6 +112,7 @@ GeoSpoof is designed to work alongside a VPN, not replace one.
 - Does NOT spoof your IP address (use a VPN for that)
 - Does NOT change your browser's language by default — that's opt-in (see [Reported Language](#reported-language-opt-in)), and it does NOT change GeoSpoof's own interface language
 - Does NOT bypass server-side detection (IP, payment info, account history)
+- Does NOT give a site a different IP, account region, or legal residence with a site location — it changes only what that site's pages read from your browser
 - Does NOT track your browsing activity, collect telemetry, or store data on external servers. Some features (city search, VPN sync) call third-party APIs to function. See the [Privacy Policy](PRIVACY_POLICY.md) for exactly what's sent and to whom.
 - Does NOT provide forensic-level anti-fingerprinting. Engine-level API tampering is also detectable by dedicated tools. For extreme threat models, use [Tor Browser](https://www.torproject.org/) or [Mullvad Browser](https://mullvad.net/browser) instead.
 

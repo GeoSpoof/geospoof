@@ -1,4 +1,4 @@
-import type { ScopeMode } from "@/shared/types/settings";
+import type { ScopeMode, SiteLocation } from "@/shared/types/settings";
 import { getURLPattern } from "./url-pattern-provider";
 import { hostToASCII } from "./idn";
 
@@ -94,7 +94,7 @@ function isValidLabelSequence(host: string): boolean {
 }
 
 /** True when `host` is a dotted IPv4 literal with four octets, each 0–255. */
-function isValidIpv4(host: string): boolean {
+export function isValidIpv4(host: string): boolean {
   const octets = host.split(".");
   if (octets.length !== 4) {
     return false;
@@ -256,7 +256,7 @@ type CompiledURLPattern = InstanceType<ReturnType<typeof getURLPattern>>;
  * `parsePattern`) into its scheme/host/port/path pieces. No validation — the
  * input is trusted to be canonical.
  */
-function decomposePattern(pattern: string): {
+export function decomposePattern(pattern: string): {
   scheme: string;
   host: string;
   port: string;
@@ -402,12 +402,24 @@ export function matchesPatternList(url: string, patterns: string[]): boolean {
     return false;
   }
   for (const pattern of patterns) {
-    const compiled = getCompiledPattern(pattern);
-    if (compiled !== null && safeTest(compiled, url)) {
+    if (matchesPattern(url, pattern)) {
       return true;
     }
   }
   return false;
+}
+
+/**
+ * Single-pattern form of `matchesPatternList`: `true` when `url` matches the
+ * canonical `pattern`, through the same compile cache and fail-safe test. Site
+ * locations need to know WHICH pattern matched, so they match one at a time.
+ */
+export function matchesPattern(url: string, pattern: string): boolean {
+  if (url.length === 0) {
+    return false;
+  }
+  const compiled = getCompiledPattern(pattern);
+  return compiled !== null && safeTest(compiled, url);
 }
 
 /**
@@ -466,6 +478,34 @@ export function computeEffectivePreserveGeoPrompt(
     return false;
   }
   return preserveGeolocationPrompt;
+}
+
+/**
+ * Site-locations Pro gate. Site locations are a Pro-only config feature on iOS
+ * Safari (parity with per-site filtering, custom accuracy, and preserved
+ * prompts). When the iOS app signals `proFeaturesBlocked` (non-Pro), the
+ * effective list is empty, so a free user gets the main location everywhere
+ * regardless of how the list was set (app, popup, or a stale value after a
+ * lapsed subscription). The stored list is untouched, so re-subscribing brings
+ * it back. Optional + fail-open: undefined/false passes the list through, and
+ * the `__SAFARI__` guard compiles out on other engines, so macOS Safari /
+ * Chrome / Firefox are unaffected. A non-array (unvalidated) value is treated
+ * as empty.
+ *
+ * Lives here rather than in `site-locations.ts` so tests can `vi.mock` it: an
+ * ESM-internal call can't be intercepted.
+ */
+export function computeEffectiveSiteLocations(
+  list: unknown,
+  proFeaturesBlocked?: boolean
+): SiteLocation[] {
+  if (__SAFARI__ && proFeaturesBlocked === true) {
+    return [];
+  }
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list as SiteLocation[];
 }
 
 /**

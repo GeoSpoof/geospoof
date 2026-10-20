@@ -71,6 +71,22 @@ In **Settings (the ⚙ gear in the popup header) → Location Precision**, choos
 
 Control which sites GeoSpoof spoofs on. In the **Filters** tab, choose **All** (every site), **Allowlist** (only listed sites), or **Denylist** (every site except listed ones), then add patterns like `example.com`, `*.ru`, `localhost:3000`, or `site.com/app/*`. See the full pattern language — wildcards, ports, paths, and the rules to watch for — in the [Site Filters reference](SITE_FILTERS.md).
 
+### Site locations
+
+Give specific sites their own location while every other site keeps your **main location** (the one you set on the Main tab). For example, `twitch.tv` can see Mexico City and `chatgpt.com` can see Dublin, while everything else sees Tokyo.
+
+**What it changes, and what it doesn't.** A site location changes what that site's pages can read from your browser: the location they get if they ask for it, the time zone in dates and clocks, and the language if **Reported Language** is set to **Match my location**. It doesn't change your IP address, your account details, or where you legally live, and those are what services usually use for ads, prices, and which terms apply to you. So a site location alone won't remove ads that are decided by your IP, and it won't change how a service classifies your account. For the most consistent result, pair a site location with a VPN exit in the same place.
+
+**Filters still decide where GeoSpoof is on.** Site Filters and site locations are two separate settings. Filters decide whether GeoSpoof runs on a site at all; a site location only decides which location it reports there. If Filters keep GeoSpoof off for a site, its site location doesn't apply, and the popup says so.
+
+**One site location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, in one site location. Then the same company sees one location throughout.
+
+**Embedded content goes with the page.** Everything inside a page, such as embedded videos and sign-in frames, sees that page's location. A Twitch player embedded on another site gets that other site's location.
+
+**Trackers that work across sites.** A tracker embedded on many sites may notice your time zone changing from site to site while your IP address stays the same. Picking site locations in the same time zone as your main location avoids this.
+
+**Availability.** Free on Firefox and Chrome. On Safari for iPhone, iPad, and Mac, site locations are part of GeoSpoof Pro.
+
 ## How to Use
 
 ### Setting a Location
@@ -92,6 +108,19 @@ Control which sites GeoSpoof spoofs on. In the **Filters** tab, choose **All** (
 1. Enable the "Sync with VPN" toggle
 2. Click "Sync Now"
 3. Your location will be set to match your VPN exit region
+
+### Giving a Site Its Own Location
+
+1. Open the site, then open GeoSpoof. The **This site** row on the Main tab shows which location the site gets now, for example `twitch.tv · Main location`.
+2. Click **Use a different location here**. The **Sites** field is filled in with the current site (without `www.`); edit it or add more sites, separated by commas.
+3. Search for a place, or pick one of your favorites, then click **Save**.
+4. Reload the site's open pages so every page picks up the change.
+
+The row now reads, for example, `twitch.tv · Mexico City (site location)`. Use **Change** to edit it, or **Use main location** to go back to your main location on this site. The **Site locations** section on the Filters tab lists every site location, where you can add, edit, or remove them. The **Details** tab shows the site location applied to the current site, if any.
+
+If Filters keep GeoSpoof off for a site, the row says **GeoSpoof is off on this site (Filters)**. In Allowlist mode it offers **Add to allowlist** in one click.
+
+Site locations work without a main location. Sites without their own location then get no spoofing, and the row says so, for example `example.org · Not spoofed (no main location set)`.
 
 ### Enabling Protection
 

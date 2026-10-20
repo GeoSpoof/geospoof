@@ -245,6 +245,81 @@
           ></div>
         </div>
 
+        <!-- This site (Site locations): which location the active tab's site
+             gets. Hidden on restricted pages. The status line is a polite live
+             region so a change of state is announced; state is always carried
+             by its text, never by colour alone. The shared editor
+             (#siteLocationEditor) is moved into #thisSiteEditorHost when it's
+             opened from here. -->
+        <section class="this-site-row" id="thisSiteRow" aria-labelledby="thisSiteHeading" hidden>
+          <div class="section-heading" id="thisSiteHeading" data-i18n="siteLocation_rowHeading">
+            This site
+          </div>
+          <div class="this-site-status" id="thisSiteStatus" role="status" aria-live="polite"></div>
+          <div class="this-site-actions">
+            <button
+              type="button"
+              class="site-location-action"
+              id="thisSiteUseDifferent"
+              data-i18n="siteLocation_useDifferent"
+            >
+              Use a different location here
+            </button>
+            <button
+              type="button"
+              class="site-location-action"
+              id="thisSiteChange"
+              data-i18n="siteLocation_change"
+              hidden
+            >
+              Change
+            </button>
+            <button
+              type="button"
+              class="site-location-action"
+              id="thisSiteUseMain"
+              data-i18n="siteLocation_useMain"
+              hidden
+            >
+              Use main location
+            </button>
+          </div>
+          <div class="site-location-hint" id="thisSiteFiltersHint" hidden>
+            <span id="thisSiteFiltersHintText"></span>
+            <button
+              type="button"
+              class="site-location-link"
+              id="thisSiteAddToAllowlist"
+              data-i18n="siteLocation_addToAllowlist"
+              hidden
+            >
+              Add to allowlist
+            </button>
+          </div>
+          <div
+            class="site-location-hint"
+            id="thisSiteVpnHint"
+            data-i18n="siteLocation_hintVpn"
+            hidden
+          >
+            Sites still see your VPN's IP address. A different location here can look inconsistent.
+          </div>
+          <div
+            class="site-location-hint"
+            id="thisSiteReloadHint"
+            data-i18n="siteLocation_reloadHint"
+            hidden
+          >
+            Reload pages on this site to apply the change everywhere.
+          </div>
+          <div class="scope-inline-msg" id="thisSiteError" role="alert" hidden></div>
+          <div class="pro-lock-note" id="thisSiteProNote" data-i18n="siteLocation_proNote" hidden>
+            🔒 Site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give sites
+            their own location.
+          </div>
+          <div class="site-location-editor-host" id="thisSiteEditorHost"></div>
+        </section>
+
         <!-- VPN Sync Toggle -->
         <div class="vpn-sync-toggle">
           <label class="toggle-label" for="vpnSyncToggle">
@@ -677,6 +752,156 @@
 
           <div class="scope-list" id="scopeList" role="list" aria-label="Scoped sites"></div>
         </div>
+
+        <!-- Site locations (always visible): sites that get their own location.
+             A second axis to the mode above: Filters decide WHETHER GeoSpoof is
+             on for a site, a site location decides WHICH location it reports. -->
+        <section
+          class="site-locations-section"
+          id="siteLocationsSection"
+          aria-labelledby="siteLocationsTitle"
+        >
+          <hr class="section-divider" />
+          <div class="scope-list-header">
+            <span
+              class="scope-list-title"
+              id="siteLocationsTitle"
+              data-i18n="siteLocation_sectionTitle"
+              >Site locations</span
+            >
+            <span class="scope-list-count" id="siteLocationsCount">0</span>
+          </div>
+          <div class="scope-mode-desc" id="siteLocationsDesc" data-i18n="siteLocation_sectionDesc">
+            Give specific sites their own location. Filters still decide where GeoSpoof is on.
+          </div>
+          <div
+            class="pro-lock-note"
+            id="siteLocationsProNote"
+            data-i18n="siteLocation_proNote"
+            hidden
+          >
+            🔒 Site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give sites
+            their own location.
+          </div>
+          <div class="scope-empty" id="siteLocationsEmpty" data-i18n="siteLocation_empty">
+            No site locations yet
+          </div>
+          <div
+            class="scope-list site-locations-list"
+            id="siteLocationsList"
+            role="list"
+            aria-label="Site locations"
+            data-i18n-aria-label="siteLocation_listAriaLabel"
+          ></div>
+          <div
+            class="scope-inline-msg"
+            id="siteLocationsError"
+            role="alert"
+            data-i18n="filters_notSaved"
+            hidden
+          >
+            ⚠ Change not saved
+          </div>
+          <div class="scope-add-current-row site-locations-add-row">
+            <button
+              type="button"
+              class="scope-add-current"
+              id="siteLocationsAddButton"
+              data-i18n="siteLocation_add"
+            >
+              Add site location
+            </button>
+          </div>
+          <div class="site-location-editor-host" id="siteLocationsEditorHost">
+            <!-- The one shared editor. Moved into whichever host opens it, so
+                 its ids stay unique. -->
+            <div class="site-location-editor" id="siteLocationEditor" hidden>
+              <label
+                class="site-location-label"
+                for="siteLocationPatterns"
+                data-i18n="siteLocation_sitesLabel"
+                >Sites</label
+              >
+              <input
+                type="text"
+                id="siteLocationPatterns"
+                autocomplete="off"
+                spellcheck="false"
+                maxlength="2048"
+                aria-describedby="siteLocationPatternsHint"
+              />
+              <div
+                class="site-location-field-hint"
+                id="siteLocationPatternsHint"
+                data-i18n="siteLocation_sitesHint"
+              >
+                Separate sites with commas, e.g. chatgpt.com, openai.com
+              </div>
+
+              <label
+                class="site-location-label"
+                for="siteLocationSearch"
+                data-i18n="siteLocation_searchLabel"
+                >Location</label
+              >
+              <input
+                type="text"
+                id="siteLocationSearch"
+                autocomplete="off"
+                placeholder="Search for a city..."
+                data-i18n-placeholder="search_placeholder"
+              />
+              <div class="site-location-results" id="siteLocationResults"></div>
+
+              <div class="site-location-favorite-field" id="siteLocationFavoriteField">
+                <label
+                  class="site-location-label"
+                  for="siteLocationFavorite"
+                  data-i18n="siteLocation_favoriteLabel"
+                  >Or pick a favorite</label
+                >
+                <select id="siteLocationFavorite">
+                  <option value="" data-i18n="siteLocation_favoriteNone">Choose a favorite</option>
+                </select>
+              </div>
+
+              <div class="site-location-chosen" id="siteLocationChosen" aria-live="polite"></div>
+              <div class="site-location-explain" id="siteLocationExplain"></div>
+
+              <div class="site-location-error" id="siteLocationError" role="alert" hidden>
+                <span id="siteLocationErrorText"></span>
+                <button
+                  type="button"
+                  class="site-location-link"
+                  id="siteLocationEditOwner"
+                  data-i18n="siteLocation_editOwner"
+                  hidden
+                >
+                  Edit that one
+                </button>
+              </div>
+
+              <div class="site-location-editor-actions">
+                <button
+                  type="button"
+                  class="site-location-save"
+                  id="siteLocationSave"
+                  data-i18n="siteLocation_save"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  class="site-location-cancel"
+                  id="siteLocationCancel"
+                  data-i18n="siteLocation_cancel"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
       <!-- End Filters View -->
 
@@ -692,6 +917,14 @@
         <div class="detail-section">
           <div class="detail-label" data-i18n="details_spoofedTimezone">Spoofed Timezone</div>
           <div id="detailTimezone" class="detail-value">Not configured</div>
+        </div>
+
+        <!-- Site location applied to the active tab, if any -->
+        <div class="detail-section" id="detailSiteLocationSection">
+          <div class="detail-label" data-i18n="details_siteLocation">Site location</div>
+          <div id="detailSiteLocation" class="detail-value">
+            None. This site uses your main location.
+          </div>
         </div>
 
         <!-- WebRTC Details -->

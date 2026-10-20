@@ -45,6 +45,7 @@ function makeSettings(overrides?: Partial<Settings>): Settings {
     precisionSeed: 123456789,
     precisionCadence: "never" as const,
     localeSpoofing: { mode: "off" as const },
+    siteLocations: [],
     ...overrides,
   };
 }
