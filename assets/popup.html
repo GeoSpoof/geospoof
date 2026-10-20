@@ -273,10 +273,13 @@
           >
             Sites still see your VPN's IP address. A different location here can look inconsistent.
           </div>
+          <!-- tabindex="-1": "Use main location" hides itself, so focus moves
+               here to read the confirmation; not a tab stop. -->
           <div
             class="site-location-hint"
             id="siteLocationLineReloadHint"
             role="status"
+            tabindex="-1"
             data-i18n="siteLocation_reloadHint"
             hidden
           >
@@ -732,7 +735,10 @@
              at the bottom of the tab. Filters decide WHETHER GeoSpoof is on for a
              site; a site location decides WHICH location it reports there. Native
              <details> like #scopeSyntax, so it's keyboard- and screen-reader-
-             operable with no extra JS. -->
+             operable with no extra JS. The divider ends the Filters group, so in
+             list modes this bar can't read as another Filters bar like
+             #scopeSyntax. -->
+        <hr class="section-divider site-locations-divider" />
         <details class="site-locations-disclosure" id="siteLocationsDisclosure">
           <summary class="site-locations-summary">
             <span class="site-locations-chevron" aria-hidden="true">▶</span>
@@ -772,10 +778,13 @@
             >
               ⚠ Change not saved
             </div>
+            <!-- tabindex="-1": the editor's one-tap "Add to allowlist" hides
+                 itself, so focus moves here to read the confirmation. -->
             <div
               class="site-location-hint"
               id="siteLocationsReloadHint"
               role="status"
+              tabindex="-1"
               data-i18n="siteLocation_reloadHint"
               hidden
             >

@@ -2498,8 +2498,9 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 }
 
 /* Filters tab: a collapsed, secondary disclosure at the bottom. Mirrors the
-   .scope-syntax summary, not the Filters list heading. */
-.site-locations-disclosure {
+   .scope-syntax summary, not the Filters list heading. The divider above it
+   ends the Filters group; its bottom margin spaces the bar. */
+.site-locations-divider {
   margin-top: 16px;
 }
 
@@ -2598,6 +2599,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-muted);
+}
+
+/* The reload hints take focus from script only (after the button that showed
+   them hides itself), to be read out. They aren't controls, so no ring. */
+.site-location-hint[tabindex="-1"]:focus {
+  outline: none;
 }
 
 /* Keep editor hints from running into the explanation line above them. */

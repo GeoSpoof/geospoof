@@ -237,7 +237,17 @@ describe("Main tab: the line when a site location applies", () => {
     expect(text("siteLocationLineStatus")).toBe("On openai.com: Dublin");
 
     sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
-    byId("siteLocationLineUseMain").click();
+    // The reload loadSettings does: the site no longer matches.
+    vi.mocked(loadSettings).mockImplementationOnce(() => {
+      renderAll(
+        makeSettings({ siteLocations: [ENTRY_MEXICO_CITY] }),
+        "https://openai.com/research"
+      );
+      return Promise.resolve();
+    });
+    const useMain = byId("siteLocationLineUseMain");
+    useMain.focus();
+    useMain.click();
     await flush();
 
     expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([
@@ -245,14 +255,18 @@ describe("Main tab: the line when a site location applies", () => {
     ]);
     expect(loadSettings).toHaveBeenCalled();
 
-    // The re-render that follows: the site no longer matches, so only the
-    // reload hint shows, and only here (not in the Filters disclosure).
-    renderAll(makeSettings({ siteLocations: [ENTRY_MEXICO_CITY] }), "https://openai.com/research");
+    // Only the reload hint shows, and only here (not in the Filters disclosure).
     expect(isShown("siteLocationLine")).toBe(true);
     expect(isShown("siteLocationLineMain")).toBe(false);
     expect(isShown("siteLocationLineReloadHint")).toBe(true);
     expect(byId("siteLocationLineReloadHint").getAttribute("role")).toBe("status");
     expect(byId("siteLocationsReloadHint").hidden).toBe(true);
+
+    // The pressed button is gone, so focus moves to the confirmation: it's
+    // read out, and Tab continues from there. Script-only, not a tab stop.
+    expect(isShown("siteLocationLineUseMain")).toBe(false);
+    expect(document.activeElement).toBe(byId("siteLocationLineReloadHint"));
+    expect(byId("siteLocationLineReloadHint").getAttribute("tabindex")).toBe("-1");
   });
 
   test("a failed 'Use main location' shows an alert and doesn't reload", async () => {
@@ -315,6 +329,9 @@ describe("Filters tab: the Site locations disclosure", () => {
     expect(byId("scopeListManager").compareDocumentPosition(details)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
+    // A plain divider ends the Filters group, so in list modes the bar can't
+    // read as another Filters bar like "What patterns can I use?".
+    expect(details.previousElementSibling?.matches("hr.section-divider")).toBe(true);
   });
 
   test("with no entries: collapsed, no count chip, no empty box, a quiet label", () => {
@@ -658,8 +675,7 @@ describe("Hints only in context", () => {
   });
 
   test("allowlist conflict: the hint and one-tap show in the editor for a covered site", async () => {
-    renderAll(makeSettings(allowlist), "https://chatgpt.com/c/1");
-    byId("siteLocationsAddButton").click();
+    openFromAddAt("https://chatgpt.com/c/1", makeSettings(allowlist));
     expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("chatgpt.com");
     expect(isShown("siteLocationFiltersHint")).toBe(true);
     expect(text("siteLocationFiltersHintText")).toBe(
@@ -668,7 +684,17 @@ describe("Hints only in context", () => {
     expect(isShown("siteLocationAddToAllowlist")).toBe(true);
 
     sendMessage.mockResolvedValue({ success: true });
-    byId("siteLocationAddToAllowlist").click();
+    // The reload loadSettings does, with the site now on the allowlist.
+    vi.mocked(loadSettings).mockImplementationOnce(() => {
+      renderAll(
+        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com", "chatgpt.com"] }),
+        "https://chatgpt.com/c/1"
+      );
+      return Promise.resolve();
+    });
+    const oneTap = byId("siteLocationAddToAllowlist");
+    oneTap.focus();
+    oneTap.click();
     await flush();
     expect(messagesOfType("ADD_SCOPE_SITE")).toEqual([
       { list: "allowlist", pattern: "chatgpt.com" },
@@ -677,13 +703,16 @@ describe("Hints only in context", () => {
 
     // The re-render keeps the editor open, drops the now-resolved hint, and
     // says to reload (open pages on the site keep Filters' old answer).
-    renderAll(
-      makeSettings({ scopeMode: "allowlist", allowlist: ["example.com", "chatgpt.com"] }),
-      "https://chatgpt.com/c/1"
-    );
     expect(isShown("siteLocationEditor")).toBe(true);
     expect(isShown("siteLocationFiltersHint")).toBe(false);
     expect(isShown("siteLocationsReloadHint")).toBe(true);
+
+    // The one-tap hid itself, so focus moves to the confirmation; the next Tab
+    // lands in the still-open editor (the add row is hidden while it's open).
+    expect(isShown("siteLocationAddToAllowlist")).toBe(false);
+    expect(document.activeElement).toBe(byId("siteLocationsReloadHint"));
+    expect(byId("siteLocationsReloadHint").getAttribute("tabindex")).toBe("-1");
+    expect(isShown("siteLocationsAddRow")).toBe(false);
   });
 
   test("the hint follows the Sites field", () => {

@@ -305,12 +305,25 @@ async function handleUseMain(): Promise<void> {
       if (editor?.entry?.id === entry.id) closeEditor(false);
       reloadHintHost = "line";
       await loadSettings();
+      // The re-render hid this button along with the rest of the line.
+      focusReloadHint("siteLocationLineReloadHint");
       return;
     }
   } catch (error: unknown) {
     console.error("Failed to remove the site location:", error);
   }
   showLineError(t("filters_notSaved") || "⚠ Change not saved");
+}
+
+/**
+ * After an action whose button the re-render hides, focus the reload hint it
+ * revealed. A screen reader then reads the confirmation (a live region that's
+ * unhidden with its text already in place often isn't announced), and Tab
+ * continues from there instead of from the top of the popup.
+ */
+function focusReloadHint(id: string): void {
+  const hint = el(id);
+  if (isFocusable(hint)) hint.focus();
 }
 
 // ── Filters tab: the "Site locations (optional)" disclosure ─────────────────
@@ -622,9 +635,11 @@ async function handleAddToAllowlist(): Promise<void> {
       payload,
     })) as ScopeResponse;
     if (result && "success" in result && result.success) {
-      // The editor stays open; the re-render recomputes the hint.
+      // The editor stays open; the re-render recomputes the hint and hides
+      // this button with it.
       reloadHintHost = "filters";
       await loadSettings();
+      focusReloadHint("siteLocationsReloadHint");
       return;
     }
   } catch (error: unknown) {
