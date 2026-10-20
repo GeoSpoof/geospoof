@@ -1,30 +1,27 @@
 /**
  * Popup Site locations
  *
+ * Site locations are optional, so they stay out of the way until they're used.
  * Three surfaces onto `settings.siteLocations`:
- *   - the Main tab's "This site" row: which location the active tab's site
- *     gets, with "Use a different location here" / "Change" / "Use main
- *     location" and short, honest hints (Filters, VPN, reload);
- *   - the Filters tab's "Site locations" section: every entry, with edit and
- *     remove (optimistic, reverted on failure like the scope list);
- *   - the Details tab's readout of the site location applied to this tab.
+ *   - the Main tab's one-line note (`#siteLocationLine`), rendered only when a
+ *     site location applies to the active tab: "On twitch.tv: Mexico City",
+ *     with Edit and Use main location. Nothing renders anywhere else;
+ *   - the Filters tab's collapsed "Site locations (optional)" disclosure at the
+ *     bottom: every entry, with edit and remove (optimistic, reverted on failure
+ *     like the scope list), and the one editor;
+ *   - the Details tab's readout, shown only when a site location applies.
  *
- * One editor (`#siteLocationEditor`) serves both the row and the section. It's
- * moved into whichever host opens it, so its ids stay unique.
+ * Hints are in context only: the Filters-conflict and VPN hints show inside the
+ * editor (and the VPN hint under the Main line), and the reload hint only right
+ * after a change made from this popup.
  *
  * Filters and site locations are separate axes: Filters decide WHETHER
  * GeoSpoof is on for a site, a site location decides WHICH location it reports
- * there. The row shows both, from the same shared resolver the background
- * uses (`resolveSiteSettings`), so the popup can't disagree with the page.
+ * there. Both surfaces use the shared resolver the background uses
+ * (`resolveSiteSettings`), so the popup can't disagree with the page.
  */
 
-import type {
-  Favorite,
-  LocationName,
-  ScopeMode,
-  Settings,
-  SiteLocation,
-} from "@/shared/types/settings";
+import type { Favorite, LocationName, Settings, SiteLocation } from "@/shared/types/settings";
 import { MAX_PATTERNS_PER_SITE_LOCATION, MAX_SITE_LOCATIONS } from "@/shared/types/settings";
 import type {
   GeocodeResponse,
@@ -35,9 +32,8 @@ import type {
   ScopeSitePayload,
   SiteLocationResponse,
 } from "@/shared/types/messages";
-import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
+import { matchesPattern } from "@/shared/utils/scope";
 import {
-  matchSiteLocation,
   parseSiteLocationPattern,
   resolveSiteSettings,
   siteLocationDisplayName,
@@ -52,15 +48,11 @@ import { clearChildren } from "./ui";
 /** Debounce (ms) for the editor's location search, matching the main search. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-/** What the "This site" row shows for the active tab. */
-export type ThisSiteRowState =
-  | { kind: "hidden" }
-  /** In scope, no site location: the main location applies. */
-  | { kind: "main"; host: string; suggestion: string | null }
-  /** In scope, and a site location applies. */
-  | { kind: "applied"; host: string; entry: SiteLocation; pattern: string }
-  /** Filters keep GeoSpoof off here. `pattern` is what one-tap would allowlist. */
-  | { kind: "filtersOff"; host: string; mode: ScopeMode; pattern: string | null };
+/** What the Main-tab line shows for the active tab. */
+export type SiteLocationLineState =
+  | { kind: "none" }
+  /** In scope, and a site location applies. `site` is the host without `www.`. */
+  | { kind: "applied"; site: string; entry: SiteLocation; pattern: string };
 
 /** A location picked in the editor. `undefined` fields mean "keep the stored value". */
 interface ChosenLocation {
@@ -73,7 +65,6 @@ interface ChosenLocation {
 }
 
 interface EditorState {
-  host: "row" | "filters";
   /** The entry being edited, or null for a new one. */
   entry: SiteLocation | null;
   chosen: ChosenLocation | null;
@@ -81,14 +72,22 @@ interface EditorState {
   ownerId: string | null;
   /** Where focus returns when the editor closes. */
   opener: HTMLElement | null;
+  /** Filters keep GeoSpoof off on this tab for a site in the Sites field. */
+  conflict: { mode: "allowlist" | "denylist"; pattern: string } | null;
 }
 
 /** The last rendered inputs; the static controls' listeners read them. */
 let current: { settings: Settings; tabUrl: string | undefined; proLocked: boolean } | null = null;
-let rowState: ThisSiteRowState = { kind: "hidden" };
+let lineState: SiteLocationLineState = { kind: "none" };
 let editor: EditorState | null = null;
-/** Set after a change made from this popup; open pages keep old values until reloaded. */
-let reloadHintVisible = false;
+/**
+ * Where the reload hint shows after a change made from this popup (open pages
+ * keep old values until reloaded): under the Main line after "Use main
+ * location", or in the Filters disclosure after any change made there.
+ */
+let reloadHintHost: "line" | "filters" | null = null;
+/** The disclosure's open state is set once per popup session, then left to the user. */
+let disclosureInitialized = false;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 let searchSeq = 0;
 
@@ -146,9 +145,10 @@ export function parsePatternsField(raw: string): {
 /**
  * Called from loadSettings() right after renderScope(). Reads the active tab's
  * top-level URL (as Filters' "Add current site" does) and renders all three
- * surfaces.
+ * surfaces. Resolves true when a site location applies to the active tab, so
+ * loadSettings can keep the no-main-location warning off that tab only.
  */
-export async function renderSiteLocations(settings: Settings, proLocked = false): Promise<void> {
+export async function renderSiteLocations(settings: Settings, proLocked = false): Promise<boolean> {
   let tabUrl: string | undefined;
   try {
     const tabs = await browser.tabs.query({ active: true, currentWindow: true });
@@ -156,198 +156,145 @@ export async function renderSiteLocations(settings: Settings, proLocked = false)
   } catch (error: unknown) {
     console.error("Failed to read the current tab:", error);
   }
-  renderThisSiteRow(settings, tabUrl, proLocked);
+  const applies = renderSiteLocationLine(settings, tabUrl, proLocked);
   renderSiteLocationsSection(settings, tabUrl, proLocked);
-  renderSiteLocationDetails(settings, tabUrl);
+  renderSiteLocationDetails(settings, tabUrl, proLocked);
+  return applies;
 }
 
-// ── Main tab: the "This site" row ─────────────────────────────────────────────
+// ── Main tab: the one-line note ──────────────────────────────────────────────
 
 /**
- * Decide the row's state. With the Pro lock on, the background forces scope
- * "all" and ignores site locations, so the row reflects exactly that. With the
- * master switch off it shows what this site WOULD get, as the location card
- * above it shows the main location while protection is off.
+ * Decide the line's state. With the Pro lock on, the background forces scope
+ * "all" and ignores site locations, so nothing applies. With the master switch
+ * off it shows what this site WOULD get, as the location card above it keeps
+ * naming the main location while protection is off. Filters-off sites,
+ * unmatched sites, and restricted pages get nothing.
  */
-export function computeThisSiteRowState(
+export function computeSiteLocationLineState(
   settings: Settings,
   tabUrl: string | undefined,
   proLocked: boolean
-): ThisSiteRowState {
-  if (!tabUrl || isRestrictedUrl(tabUrl)) return { kind: "hidden" };
+): SiteLocationLineState {
+  if (!tabUrl || isRestrictedUrl(tabUrl)) return { kind: "none" };
   const host = hostOf(tabUrl);
-  if (host === null) return { kind: "hidden" };
+  if (host === null) return { kind: "none" };
 
   const effective: Settings = proLocked
     ? { ...settings, scopeMode: "all", siteLocations: [] }
     : settings;
-  const resolution = resolveSiteSettings(
-    effective.enabled ? effective : { ...effective, enabled: true },
-    tabUrl,
-    isRestrictedUrl
-  );
-  const suggestion = suggestSiteLocationPattern(tabUrl);
-
-  if (!resolution.enabled) {
-    const entries = computeEffectiveSiteLocations(
-      effective.siteLocations,
-      effective.proFeaturesBlocked
-    );
-    const match = matchSiteLocation(tabUrl, entries);
-    return {
-      kind: "filtersOff",
-      host,
-      mode: effective.scopeMode,
-      pattern: match?.pattern ?? suggestion,
-    };
-  }
-  if (resolution.siteLocation !== null && resolution.matchedPattern !== null) {
+  const resolution = resolveSiteSettings({ ...effective, enabled: true }, tabUrl, isRestrictedUrl);
+  if (
+    resolution.enabled &&
+    resolution.siteLocation !== null &&
+    resolution.matchedPattern !== null
+  ) {
     return {
       kind: "applied",
-      host,
+      site: suggestSiteLocationPattern(tabUrl) ?? host,
       entry: resolution.siteLocation,
       pattern: resolution.matchedPattern,
     };
   }
-  return { kind: "main", host, suggestion };
+  return { kind: "none" };
 }
 
-/** Render the Main-tab "This site" row for the active tab's URL. */
-export function renderThisSiteRow(
+/**
+ * Render the Main-tab line for the active tab's URL. Returns true when a site
+ * location applies. When none does, the line is hidden (no empty container),
+ * unless it's showing the reload hint right after "Use main location".
+ */
+export function renderSiteLocationLine(
   settings: Settings,
   tabUrl: string | undefined,
   proLocked: boolean
-): void {
+): boolean {
   current = { settings, tabUrl, proLocked };
-  wireRowOnce();
+  wireLineOnce();
   wireEditorOnce();
-
-  const row = el("thisSiteRow");
-  if (!row) return;
 
   // A locked user can't edit; close an editor left open by an earlier render.
   if (proLocked && editor !== null) closeEditor(false);
 
-  rowState = computeThisSiteRowState(settings, tabUrl, proLocked);
-  setHidden("thisSiteError", true);
+  lineState = computeSiteLocationLineState(settings, tabUrl, proLocked);
+  const applied = lineState.kind === "applied";
+  setHidden("siteLocationLineError", true);
+  setHidden("siteLocationLine", !applied && reloadHintHost !== "line");
+  setHidden("siteLocationLineMain", !applied);
 
-  if (rowState.kind === "hidden") {
-    if (editor?.host === "row") closeEditor(false);
-    row.hidden = true;
-    return;
-  }
-  row.hidden = false;
-
-  const status = el("thisSiteStatus");
-  if (status) status.textContent = statusText(rowState);
-
-  setHidden("thisSiteUseDifferent", rowState.kind !== "main");
-  setHidden("thisSiteChange", rowState.kind !== "applied");
-  setHidden("thisSiteUseMain", rowState.kind !== "applied");
-  for (const id of ["thisSiteUseDifferent", "thisSiteChange", "thisSiteUseMain"]) {
-    const btn = el<HTMLButtonElement>(id);
-    if (btn) btn.disabled = proLocked;
-  }
-
-  renderFiltersHint(rowState, proLocked);
-  updateVpnHint();
-  setHidden("thisSiteReloadHint", !reloadHintVisible);
-  setHidden("thisSiteProNote", !proLocked);
-}
-
-function statusText(state: ThisSiteRowState): string {
-  switch (state.kind) {
-    case "applied": {
-      const place = siteLocationDisplayName(state.entry);
-      return (
-        t("siteLocation_statusSite", [state.host, place]) ||
-        `${state.host} · ${place} (site location)`
-      );
+  const status = el("siteLocationLineStatus");
+  const editBtn = el("siteLocationLineEdit");
+  if (lineState.kind === "applied") {
+    const { site } = lineState;
+    const place = siteLocationDisplayName(lineState.entry);
+    if (status) {
+      status.textContent = t("siteLocation_statusSite", [site, place]) || `On ${site}: ${place}`;
     }
-    case "filtersOff":
-      return t("siteLocation_statusFiltersOff") || "GeoSpoof is off on this site (Filters)";
-    case "main":
-      // With no main location the page gets no location or zone at all, so
-      // say so rather than naming a location that doesn't exist.
-      if (!current?.settings.location) {
-        return (
-          t("siteLocation_statusNoMain", [state.host]) ||
-          `${state.host} · Not spoofed (no main location set)`
-        );
-      }
-      return t("siteLocation_statusMain", [state.host]) || `${state.host} · Main location`;
-    default:
-      return "";
-  }
-}
-
-/**
- * Out of scope only. Allowlist mode offers a one-tap add; denylist mode only
- * explains, because the blocking entry may be a broad wildcard or a path
- * pattern that removing this host wouldn't lift.
- */
-function renderFiltersHint(state: ThisSiteRowState, proLocked: boolean): void {
-  const text = el("thisSiteFiltersHintText");
-  if (state.kind !== "filtersOff" || state.mode === "all") {
-    setHidden("thisSiteFiltersHint", true);
-    return;
-  }
-  setHidden("thisSiteFiltersHint", false);
-  if (state.mode === "allowlist") {
-    if (text) {
-      text.textContent =
-        t("siteLocation_hintAllowlist") ||
-        "Filters don't spoof this site. Add it to the allowlist?";
-    }
-    setHidden("thisSiteAddToAllowlist", state.pattern === null || proLocked);
+    editBtn?.setAttribute(
+      "aria-label",
+      `${t("siteLocation_editAriaLabel") || "Edit site location"} ${place}`
+    );
   } else {
-    if (text) {
-      text.textContent =
-        t("siteLocation_hintDenylist") ||
-        "Filters don't spoof this site because it's on your denylist.";
-    }
-    setHidden("thisSiteAddToAllowlist", true);
+    if (status) status.textContent = "";
+    editBtn?.removeAttribute("aria-label");
   }
+
+  // VPN sync moves only the IP-derived main location; say so where one applies.
+  setHidden("siteLocationLineVpnHint", !(applied && settings.vpnSyncEnabled === true));
+  setHidden("siteLocationLineReloadHint", reloadHintHost !== "line");
+  return applied;
 }
 
-/** VPN sync moves only the IP-derived main location; say so where a site location is in play. */
-function updateVpnHint(): void {
-  const vpnOn = current?.settings.vpnSyncEnabled === true;
-  setHidden("thisSiteVpnHint", !(vpnOn && (rowState.kind === "applied" || editor !== null)));
-}
-
-function showRowError(text: string): void {
-  const node = el("thisSiteError");
+function showLineError(text: string): void {
+  const node = el("siteLocationLineError");
   if (!node) return;
   node.textContent = text;
   node.hidden = false;
 }
 
-function wireRowOnce(): void {
-  const row = el("thisSiteRow");
-  if (!row || row.dataset.wired === "1") return;
-  row.dataset.wired = "1";
+function wireLineOnce(): void {
+  const line = el("siteLocationLine");
+  if (!line || line.dataset.wired === "1") return;
+  line.dataset.wired = "1";
 
-  el("thisSiteUseDifferent")?.addEventListener("click", (e) => {
-    openEditor({ host: "row", entry: null, opener: e.currentTarget as HTMLElement });
+  el("siteLocationLineEdit")?.addEventListener("click", () => {
+    openEditorFromLine();
   });
-  el("thisSiteChange")?.addEventListener("click", (e) => {
-    if (rowState.kind !== "applied") return;
-    openEditor({ host: "row", entry: rowState.entry, opener: e.currentTarget as HTMLElement });
-  });
-  el("thisSiteUseMain")?.addEventListener("click", () => {
+  el("siteLocationLineUseMain")?.addEventListener("click", () => {
     void handleUseMain();
   });
-  el("thisSiteAddToAllowlist")?.addEventListener("click", () => {
-    void handleAddToAllowlist();
-  });
+}
+
+/**
+ * "Edit" on the Main line: switch to the Filters tab (through its own tab
+ * button, so index.ts stays the one place that switches views), expand the
+ * disclosure, and open the applied entry in the editor.
+ */
+function openEditorFromLine(): void {
+  if (lineState.kind !== "applied" || current?.proLocked) return;
+  const { entry } = lineState;
+  el("filtersTab")?.click();
+  const disclosure = el<HTMLDetailsElement>("siteLocationsDisclosure");
+  if (disclosure) disclosure.open = true;
+
+  let opener: HTMLElement | null = null;
+  const listEl = el("siteLocationsList");
+  if (listEl) {
+    for (const row of Array.from(listEl.children)) {
+      if ((row as HTMLElement).dataset.siteLocationId === entry.id) {
+        opener = row.querySelector<HTMLElement>(".site-location-edit");
+        break;
+      }
+    }
+  }
+  openEditor({ entry, opener: opener ?? el("siteLocationsAddButton") });
 }
 
 /** Drop the matched pattern only, so a multi-site entry keeps its other sites. */
 async function handleUseMain(): Promise<void> {
-  if (rowState.kind !== "applied" || current?.proLocked) return;
-  const { entry, pattern } = rowState;
-  setHidden("thisSiteError", true);
+  if (lineState.kind !== "applied" || current?.proLocked) return;
+  const { entry, pattern } = lineState;
+  setHidden("siteLocationLineError", true);
   const payload: RemoveSiteLocationPayload = { id: entry.id, pattern };
   try {
     const result = (await browser.runtime.sendMessage({
@@ -356,39 +303,19 @@ async function handleUseMain(): Promise<void> {
     })) as SiteLocationResponse;
     if (result && "success" in result && result.success) {
       if (editor?.entry?.id === entry.id) closeEditor(false);
-      reloadHintVisible = true;
+      reloadHintHost = "line";
       await loadSettings();
       return;
     }
   } catch (error: unknown) {
     console.error("Failed to remove the site location:", error);
   }
-  showRowError(t("filters_notSaved") || "⚠ Change not saved");
+  showLineError(t("filters_notSaved") || "⚠ Change not saved");
 }
 
-async function handleAddToAllowlist(): Promise<void> {
-  if (rowState.kind !== "filtersOff" || rowState.pattern === null || current?.proLocked) return;
-  setHidden("thisSiteError", true);
-  const payload: ScopeSitePayload = { list: "allowlist", pattern: rowState.pattern };
-  try {
-    const result = (await browser.runtime.sendMessage({
-      type: "ADD_SCOPE_SITE",
-      payload,
-    })) as ScopeResponse;
-    if (result && "success" in result && result.success) {
-      reloadHintVisible = true;
-      await loadSettings();
-      return;
-    }
-  } catch (error: unknown) {
-    console.error("Failed to add the site to the allowlist:", error);
-  }
-  showRowError(t("filters_notSaved") || "⚠ Change not saved");
-}
+// ── Filters tab: the "Site locations (optional)" disclosure ─────────────────
 
-// ── Filters tab: the "Site locations" section ───────────────────────────────
-
-/** Render the Filters-tab list of site locations. */
+/** Render the Filters-tab disclosure and its list of site locations. */
 export function renderSiteLocationsSection(
   settings: Settings,
   tabUrl: string | undefined,
@@ -398,10 +325,22 @@ export function renderSiteLocationsSection(
   wireSectionOnce();
   wireEditorOnce();
 
+  // A locked user can't edit; close an editor left open by an earlier render.
+  if (proLocked && editor !== null) closeEditor(false);
+
   const listEl = el("siteLocationsList");
   if (!listEl) return;
 
   const entries = storedList(settings);
+
+  // Collapsed unless there's something in it. Only on the first render, so
+  // the re-render after each action doesn't undo the user's own toggle.
+  const disclosure = el<HTMLDetailsElement>("siteLocationsDisclosure");
+  if (disclosure && !disclosureInitialized) {
+    disclosure.open = !proLocked && entries.length > 0;
+    disclosureInitialized = true;
+  }
+
   clearChildren(listEl);
   for (const entry of entries) {
     listEl.appendChild(buildSiteLocationRow(entry, proLocked));
@@ -412,14 +351,20 @@ export function renderSiteLocationsSection(
   setHidden("siteLocationsProNote", !proLocked);
   const addBtn = el<HTMLButtonElement>("siteLocationsAddButton");
   if (addBtn) addBtn.disabled = proLocked;
+  setHidden("siteLocationsAddRow", editor !== null);
+  setHidden("siteLocationsReloadHint", reloadHintHost !== "filters");
+  if (editor !== null) updateEditorHints();
 }
 
+/** The count chip shows only when there's something to count. */
 function updateSectionCountFromDom(): void {
   const listEl = el("siteLocationsList");
   const count = listEl ? listEl.children.length : 0;
   const countEl = el("siteLocationsCount");
-  if (countEl) countEl.textContent = String(count);
-  setHidden("siteLocationsEmpty", count > 0);
+  if (countEl) {
+    countEl.textContent = String(count);
+    countEl.hidden = count === 0;
+  }
 }
 
 function buildSiteLocationRow(entry: SiteLocation, proLocked: boolean): HTMLElement {
@@ -457,7 +402,7 @@ function buildSiteLocationRow(entry: SiteLocation, proLocked: boolean): HTMLElem
   );
   editBtn.disabled = proLocked;
   editBtn.addEventListener("click", () => {
-    openEditor({ host: "filters", entry, opener: editBtn });
+    openEditor({ entry, opener: editBtn });
   });
   row.appendChild(editBtn);
 
@@ -483,7 +428,7 @@ function wireSectionOnce(): void {
   if (!btn || btn.dataset.wired === "1") return;
   btn.dataset.wired = "1";
   btn.addEventListener("click", () => {
-    openEditor({ host: "filters", entry: null, opener: btn });
+    openEditor({ entry: null, opener: btn });
   });
 }
 
@@ -505,7 +450,7 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
     })) as SiteLocationResponse;
     if (result && "success" in result && result.success) {
       if (editor?.entry?.id === entry.id) closeEditor(false);
-      reloadHintVisible = true;
+      reloadHintHost = "filters";
       await loadSettings();
       return;
     }
@@ -520,38 +465,43 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
 
 // ── Details tab ─────────────────────────────────────────────────────────────
 
-/** "Place (host) · Area/Zone" when a site location applies to this tab. */
-export function renderSiteLocationDetails(settings: Settings, tabUrl: string | undefined): void {
+/**
+ * "Place (host) · Area/Zone" when a site location applies to this tab;
+ * otherwise the section is hidden. Uses the real master switch, since Details
+ * reports what is actually spoofed right now.
+ */
+export function renderSiteLocationDetails(
+  settings: Settings,
+  tabUrl: string | undefined,
+  proLocked = false
+): void {
   const node = el("detailSiteLocation");
-  if (!node) return;
+  const section = el("detailSiteLocationSection");
+  if (!node || !section) return;
 
-  if (tabUrl && !isRestrictedUrl(tabUrl)) {
+  if (!proLocked && tabUrl && !isRestrictedUrl(tabUrl)) {
     const resolution = resolveSiteSettings(settings, tabUrl, isRestrictedUrl);
     const host = hostOf(tabUrl);
     if (resolution.siteLocation !== null && host !== null) {
       const place = siteLocationDisplayName(resolution.siteLocation);
       node.textContent = `${place} (${host}) · ${resolution.siteLocation.timezone.identifier}`;
+      section.hidden = false;
       return;
     }
   }
-  node.textContent = t("details_siteLocationNone") || "None. This site uses your main location.";
+  node.textContent = "";
+  section.hidden = true;
 }
 
 // ── The shared editor ───────────────────────────────────────────────────────
 
-function openEditor(args: {
-  host: "row" | "filters";
-  entry: SiteLocation | null;
-  opener: HTMLElement | null;
-}): void {
+function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | null }): void {
   if (current?.proLocked) return;
   const editorEl = el("siteLocationEditor");
-  const hostEl = el(args.host === "row" ? "thisSiteEditorHost" : "siteLocationsEditorHost");
-  if (!editorEl || !hostEl) return;
+  if (!editorEl) return;
 
   const { entry } = args;
   editor = {
-    host: args.host,
     entry,
     chosen: entry
       ? {
@@ -562,9 +512,8 @@ function openEditor(args: {
       : null,
     ownerId: null,
     opener: args.opener,
+    conflict: null,
   };
-
-  hostEl.appendChild(editorEl);
 
   const patternsInput = el<HTMLInputElement>("siteLocationPatterns");
   if (patternsInput) {
@@ -577,9 +526,11 @@ function openEditor(args: {
   fillFavorites(current ? (current.settings.favorites ?? []) : []);
   hideEditorError();
 
+  // The "Set a location for a site" row would only duplicate the open editor.
+  setHidden("siteLocationsAddRow", true);
   editorEl.hidden = false;
   updateChosen();
-  updateVpnHint();
+  updateEditorHints();
   patternsInput?.focus();
 }
 
@@ -590,12 +541,96 @@ function closeEditor(restoreFocus: boolean): void {
   editor = null;
   clearSearchResults();
   hideEditorError();
-  updateVpnHint();
-  if (restoreFocus) focusIfVisible(opener);
+  setHidden("siteLocationsAddRow", false);
+  updateEditorHints();
+  if (restoreFocus) restoreFocusAfterEditor(opener);
 }
 
-function focusIfVisible(node: HTMLElement | null): void {
-  if (node && node.isConnected && node.closest("[hidden]") === null) node.focus();
+/**
+ * Focus the opener if it's still on screen. The list is rebuilt on every
+ * loadSettings, so a row's Edit button is usually detached by then; fall back
+ * to "Set a location for a site".
+ */
+function restoreFocusAfterEditor(opener: HTMLElement | null): void {
+  if (isFocusable(opener)) {
+    opener.focus();
+    return;
+  }
+  const addBtn = el("siteLocationsAddButton");
+  if (isFocusable(addBtn)) addBtn.focus();
+}
+
+function isFocusable(node: HTMLElement | null): node is HTMLElement {
+  return node !== null && node.isConnected && node.closest("[hidden]") === null;
+}
+
+/**
+ * The editor's in-context hints. VPN: with Sync with VPN on, sites still see
+ * the VPN's IP. Filters: when Filters keep GeoSpoof off on this tab and a site
+ * in the Sites field covers it, the site location wouldn't apply here. The
+ * "this site" copy is exact then. Allowlist mode offers a one-tap add;
+ * denylist mode only explains, because the blocking entry may be a broad
+ * wildcard or a path pattern that removing this host wouldn't lift.
+ */
+function updateEditorHints(): void {
+  setHidden("siteLocationVpnHint", !(editor !== null && current?.settings.vpnSyncEnabled === true));
+
+  const conflict = editor !== null ? computeConflict() : null;
+  if (editor !== null) editor.conflict = conflict;
+  if (conflict === null) {
+    setHidden("siteLocationFiltersHint", true);
+    setHidden("siteLocationAddToAllowlist", true);
+    return;
+  }
+  const text = el("siteLocationFiltersHintText");
+  if (text) {
+    text.textContent =
+      conflict.mode === "allowlist"
+        ? t("siteLocation_hintAllowlist") ||
+          "Filters don't spoof this site. Add it to the allowlist?"
+        : t("siteLocation_hintDenylist") ||
+          "Filters don't spoof this site because it's on your denylist.";
+  }
+  setHidden("siteLocationAddToAllowlist", conflict.mode !== "allowlist");
+  setHidden("siteLocationFiltersHint", false);
+}
+
+function computeConflict(): EditorState["conflict"] {
+  if (!current) return null;
+  const { settings, tabUrl } = current;
+  if (!tabUrl || isRestrictedUrl(tabUrl)) return null;
+  const mode = settings.scopeMode;
+  if (mode !== "allowlist" && mode !== "denylist") return null;
+  if (resolveSiteSettings({ ...settings, enabled: true }, tabUrl, isRestrictedUrl).enabled) {
+    return null;
+  }
+  const { patterns } = parsePatternsField(
+    el<HTMLInputElement>("siteLocationPatterns")?.value ?? ""
+  );
+  const pattern = patterns.find((p) => matchesPattern(tabUrl, p));
+  return pattern === undefined ? null : { mode, pattern };
+}
+
+async function handleAddToAllowlist(): Promise<void> {
+  const conflict = editor?.conflict ?? null;
+  if (conflict === null || conflict.mode !== "allowlist" || current?.proLocked) return;
+  hideEditorError();
+  const payload: ScopeSitePayload = { list: "allowlist", pattern: conflict.pattern };
+  try {
+    const result = (await browser.runtime.sendMessage({
+      type: "ADD_SCOPE_SITE",
+      payload,
+    })) as ScopeResponse;
+    if (result && "success" in result && result.success) {
+      // The editor stays open; the re-render recomputes the hint.
+      reloadHintHost = "filters";
+      await loadSettings();
+      return;
+    }
+  } catch (error: unknown) {
+    console.error("Failed to add the site to the allowlist:", error);
+  }
+  showEditorError(t("filters_notSaved") || "⚠ Change not saved");
 }
 
 function clearSearchResults(): void {
@@ -689,6 +724,7 @@ function wireEditorOnce(): void {
     patternsInput.removeAttribute("aria-invalid");
     hideEditorError();
     updateChosen();
+    updateEditorHints();
   });
 
   el<HTMLInputElement>("siteLocationSearch")?.addEventListener("input", (e) => {
@@ -722,7 +758,10 @@ function wireEditorOnce(): void {
     const ownerId = editor?.ownerId;
     const owner = storedList(current?.settings).find((e) => e.id === ownerId);
     if (!editor || !owner) return;
-    openEditor({ host: editor.host, entry: owner, opener: editor.opener });
+    openEditor({ entry: owner, opener: editor.opener });
+  });
+  el("siteLocationAddToAllowlist")?.addEventListener("click", () => {
+    void handleAddToAllowlist();
   });
   editorEl.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -912,10 +951,10 @@ async function handleSave(): Promise<void> {
 
   if (result && "success" in result && result.success) {
     const opener = state.opener;
-    reloadHintVisible = true;
+    reloadHintHost = "filters";
     closeEditor(false);
     await loadSettings();
-    focusIfVisible(opener);
+    restoreFocusAfterEditor(opener);
     return;
   }
 
@@ -928,9 +967,10 @@ async function handleSave(): Promise<void> {
 /** Test hook: forget popup-session state between cases. */
 export function __resetSiteLocationsForTest(): void {
   current = null;
-  rowState = { kind: "hidden" };
+  lineState = { kind: "none" };
   editor = null;
-  reloadHintVisible = false;
+  reloadHintHost = null;
+  disclosureInitialized = false;
   clearTimeout(searchTimer);
   searchSeq = 0;
 }

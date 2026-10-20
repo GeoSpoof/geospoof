@@ -164,13 +164,7 @@ describe("Advanced Filtering syntax keys are present in every locale", () => {
  */
 describe("Site locations keys are present in every locale", () => {
   const REQUIRED_KEYS = [
-    "siteLocation_rowHeading",
-    "siteLocation_statusMain",
-    "siteLocation_statusNoMain",
     "siteLocation_statusSite",
-    "siteLocation_statusFiltersOff",
-    "siteLocation_useDifferent",
-    "siteLocation_change",
     "siteLocation_useMain",
     "siteLocation_hintAllowlist",
     "siteLocation_addToAllowlist",
@@ -196,14 +190,12 @@ describe("Site locations keys are present in every locale", () => {
     "siteLocation_sectionTitle",
     "siteLocation_sectionDesc",
     "siteLocation_add",
-    "siteLocation_empty",
     "siteLocation_edit",
     "siteLocation_editAriaLabel",
     "siteLocation_removeAriaLabel",
     "siteLocation_listAriaLabel",
     "siteLocation_proNote",
     "details_siteLocation",
-    "details_siteLocationNone",
     "badge_titleSiteLocation",
   ];
 
@@ -219,10 +211,10 @@ describe("Site locations keys are present in every locale", () => {
     const html = readFileSync(resolve(__dirname, "../../assets/popup.html"), "utf-8");
     const doc = new DOMParser().parseFromString(html, "text/html");
     const regions = [
-      doc.getElementById("thisSiteRow"),
-      doc.getElementById("siteLocationsSection"),
+      doc.getElementById("siteLocationLine"),
+      doc.getElementById("siteLocationsDisclosure"),
       doc.getElementById("siteLocationEditor"),
-      doc.getElementById("detailSiteLocation")?.closest(".detail-section") ?? null,
+      doc.getElementById("detailSiteLocationSection"),
     ];
     const source = loadLocale(SOURCE_LOCALE);
     const attrs = ["data-i18n", "data-i18n-placeholder", "data-i18n-aria-label", "data-i18n-title"];
@@ -238,6 +230,30 @@ describe("Site locations keys are present in every locale", () => {
     }
     expect(keys.length).toBeGreaterThan(0);
     expect(keys.filter((key) => !(key in source))).toEqual([]);
+  });
+
+  // Keys that lose their last use get removed, so translators aren't asked to
+  // maintain strings nobody sees.
+  test("every Site locations key in en is used", () => {
+    const tsFiles: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (full.endsWith(".ts")) tsFiles.push(full);
+      }
+    };
+    walk(resolve(__dirname, "../../src"));
+    const sources = [
+      readFileSync(resolve(__dirname, "../../assets/popup.html"), "utf-8"),
+      ...tsFiles.map((file) => readFileSync(file, "utf-8")),
+    ];
+    const keys = Object.keys(loadLocale(SOURCE_LOCALE)).filter((key) =>
+      /^(siteLocation_|details_siteLocation|badge_titleSiteLocation)/.test(key)
+    );
+    expect(keys.length).toBeGreaterThan(0);
+    const quoted = (key: string) => new RegExp(`["'\`]${key}["'\`]`);
+    expect(keys.filter((key) => !sources.some((source) => quoted(key).test(source)))).toEqual([]);
   });
 });
 

@@ -2445,51 +2445,127 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
-   Site locations: the Main-tab "This site" row, the Filters-tab section, the
-   shared editor, and its search results. State is always spelled out in text
-   (the status line, hints, and the "(site location)" suffix), never colour
-   alone.
+   Site locations: the Main-tab line (only when one applies), the Filters-tab
+   disclosure, the shared editor, and its search results. Optional and
+   secondary, so low emphasis throughout. State is always spelled out in text,
+   never colour alone.
    ────────────────────────────────────────────────────────────────────── */
 
 /* Several of these elements carry class rules that set `display`, which would
    otherwise beat the UA's `[hidden] { display: none }`. */
-.this-site-row[hidden],
-.this-site-row [hidden],
-.site-locations-section [hidden],
+.site-location-line[hidden],
+.site-location-line [hidden],
+.site-locations-disclosure [hidden],
 .site-location-editor[hidden],
 .site-location-editor [hidden] {
   display: none !important;
 }
 
-.this-site-row {
-  background: var(--surface);
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 12px;
-}
-
-.this-site-row .section-heading {
-  margin-bottom: 4px;
-}
-
-.this-site-status {
-  font-size: 13px;
-  color: var(--text);
+/* Main tab: one quiet line tucked under the location card. No card chrome and
+   no heading; it qualifies what the card says for this tab. */
+.site-location-line {
+  margin: -4px 0 12px;
+  padding: 0 12px;
+  font-size: 12px;
   line-height: 1.4;
-  word-break: break-word;
-  margin-bottom: 8px;
+  color: var(--text-muted);
 }
 
-.this-site-actions {
+.site-location-line-main {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: baseline;
+  gap: 2px 10px;
 }
 
-/* With every action hidden (Filters keep GeoSpoof off here), drop the empty
-   row so the status and the hint below it keep the row's 8px rhythm. */
-.this-site-actions:not(:has(> :not([hidden]))) {
+.site-location-line-status {
+  overflow-wrap: anywhere;
+}
+
+.site-location-line-actions {
+  display: inline-flex;
+  gap: 10px;
+}
+
+.site-location-line .site-location-link {
+  margin-left: 0;
+  font-weight: 500;
+}
+
+.site-location-line .site-location-hint,
+.site-location-line .scope-inline-msg {
+  margin: 2px 0 0;
+}
+
+/* Filters tab: a collapsed, secondary disclosure at the bottom. Mirrors the
+   .scope-syntax summary, not the Filters list heading. */
+.site-locations-disclosure {
+  margin-top: 16px;
+}
+
+.site-locations-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  /* Remove the native disclosure triangle (Firefox); we render our own chevron. */
+  list-style: none;
+  transition: color 0.2s;
+}
+
+/* Remove the native disclosure triangle (WebKit/Blink). */
+.site-locations-summary::-webkit-details-marker {
   display: none;
+}
+
+.site-locations-summary:hover {
+  color: var(--text);
+}
+
+.site-locations-chevron {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
+.site-locations-disclosure[open] .site-locations-chevron {
+  transform: rotate(90deg);
+}
+
+.site-locations-summary-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.site-locations-summary-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.site-locations-summary-desc {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.site-locations-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+/* The body's gap spaces these; their own margins would double it. */
+.site-locations-body .pro-lock-note,
+.site-locations-body .scope-inline-msg {
+  margin: 0;
 }
 
 .site-location-action,
@@ -2512,29 +2588,25 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 
 .site-location-action:disabled,
 .site-location-save:disabled,
-.site-locations-section button:disabled {
+.site-locations-disclosure button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-/* Short inline hints (Filters, VPN, reload), using the .info-notice tones. */
+/* Short in-context hints (Filters, VPN, reload): plain muted text, no box. */
 .site-location-hint {
-  margin-top: 8px;
-  padding: 8px 10px;
-  background: var(--info-bg);
-  color: var(--info-text);
-  border: 1px solid var(--info-border);
-  border-radius: 8px;
   font-size: 12px;
   line-height: 1.4;
+  color: var(--text-muted);
 }
 
-.this-site-row .pro-lock-note,
-.this-site-row .scope-inline-msg {
-  margin: 8px 0 0;
+/* Keep editor hints from running into the explanation line above them. */
+.site-location-editor .site-location-hint {
+  margin-top: 4px;
 }
 
-/* Text-style button for inline follow-ups ("Add to allowlist", "Edit that one"). */
+/* Text-style button for inline follow-ups ("Edit", "Use main location",
+   "Add to allowlist", "Edit that one"). */
 .site-location-link {
   margin-left: 4px;
   padding: 0;
@@ -2547,16 +2619,10 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   cursor: pointer;
 }
 
+/* Compact and left-aligned, unlike Filters' full-width "Add current site",
+   so it can't be mistaken for a filter action. */
 .site-locations-add-row {
-  margin-top: 8px;
-}
-
-.site-locations-list {
-  margin-top: 0;
-}
-
-.site-locations-section .scope-empty {
-  margin-bottom: 0;
+  display: flex;
 }
 
 .site-location-text {
@@ -2601,20 +2667,16 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--surface-hover);
 }
 
-/* The shared editor card. */
+/* The editor card, inside the disclosure body (whose gap spaces it). */
 .site-location-editor {
-  margin-top: 8px;
+  margin-top: 0;
   padding: 12px;
-  background: var(--surface-alt);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.site-locations-section .site-location-editor {
-  background: var(--surface);
 }
 
 .site-location-label {
@@ -2745,6 +2807,7 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--brand-hover);
 }
 
+.site-locations-summary:focus-visible,
 .site-location-action:focus-visible,
 .site-location-link:focus-visible,
 .site-location-edit:focus-visible,

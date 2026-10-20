@@ -7,7 +7,6 @@ import type { Settings } from "@/shared/types/settings";
 import { DEFAULT_ACCURACY_M } from "@/shared/types/settings";
 import { resolveAccuracy } from "@/shared/accuracy/resolver";
 import { detectDeviceClass } from "@/shared/accuracy/device-class";
-import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
 import { updateDetailsView, updateStatusBadge, displayLocation } from "./ui";
 import { showOnboarding } from "./onboarding";
 import { t } from "./i18n";
@@ -104,7 +103,7 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
     const proLocked = __SAFARI__ && settings.proFeaturesBlocked === true;
 
     renderScope(settings, proLocked);
-    await renderSiteLocations(settings, proLocked);
+    const siteLocationApplies = await renderSiteLocations(settings, proLocked);
 
     // Preserve-location-prompts is Pro-gated on iOS Safari (parity with custom
     // accuracy / per-site filtering). For a non-Pro user the background already
@@ -231,12 +230,10 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
 
     const warningMessage = document.getElementById("warningMessage");
     if (warningMessage) {
-      // Site locations still spoof their own sites without a main location,
-      // so the warning would overstate the problem.
-      const hasSiteLocations =
-        computeEffectiveSiteLocations(settings.siteLocations, settings.proFeaturesBlocked).length >
-        0;
-      if (settings.enabled && !settings.location && !hasSiteLocations) {
+      // A site location still spoofs its own site without a main location, so
+      // the warning is hidden only on a tab one applies to. Everywhere else
+      // nothing is spoofed, so it shows.
+      if (settings.enabled && !settings.location && !siteLocationApplies) {
         warningMessage.style.display = "block";
         warningMessage.textContent =
           t("warning_noLocationSet") || "⚠️ Protection enabled but no location set";
