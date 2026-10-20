@@ -679,10 +679,6 @@
     "message": "Varje dag",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "Ju oftare en ny punkt väljs, desto fler mätvärden kan webbplatser ta ett medelvärde av för att närma sig din plats. ”Varje timme” och ”Varje dag” kan också flytta punkten medan en sida är öppen.",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ Bjud mig på en kaffe",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

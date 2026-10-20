@@ -264,7 +264,6 @@ describe("Location precision cadence keys are present in every locale", () => {
     "advanced_precisionCadence_session",
     "advanced_precisionCadence_hour",
     "advanced_precisionCadence_day",
-    "advanced_precisionCadence_hint",
   ];
 
   test("all 12 locales are covered", () => {

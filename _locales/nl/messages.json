@@ -679,10 +679,6 @@
     "message": "Elke dag",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "Hoe vaker er een nieuw punt wordt gekozen, hoe meer metingen sites kunnen middelen om je locatie te benaderen. 'Elk uur' en 'Elke dag' kunnen het punt ook verplaatsen terwijl een pagina openstaat.",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ Trakteer me op een koffie",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

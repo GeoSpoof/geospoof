@@ -679,10 +679,6 @@
     "message": "Every day",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "Picking a new point more often gives sites more samples to average, which narrows in on your location. Every hour and Every day can also move the point while a page is open.",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ Buy me a coffee",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

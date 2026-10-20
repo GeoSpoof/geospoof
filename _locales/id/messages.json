@@ -679,10 +679,6 @@
     "message": "Setiap hari",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "Makin sering titik baru dipilih, makin banyak sampel yang bisa dirata-ratakan situs untuk mendekati lokasi Anda. “Setiap jam” dan “Setiap hari” juga bisa memindahkan titik saat halaman masih terbuka.",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ Belikan saya kopi",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

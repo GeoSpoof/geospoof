@@ -16,9 +16,8 @@
  * Under it sits the "Pick a new point" cadence control (Never / Each browser
  * session / Every hour / Every day), persisted via `SET_PRECISION_CADENCE`. It's
  * shown only for an approximate option, and hidden and disabled behind the Pro
- * lock; hiding it never changes the stored cadence. Its trade-off hint (and the
- * select's `aria-describedby` pointing at it) is shown only when the cadence
- * isn't Never, and both update synchronously on a change of either select.
+ * lock; hiding it never changes the stored cadence. The row updates
+ * synchronously on a change of the precision select.
  *
  * The pure mapping helpers are exported so they can be unit-tested without a DOM.
  */
@@ -161,17 +160,14 @@ export function restorePrecisionControl(
 let cadenceProLocked = false;
 
 /**
- * Pure visibility rule for the cadence row and its hint: the row shows only
- * for an approximate option outside the Pro lock, and the hint only when the
- * cadence isn't Never.
+ * Pure visibility rule for the cadence row: it shows only for an approximate
+ * option outside the Pro lock.
  */
 export function cadenceUiState(
   option: PrecisionOption,
-  cadence: PrecisionCadence,
   proLocked: boolean
-): { rowVisible: boolean; hintVisible: boolean } {
-  const rowVisible = !proLocked && option !== "exact";
-  return { rowVisible, hintVisible: rowVisible && cadence !== "never" };
+): { rowVisible: boolean } {
+  return { rowVisible: !proLocked && option !== "exact" };
 }
 
 function getCadenceSelect(): HTMLSelectElement | null {
@@ -179,29 +175,18 @@ function getCadenceSelect(): HTMLSelectElement | null {
 }
 
 /**
- * Apply {@link cadenceUiState} to the DOM from the current value of both
- * selects. `aria-describedby` points at the hint only while it's visible.
+ * Apply {@link cadenceUiState} to the DOM from the current value of the
+ * precision select and the Pro lock.
  */
 export function syncPrecisionCadenceUi(): void {
   const precision = getSelect();
   const select = getCadenceSelect();
   const row = document.getElementById("precisionCadenceRow");
-  const hint = document.getElementById("precisionCadenceHint");
-  if (!precision || !select || !row || !hint) return;
+  if (!precision || !select || !row) return;
 
-  const { rowVisible, hintVisible } = cadenceUiState(
-    precision.value as PrecisionOption,
-    validatePrecisionCadence(select.value),
-    cadenceProLocked
-  );
+  const { rowVisible } = cadenceUiState(precision.value as PrecisionOption, cadenceProLocked);
   row.style.display = rowVisible ? "block" : "none";
-  hint.style.display = hintVisible ? "block" : "none";
   select.disabled = cadenceProLocked;
-  if (hintVisible) {
-    select.setAttribute("aria-describedby", "precisionCadenceHint");
-  } else {
-    select.removeAttribute("aria-describedby");
-  }
 }
 
 /** Persist a cadence via the background. */
