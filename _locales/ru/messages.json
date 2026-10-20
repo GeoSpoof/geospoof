@@ -679,10 +679,6 @@
     "message": "Каждый день",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "Чем чаще выбирается новая точка, тем больше значений сайты могут усреднить, приближаясь к вашему местоположению. «Каждый час» и «Каждый день» также могут сдвигать точку, пока страница открыта.",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ Поддержать автора",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

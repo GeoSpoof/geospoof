@@ -679,10 +679,6 @@
     "message": "Mỗi ngày",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "Chọn điểm mới càng thường xuyên thì các trang web càng có nhiều mẫu để lấy trung bình và tiến gần hơn đến vị trí của bạn. “Mỗi giờ” và “Mỗi ngày” cũng có thể di chuyển điểm khi một trang đang mở.",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ Mời tôi một ly cà phê",
     "description": "Footer link inviting the user to buy the maintainer a coffee."

@@ -75,24 +75,12 @@ describe("round-trip", () => {
 });
 
 describe("cadenceUiState", () => {
-  test("row only for approximate outside the Pro lock; hint only when not never", () => {
-    expect(cadenceUiState("exact", "hour", false)).toEqual({
-      rowVisible: false,
-      hintVisible: false,
-    });
-    expect(cadenceUiState("street", "never", false)).toEqual({
-      rowVisible: true,
-      hintVisible: false,
-    });
-    for (const cadence of ["session", "hour", "day"] as const) {
-      expect(cadenceUiState("city", cadence, false)).toEqual({
-        rowVisible: true,
-        hintVisible: true,
-      });
-      expect(cadenceUiState("city", cadence, true)).toEqual({
-        rowVisible: false,
-        hintVisible: false,
-      });
+  test("row only for approximate outside the Pro lock", () => {
+    expect(cadenceUiState("exact", false)).toEqual({ rowVisible: false });
+    expect(cadenceUiState("exact", true)).toEqual({ rowVisible: false });
+    for (const option of ["street", "neighborhood", "city"] as const) {
+      expect(cadenceUiState(option, false)).toEqual({ rowVisible: true });
+      expect(cadenceUiState(option, true)).toEqual({ rowVisible: false });
     }
   });
 });
@@ -114,7 +102,6 @@ describe("cadence control in the popup (AC23)", () => {
     return el as T;
   };
   const row = () => byId<HTMLDivElement>("precisionCadenceRow");
-  const hint = () => byId<HTMLDivElement>("precisionCadenceHint");
   const precision = () => byId<HTMLSelectElement>("precisionSelect");
   const cadence = () => byId<HTMLSelectElement>("precisionCadenceSelect");
   const sendMessage = (): Mock =>
@@ -168,30 +155,21 @@ describe("cadence control in the popup (AC23)", () => {
     expect(row().style.display).toBe("none");
   });
 
-  test("the hint and aria-describedby toggle with the cadence, without a reload", () => {
+  test("no cadence hint: the row carries only the labelled select", () => {
     restorePrecisionControl({ mode: "approximate", radiusMeters: 2000 });
     restorePrecisionCadenceControl("never");
     initPrecisionControl();
     initPrecisionCadenceControl();
 
-    expect(hint().style.display).toBe("none");
-    expect(cadence().hasAttribute("aria-describedby")).toBe(false);
+    expect(document.getElementById("precisionCadenceHint")).toBeNull();
+    expect(row().querySelector(".precision-hint")).toBeNull();
 
     choose(cadence(), "hour");
-    expect(hint().style.display).toBe("block");
-    expect(cadence().getAttribute("aria-describedby")).toBe("precisionCadenceHint");
-
-    // Leaving approximate hides the hint with the row; returning restores it.
-    choose(precision(), "exact");
-    expect(hint().style.display).toBe("none");
+    expect(row().style.display).toBe("block");
     expect(cadence().hasAttribute("aria-describedby")).toBe(false);
-    choose(precision(), "city");
-    expect(hint().style.display).toBe("block");
-    expect(cadence().getAttribute("aria-describedby")).toBe("precisionCadenceHint");
 
-    choose(cadence(), "never");
-    expect(hint().style.display).toBe("none");
-    expect(cadence().hasAttribute("aria-describedby")).toBe(false);
+    // The Location Precision hint above the row stays.
+    expect(document.getElementById("precisionHint")).not.toBeNull();
   });
 
   test("a cadence change sends SET_PRECISION_CADENCE", () => {

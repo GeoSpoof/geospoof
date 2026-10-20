@@ -679,10 +679,6 @@
     "message": "每天",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "选取新地点越频繁，网站可用于取平均的样本就越多，也就越接近你的位置。「每小时」和「每天」还可能在页面打开期间移动该地点。",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ 请我喝咖啡",
     "description": "Footer link inviting the user to buy the maintainer a coffee."
