@@ -679,10 +679,6 @@
     "message": "1日ごと",
     "description": "A new point about once a day. Open pages move too."
   },
-  "advanced_precisionCadence_hint": {
-    "message": "新しい地点を選ぶ頻度が高いほど、サイトが平均できるサンプルが増え、現在地を絞り込まれやすくなります。「1時間ごと」と「1日ごと」では、ページを開いている間にも地点が変わることがあります。",
-    "description": "Trade-off note shown when a cadence other than Never is selected. Keep it factual; never promise that sites can't detect spoofing or recover the location."
-  },
   "advanced_coffee": {
     "message": "☕ コーヒーをおごる",
     "description": "Footer link inviting the user to buy the maintainer a coffee."
