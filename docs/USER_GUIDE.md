@@ -71,21 +71,21 @@ In **Settings (the ⚙ gear in the popup header) → Location Precision**, choos
 
 Control which sites GeoSpoof spoofs on. In the **Filters** tab, choose **All** (every site), **Allowlist** (only listed sites), or **Denylist** (every site except listed ones), then add patterns like `example.com`, `*.ru`, `localhost:3000`, or `site.com/app/*`. See the full pattern language — wildcards, ports, paths, and the rules to watch for — in the [Site Filters reference](SITE_FILTERS.md).
 
-### Site locations
+### Per-site locations
 
 Give specific sites their own location while every other site keeps your **main location** (the one you set on the Main tab). For example, `twitch.tv` can see Mexico City and `chatgpt.com` can see Dublin, while everything else sees Tokyo.
 
-**What it changes, and what it doesn't.** A site location changes what that site's pages can read from your browser: the location they get if they ask for it, the time zone in dates and clocks, and the language if **Reported Language** is set to **Match my location**. It doesn't change your IP address, your account details, or where you legally live, and those are what services usually use for ads, prices, and which terms apply to you. So a site location alone won't remove ads that are decided by your IP, and it won't change how a service classifies your account. For the most consistent result, pair a site location with a VPN exit in the same place.
+**What it changes, and what it doesn't.** A site's own location changes what that site's pages can read from your browser: the location they get if they ask for it, the time zone in dates and clocks, and the language if **Reported Language** is set to **Match my location**. It doesn't change your IP address, your account details, or where you legally live, and those are what services usually use for ads, prices, and which terms apply to you. So giving a site its own location won't, by itself, remove ads that are decided by your IP, and it won't change how a service classifies your account. For the most consistent result, pair it with a VPN exit in the same place.
 
-**Filters still decide where GeoSpoof is on.** Site Filters and site locations are two separate settings. Filters decide whether GeoSpoof runs on a site at all; a site location only decides which location it reports there. If Filters keep GeoSpoof off for a site, its site location doesn't apply, and the site location editor tells you.
+**Filters still decide where GeoSpoof is on.** Site Filters and per-site locations are two separate settings. Filters decide whether GeoSpoof runs on a site at all; per-site locations only decide which location it reports there. If Filters keep GeoSpoof off for a site, its own location doesn't apply, and the editor tells you.
 
-**One site location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, in one site location. Then the same company sees one location throughout.
+**One location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, under one location. Then the same company sees one location throughout.
 
 **Embedded content goes with the page.** Everything inside a page, such as embedded videos and sign-in frames, sees that page's location. A Twitch player embedded on another site gets that other site's location.
 
-**Trackers that work across sites.** A tracker embedded on many sites may notice your time zone changing from site to site while your IP address stays the same. Picking site locations in the same time zone as your main location avoids this.
+**Trackers that work across sites.** A tracker embedded on many sites may notice your time zone changing from site to site while your IP address stays the same. Picking per-site locations in the same time zone as your main location avoids this.
 
-**Availability.** Free on Firefox and Chrome. On Safari for iPhone, iPad, and Mac, site locations are part of GeoSpoof Pro.
+**Availability.** Free on Firefox and Chrome. On Safari for iPhone, iPad, and Mac, per-site locations are part of GeoSpoof Pro.
 
 ## How to Use
 
@@ -112,15 +112,15 @@ Give specific sites their own location while every other site keeps your **main 
 ### Giving a Site Its Own Location
 
 1. Open the site, then open GeoSpoof and go to the **Filters** tab.
-2. Open **Site locations (optional)** at the bottom and click **Set a location for a site**. The **Sites** field is filled in with the current site (without `www.`); edit it or add more sites, separated by commas.
+2. Open **Per-site locations** at the bottom and click **Set a location for a site**. The **Sites** field is filled in with the current site (without `www.`); edit it or add more sites, separated by commas.
 3. Search for a place, or pick one of your favorites, then click **Save**.
 4. Reload the site's open pages so every page picks up the change.
 
-Back on the Main tab, a short line under your location shows it while you're on that site, for example `On twitch.tv: Mexico City`, with **Edit** and **Use main location** (go back to your main location on this site). Sites without a site location show nothing extra. **Site locations (optional)** on the Filters tab lists every site location, where you can add, edit, or remove them. The **Details** tab shows the site location only on a site that has one.
+Back on the Main tab, a short line under your location shows it while you're on that site, for example `On twitch.tv: Mexico City`, with **Edit** and **Use main location** (go back to your main location on this site). Sites without their own location show nothing extra. **Per-site locations** on the Filters tab lists them all, where you can add, edit, or remove them. The **Details** tab shows a site's own location, under **On this site**, only on a site that has one.
 
-If Filters keep GeoSpoof off for the site you're editing, the site location editor says so. In Allowlist mode it offers **Add to allowlist** in one click.
+If Filters keep GeoSpoof off for the site you're editing, the editor says so. In Allowlist mode it offers **Add to allowlist** in one click.
 
-Site locations work without a main location. Other sites then aren't spoofed, and the Main tab shows the usual **Protection enabled but no location set** warning on them.
+Per-site locations work without a main location. Other sites then aren't spoofed, and the Main tab shows the usual **Protection enabled but no location set** warning on them.
 
 ### Enabling Protection
 
