@@ -1,0 +1,922 @@
+{
+  "extensionName": {
+    "message": "GeoSpoof",
+    "description": "⚠️ MACHINE-TRANSLATED — needs native-speaker review. 'GeoSpoof' is a brand name; do not translate."
+  },
+  "extensionDescription": {
+    "message": "偽造瀏覽器的地理位置和時區，自動與 VPN 同步，並阻止 WebRTC IP 洩漏。",
+    "description": "Extension description shown in the browser and store listing."
+  },
+  "onboarding_title": {
+    "message": "歡迎使用 GeoSpoof! 🌍",
+    "description": "Onboarding overlay heading."
+  },
+  "onboarding_step1_strong": {
+    "message": "選擇輸入方式:",
+    "description": "Bolded lead-in for the first onboarding step."
+  },
+  "onboarding_step1_text": {
+    "message": "使用選項卡搜尋城市或手動輸入座標",
+    "description": "Body text of the first onboarding step."
+  },
+  "onboarding_step2_strong": {
+    "message": "啟用位置保護",
+    "description": "Bolded lead-in for the second onboarding step."
+  },
+  "onboarding_step2_text": {
+    "message": "以開始偽造",
+    "description": "Body text of the second onboarding step."
+  },
+  "onboarding_step3_strong": {
+    "message": "可選:",
+    "description": "Bolded lead-in for the third onboarding step."
+  },
+  "onboarding_step3_text": {
+    "message": "啟用 WebRTC 保護以獲得更多隱私",
+    "description": "Body text of the third onboarding step."
+  },
+  "onboarding_button": {
+    "message": "開始使用",
+    "description": "Button that closes the onboarding overlay."
+  },
+  "status_disabled": {
+    "message": "已停用",
+    "description": "Status pill shown when location protection is off."
+  },
+  "status_enabled": {
+    "message": "已啟用",
+    "description": "Status pill shown when location protection is on."
+  },
+  "tab_main": {
+    "message": "主頁",
+    "description": "Tab label for the main popup view."
+  },
+  "tab_details": {
+    "message": "詳情",
+    "description": "Tab label for the protection details view."
+  },
+  "tab_filters": {
+    "message": "篩選",
+    "description": "Tab label for the site-scoping filters view."
+  },
+  "tab_settings": {
+    "message": "設定",
+    "description": "Hover tooltip for the settings gear button in the popup header. It opens the settings view, which holds the controls that were previously behind the 'Advanced' accordion in the Details tab. Keep short — it is a tooltip on a small icon button."
+  },
+  "tab_settings_ariaLabel": {
+    "message": "開啟設定",
+    "description": "Screen-reader label for the settings gear button in the popup header. Phrased as an action ('Open settings') because the button has no visible text label, unlike the tooltip which is just the destination name."
+  },
+  "details_section_locale": {
+    "message": "語言與地區",
+    "description": "Heading for the group of language/locale APIs listed under 'Key Overrides' in the Details tab. Shown only when a Reported Language is active."
+  },
+  "filters_heading": {
+    "message": "網站篩選",
+    "description": "Heading for the site-scoping filters panel."
+  },
+  "filters_modeGroupAriaLabel": {
+    "message": "範圍模式",
+    "description": "Accessible label for the scope-mode selector group."
+  },
+  "filters_modeAll": {
+    "message": "全部",
+    "description": "Scope mode option: spoof on every site."
+  },
+  "filters_modeAllowlist": {
+    "message": "允許列表",
+    "description": "Scope mode option: spoof only on listed sites."
+  },
+  "filters_modeDenylist": {
+    "message": "拒絕列表",
+    "description": "Scope mode option: spoof on every site except listed ones."
+  },
+  "filters_modeAllDesc": {
+    "message": "偽造適用於所有網站。",
+    "description": "Description shown under the selector when 'All' mode is active."
+  },
+  "filters_modeAllowlistDesc": {
+    "message": "偽造僅適用於列出的網站。",
+    "description": "Description shown under the selector when 'Allowlist' mode is active."
+  },
+  "filters_modeDenylistDesc": {
+    "message": "偽造適用於除列出網站之外的所有網站。",
+    "description": "Description shown under the selector when 'Denylist' mode is active."
+  },
+  "filters_addPlaceholder": {
+    "message": "example.com, *.ru, site.com/app/*",
+    "description": "Placeholder text in the add-site input."
+  },
+  "filters_addButton": {
+    "message": "新增",
+    "description": "Button that adds the typed domain to the active list."
+  },
+  "filters_invalidDomain": {
+    "message": "不是有效的模式",
+    "description": "Inline message shown when the typed pattern is invalid."
+  },
+  "filters_emptyList": {
+    "message": "尚未新增網站",
+    "description": "Indicator shown when the active site list is empty."
+  },
+  "filters_notSaved": {
+    "message": "⚠️ 更改未儲存",
+    "description": "Inline message shown when a scope change could not be saved."
+  },
+  "filters_loadError": {
+    "message": "⚠️ 無法載入設定",
+    "description": "Inline message shown when the popup cannot load settings."
+  },
+  "filters_removeAriaLabel": {
+    "message": "移除網站",
+    "description": "Accessible label prefix on a site's remove button."
+  },
+  "filters_addCurrentButton": {
+    "message": "添加當前網站",
+    "description": "Button that adds the active tab's site to the active list."
+  },
+  "filters_currentPageRestricted": {
+    "message": "無法新增此頁面",
+    "description": "Inline message shown when the current page is a restricted URL that cannot be added."
+  },
+  "filters_currentPageInvalid": {
+    "message": "無法新增此網站",
+    "description": "Inline message shown when the current tab's hostname cannot be added to a list."
+  },
+  "filters_allowedSites": {
+    "message": "允許的網站",
+    "description": "Header above the list of allowlisted sites."
+  },
+  "filters_blockedSites": {
+    "message": "已遮蔽的網站",
+    "description": "Header above the list of denylisted sites."
+  },
+  "filters_syntaxTitle": {
+    "message": "我可以使用哪些模式？",
+    "description": "Summary label for the collapsible supported-pattern-syntax reference in the Filters tab."
+  },
+  "filters_syntaxDomain": {
+    "message": "該網站及其所有子域名",
+    "description": "Explains the bare-domain pattern form (e.g. example.com) in the syntax reference."
+  },
+  "filters_syntaxSubdomains": {
+    "message": "僅子域名，不包括 example.com 本身",
+    "description": "Explains the wildcard-subdomain pattern form (e.g. *.example.com), which excludes the apex, in the syntax reference."
+  },
+  "filters_syntaxTld": {
+    "message": "任何以 .ru 結尾的網站",
+    "description": "Explains the wildcard-TLD pattern form (e.g. *.ru) in the syntax reference."
+  },
+  "filters_syntaxPort": {
+    "message": "特定埠上的主機",
+    "description": "Explains the host:port pattern form (e.g. localhost:3000) in the syntax reference."
+  },
+  "filters_syntaxPath": {
+    "message": "某個路徑及其下的所有內容",
+    "description": "Explains the path pattern form (e.g. site.com/app/*) in the syntax reference."
+  },
+  "filters_syntaxIdn": {
+    "message": "也支援國際化域名",
+    "description": "Explains that internationalized (non-ASCII) domain names are supported, in the syntax reference."
+  },
+  "filters_syntaxNotes": {
+    "message": "只有 * 是萬用字元——不支援正規表示式。",
+    "description": "The short capability note at the bottom of the syntax reference."
+  },
+  "filters_syntaxReference": {
+    "message": "檢視完整參考 →",
+    "description": "Link at the bottom of the syntax reference that opens the full Site Filters documentation on GitHub."
+  },
+  "toggle_locationProtection": {
+    "message": "位置保護",
+    "description": "Label for the toggle that enables location spoofing."
+  },
+  "toggle_webrtcProtection": {
+    "message": "WebRTC 保護",
+    "description": "Label for the toggle that enables WebRTC IP leak protection."
+  },
+  "toggle_preserveGeoPrompt": {
+    "message": "保留位置權限提示",
+    "description": "Label for the toggle that makes GeoSpoof show the browser's native geolocation permission prompt (and only substitute the spoofed location after the user allows) instead of silently auto-granting it to every site."
+  },
+  "preserveGeoPrompt_infoAriaLabel": {
+    "message": "關於“保留位置權限提示”的更多資訊",
+    "description": "Accessible label on the Preserve location prompts info icon."
+  },
+  "preserveGeoPrompt_tooltip": {
+    "message": "僅適用於 GeoSpoof 正在偽造的網站（根據你的允許/拒絕列表）。開啟時，這些網站會顯示瀏覽器正常的位置權限提示，只有在你允許後才會獲得偽造的位置。關閉時，它們會自動獲得，無需提示。",
+    "description": "Tooltip explaining the Preserve location prompts toggle: native permission prompt with spoofed coordinates vs. silent auto-grant. Notes that it only affects sites in spoofing scope (allow/deny list)."
+  },
+  "heading_location": {
+    "message": "位置",
+    "description": "Section heading above the spoofed location display."
+  },
+  "heading_protection": {
+    "message": "保護",
+    "description": "Section heading above the protection toggles in the Main tab."
+  },
+  "heading_mode": {
+    "message": "模式",
+    "description": "Section heading above the scope-mode selector in the Filters tab."
+  },
+  "location_none": {
+    "message": "未設定位置",
+    "description": "Shown when no spoofed location has been configured."
+  },
+  "location_custom": {
+    "message": "自訂位置",
+    "description": "Shown above a manually entered (non-search) location."
+  },
+  "location_clearTitle": {
+    "message": "清除位置",
+    "description": "Tooltip title on the clear-location button."
+  },
+  "location_clearAriaLabel": {
+    "message": "清除位置",
+    "description": "Accessible label on the clear-location button."
+  },
+  "toggle_syncWithVpn": {
+    "message": "與 VPN 同步",
+    "description": "Label for the toggle that syncs location to the user's public IP."
+  },
+  "vpnSync_infoAriaLabel": {
+    "message": "關於「與 VPN 同步」的更多資訊",
+    "description": "Accessible label on the VPN sync info icon."
+  },
+  "vpnSync_tooltip": {
+    "message": "將您的偽造位置同步到當前公網 IP 的位置。當 VPN 更換伺服器後會在幾秒內自動更新——或使用「重新同步」立即更新。",
+    "description": "Tooltip explaining that VPN sync auto-updates when the VPN changes servers, with a manual Re-sync option."
+  },
+  "vpnSync_syncNow": {
+    "message": "立即同步",
+    "description": "Button that performs an initial VPN sync."
+  },
+  "vpnSync_resync": {
+    "message": "重新同步",
+    "description": "Button that performs a follow-up VPN sync."
+  },
+  "vpnSync_detectedIp": {
+    "message": "檢測到的 IP:$IP$",
+    "placeholders": {
+      "ip": {
+        "content": "$1",
+        "example": "203.0.113.42"
+      }
+    },
+    "description": "Shown after a successful VPN sync. $IP$ is the detected public IP address."
+  },
+  "vpnSync_networkError": {
+    "message": "發生網路錯誤。請重試。",
+    "description": "Error toast shown when the VPN sync network call fails."
+  },
+  "inputTab_searchCity": {
+    "message": "搜尋城市",
+    "description": "Tab label for the city-search input mode."
+  },
+  "inputTab_enterCoords": {
+    "message": "輸入座標",
+    "description": "Tab label for the manual-coordinates input mode."
+  },
+  "search_placeholder": {
+    "message": "搜尋城市...",
+    "description": "Placeholder text in the city search input."
+  },
+  "search_searching": {
+    "message": "正在搜尋...",
+    "description": "Status shown while a city search is in flight."
+  },
+  "search_noResults": {
+    "message": "未找到位置",
+    "description": "Status shown when a city search returns no matches."
+  },
+  "search_failed": {
+    "message": "搜尋失敗。請重試。",
+    "description": "Error toast shown when a city search request fails."
+  },
+  "search_settingLocation": {
+    "message": "正在設定位置...",
+    "description": "Status shown while a chosen location is being applied."
+  },
+  "search_setLocationFailed": {
+    "message": "設定位置失敗。請重試。",
+    "description": "Error toast shown when applying a chosen location fails."
+  },
+  "coords_latPlaceholder": {
+    "message": "緯度(-90 到 90)",
+    "description": "Placeholder text in the latitude input."
+  },
+  "coords_lonPlaceholder": {
+    "message": "經度(-180 到 180)",
+    "description": "Placeholder text in the longitude input."
+  },
+  "coords_setButton": {
+    "message": "設定位置",
+    "description": "Button that applies the manually entered coordinates."
+  },
+  "coords_pasteHint": {
+    "message": "提示：貼上座標對或 geohash",
+    "description": "Discovery hint under the coordinate inputs telling the user they can paste a lat/lon pair, DMS, or a geohash instead of typing."
+  },
+  "coords_pasteFailed": {
+    "message": "無法識別座標——請嘗試座標對或 geohash",
+    "description": "Inline error shown under the coordinate inputs when a pasted string looked like a coordinate but could not be parsed."
+  },
+  "coords_invalidLat": {
+    "message": "無效緯度。必須在 -90 到 90 之間。",
+    "description": "Validation error shown when latitude is out of range."
+  },
+  "coords_invalidLon": {
+    "message": "無效經度。必須在 -180 到 180 之間。",
+    "description": "Validation error shown when longitude is out of range."
+  },
+  "warning_noLocationSet": {
+    "message": "⚠️ 保護已啟用但未設定位置",
+    "description": "Warning shown when protection is on but no location is configured."
+  },
+  "warning_refreshPage": {
+    "message": "⚠️ 重新整理此頁面以應用保護",
+    "description": "Warning shown when the active page must be reloaded for protection to apply."
+  },
+  "notice_restrictedPage": {
+    "message": "ℹ️ 擴充套件無法在此頁面上執行",
+    "description": "Notice shown on browser-internal pages where extensions cannot run."
+  },
+  "testLinks_verify": {
+    "message": "驗證保護",
+    "description": "Footer link to the hosted verification page that checks the user's protection."
+  },
+  "support_needHelp": {
+    "message": "需要幫助?",
+    "description": "Footer link prompting the user to open the support page."
+  },
+  "support_review": {
+    "message": "喜歡 GeoSpoof 嗎？",
+    "description": "Footer link that opens a short modal asking the user to leave a store review."
+  },
+  "iosPromo_text": {
+    "message": "用 GeoSpoof 更改 iPhone 的真實 GPS",
+    "description": "Footer cross-link to the GeoSpoof app on the App Store. Leads with what the app does - move the iPhone's real, system-level GPS - rather than with the product name, because the name alone does not say what you get. Names no desktop platform on purpose: the Mac and Windows companions are discovered on the store page, and leaving them out keeps the label on one line at the popup's 350px width."
+  },
+  "vpnPromo_text": {
+    "message": "搭配 Proton VPN 使用",
+    "description": "Footer cross-link inviting the user to pair GeoSpoof with Proton VPN (a disclosed affiliate recommendation); shown on non-Apple operating systems (Windows/Linux/Android/ChromeOS) in place of the Apple App Store link. Points at the on-site /vpn recommendation page."
+  },
+  "vpnPromo_ariaLabel": {
+    "message": "搭配 Proton VPN 使用（廣告）",
+    "description": "Accessible label for the footer Proton VPN affiliate cross-link (the visible text sits next to a shield glyph)."
+  },
+  "vpnPromo_tag": {
+    "message": "廣告",
+    "description": "Small inline marker disclosing that the adjacent Proton VPN link is an affiliate link."
+  },
+  "review_modal_title": {
+    "message": "喜歡 GeoSpoof 嗎？❤️",
+    "description": "Heading of the modal that asks the user to leave a review."
+  },
+  "review_modal_body1": {
+    "message": "GeoSpoof 用心打造——不做追蹤、無需帳戶。我利用自己的時間開發和維護它。",
+    "description": "First paragraph of the review-request modal (desktop builds)."
+  },
+  "review_modal_body1_ios": {
+    "message": "GeoSpoof 用心打造——不做追蹤、無需帳戶。我利用自己的時間開發，只為守護你的位置隱私。",
+    "description": "First paragraph of the review-request modal on iOS, where the app is freemium so it does not claim to be free."
+  },
+  "review_modal_body2": {
+    "message": "留下一條評價是最好的支援方式。只需一分鐘，就能幫助更多人發現 GeoSpoof。非常感謝！",
+    "description": "Second paragraph of the review-request modal."
+  },
+  "review_modal_cta": {
+    "message": "去評價",
+    "description": "Primary button in the review modal that opens the store review page."
+  },
+  "review_modal_dismiss": {
+    "message": "以後再說",
+    "description": "Secondary button that dismisses the review modal."
+  },
+  "webrtc_configFailed": {
+    "message": "無法配置 WebRTC 保護。請檢查擴充套件權限。",
+    "description": "Error toast shown when WebRTC protection cannot be configured."
+  },
+  "details_heading": {
+    "message": "保護詳情",
+    "description": "Heading for the protection-details panel."
+  },
+  "details_spoofedLocation": {
+    "message": "偽造的位置",
+    "description": "Section title for the spoofed-location details."
+  },
+  "details_spoofedTimezone": {
+    "message": "偽造的時區",
+    "description": "Section title for the spoofed-timezone details."
+  },
+  "details_webrtcProtection": {
+    "message": "WebRTC 保護",
+    "description": "Section title for the WebRTC protection details."
+  },
+  "details_overriddenApis": {
+    "message": "已覆蓋的 API",
+    "description": "Section title for the list of overridden browser APIs."
+  },
+  "details_notConfigured": {
+    "message": "未配置",
+    "description": "Placeholder shown when a detail field has no value."
+  },
+  "details_none": {
+    "message": "無",
+    "description": "Shown when a detail field has no items."
+  },
+  "details_noneDisabled": {
+    "message": "無(保護已停用)",
+    "description": "Shown when a detail field is empty because protection is off."
+  },
+  "details_latitudeLabel": {
+    "message": "緯度",
+    "description": "Label for the latitude row in the location details."
+  },
+  "details_longitudeLabel": {
+    "message": "經度",
+    "description": "Label for the longitude row in the location details."
+  },
+  "details_accuracyLabel": {
+    "message": "精度",
+    "description": "Label for the accuracy row in the location details."
+  },
+  "details_locationLabel": {
+    "message": "位置",
+    "description": "Label for the location-name row in the location details."
+  },
+  "details_identifierLabel": {
+    "message": "識別符號",
+    "description": "Label for the timezone-identifier row in the timezone details."
+  },
+  "details_offsetLabel": {
+    "message": "偏移",
+    "description": "Label for the UTC-offset row in the timezone details."
+  },
+  "details_dstOffsetLabel": {
+    "message": "夏令時偏移",
+    "description": "Label for the DST-offset row in the timezone details."
+  },
+  "details_dstOffsetMinutes": {
+    "message": "$MINUTES$ 分鐘",
+    "placeholders": {
+      "minutes": {
+        "content": "$1",
+        "example": "60"
+      }
+    },
+    "description": "Formatted DST offset in minutes. $MINUTES$ is the integer minute count."
+  },
+  "details_fallbackNote": {
+    "message": "⚠️ 估算值(API 不可用)",
+    "description": "Inline note shown when timezone data is estimated rather than authoritative."
+  },
+  "details_webrtcActiveStatus": {
+    "message": "✓ 活動",
+    "description": "Status label shown in the WebRTC details when protection is active."
+  },
+  "details_webrtcInactiveStatus": {
+    "message": "✗ 非活動",
+    "description": "Status label shown in the WebRTC details when protection is inactive."
+  },
+  "details_webrtcInactiveNote": {
+    "message": "即使使用 VPN WebRTC 仍可能洩漏您的真實 IP 地址。",
+    "description": "Caption shown under the WebRTC status when protection is inactive."
+  },
+  "details_section_geolocation": {
+    "message": "地理位置",
+    "description": "Header for the geolocation overrides section."
+  },
+  "details_section_timezone": {
+    "message": "時區",
+    "description": "Header for the timezone overrides section."
+  },
+  "details_section_webrtc": {
+    "message": "WebRTC",
+    "description": "Header for the WebRTC overrides section."
+  },
+  "details_section_dateTime": {
+    "message": "日期和時間",
+    "description": "Header for the date/time overrides section."
+  },
+  "details_section_temporal": {
+    "message": "Temporal",
+    "description": "Header for the Temporal API overrides section."
+  },
+  "details_section_xslt": {
+    "message": "XSLT / EXSLT",
+    "description": "Header for the XSLT/EXSLT overrides section."
+  },
+  "details_section_workers": {
+    "message": "Worker",
+    "description": "Header for the worker timezone-propagation overrides section."
+  },
+  "details_section_antiFingerprinting": {
+    "message": "反指紋識別與結構",
+    "description": "Header for the anti-fingerprinting and structural overrides section."
+  },
+  "details_keyOverrides": {
+    "message": "主要覆蓋項（如果可用）",
+    "description": "Title of the summary line above the grouped list of overridden APIs."
+  },
+  "advanced_button": {
+    "message": "進階",
+    "description": "Button that opens the advanced-settings drawer."
+  },
+  "advanced_debugLogging": {
+    "message": "除錯日誌",
+    "description": "Label for the debug-logging toggle."
+  },
+  "advanced_earlyTz": {
+    "message": "即時時區保護",
+    "description": "Label for the Firefox-only toggle that grants the userScripts permission to spoof synchronous timezone surfaces from the very first script on a page."
+  },
+  "earlyTz_infoAriaLabel": {
+    "message": "關於即時時區保護的更多資訊",
+    "description": "Accessible label on the Instant timezone protection info icon."
+  },
+  "earlyTz_tooltip": {
+    "message": "僅限 Firefox。開啟後會請求可選的「userScripts」權限，使 GeoSpoof 能在每次頁面載入的最開始執行，從而消除在保護生效前網站可能讀取到您真即時區的短暫空隙。關閉即可復原該權限。",
+    "description": "Tooltip explaining the Firefox-only Instant timezone protection toggle and the userScripts permission it requests."
+  },
+  "advanced_debuggerMode": {
+    "message": "引擎級偽造",
+    "description": "Label for the Chrome-only toggle that spoofs the timezone deeper in the browser (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and applies before a page loads."
+  },
+  "debuggerMode_infoAriaLabel": {
+    "message": "關於引擎級偽造的更多資訊",
+    "description": "Accessible label on the Engine-level Spoofing info icon."
+  },
+  "debuggerMode_tooltip": {
+    "message": "僅限 Chrome。在瀏覽器更深的層級偽造您的時區，因此也會覆蓋背景 worker，並在頁面載入前生效。開啟時，Chrome 會顯示“GeoSpoof 已開始除錯此瀏覽器”提示欄——這是正常現象。如需使用標準保護，請保持關閉。",
+    "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
+  },
+  "debuggerBannerHelp_text": {
+    "message": "開啟時，Chrome 會顯示“GeoSpoof 已開始除錯此瀏覽器”提示欄。要隱藏它，請使用此標誌啟動 Chrome：",
+    "description": "Intro text of the dismissible note shown when Engine-level Spoofing is enabled, explaining how to hide Chrome's debugging notification bar."
+  },
+  "debuggerBannerHelp_link": {
+    "message": "如何隱藏提示欄 →",
+    "description": "Link to the GeoSpoof help page explaining how to hide Chrome's debugging notification bar."
+  },
+  "debuggerBannerHelp_closeAria": {
+    "message": "關閉",
+    "description": "Accessible label for the button that dismisses the debugging-bar help note."
+  },
+  "advanced_verbosityLevel": {
+    "message": "詳細級別",
+    "description": "Label for the log-verbosity selector."
+  },
+  "advanced_verbosity_error": {
+    "message": "錯誤",
+    "description": "Verbosity level: only error-level logs."
+  },
+  "advanced_verbosity_warn": {
+    "message": "警告",
+    "description": "Verbosity level: error and warning logs."
+  },
+  "advanced_verbosity_info": {
+    "message": "資訊",
+    "description": "Verbosity level: only info-level logs."
+  },
+  "advanced_verbosity_debug": {
+    "message": "除錯",
+    "description": "Verbosity level: info and debug logs."
+  },
+  "advanced_verbosity_trace": {
+    "message": "跟蹤",
+    "description": "Verbosity level: full trace including per-call logs."
+  },
+  "advanced_theme": {
+    "message": "主題",
+    "description": "Label for the popup theme selector."
+  },
+  "advanced_theme_system": {
+    "message": "系統",
+    "description": "Theme option that follows the OS appearance."
+  },
+  "advanced_theme_light": {
+    "message": "淺色",
+    "description": "Theme option that forces the light popup theme."
+  },
+  "advanced_theme_dark": {
+    "message": "深色",
+    "description": "Theme option that forces the dark popup theme."
+  },
+  "advanced_accuracy": {
+    "message": "位置精度",
+    "description": "Label for the accuracy selector that controls how the spoofed GeolocationCoordinates.accuracy value is produced."
+  },
+  "advanced_accuracy_realistic": {
+    "message": "真實",
+    "description": "Accuracy option that picks a device-appropriate value automatically (auto mode)."
+  },
+  "advanced_accuracy_custom": {
+    "message": "自訂",
+    "description": "Accuracy option that reveals a numeric input for an exact meter value (fixed mode)."
+  },
+  "advanced_accuracy_customMeters": {
+    "message": "精度（米）",
+    "description": "Label for the numeric input shown when the Custom accuracy option is selected."
+  },
+  "advanced_accuracy_customHint": {
+    "message": "請輸入 1 到 10000 米之間的值",
+    "description": "Inline hint shown when the custom accuracy value is out of the allowed range."
+  },
+  "advanced_accuracy_customSet": {
+    "message": "設定",
+    "description": "Button that commits the typed custom accuracy value (fixed mode). The custom value is applied only when this button is clicked or Enter is pressed."
+  },
+  "advanced_accuracy_customEdit": {
+    "message": "編輯",
+    "description": "Button that reopens the custom accuracy editor from the compact display showing the committed value."
+  },
+  "advanced_precision": {
+    "message": "位置精細度",
+    "description": "Label for the precision selector that controls whether the reported location is the exact point or an approximate point within a radius."
+  },
+  "advanced_precision_exact": {
+    "message": "精確",
+    "description": "Precision option that reports the exact chosen coordinates (default)."
+  },
+  "advanced_precision_street": {
+    "message": "街道（約 0.5 公里）",
+    "description": "Precision option that reports an approximate point within about half a kilometer of the chosen location."
+  },
+  "advanced_precision_neighborhood": {
+    "message": "街區（約 2 公里）",
+    "description": "Precision option that reports an approximate point within about two kilometers of the chosen location."
+  },
+  "advanced_precision_city": {
+    "message": "城市（約 10 公里）",
+    "description": "Precision option that reports an approximate point within about ten kilometers of the chosen location."
+  },
+  "advanced_precision_hint": {
+    "message": "「模糊」會報告你位置附近的一個隨機地點，而不是精確地點。",
+    "description": "Explanatory note under the precision dropdown describing what the approximate options do."
+  },
+  "advanced_precision_proNote": {
+    "message": "🔒 模糊位置是 GeoSpoof Pro 功能。請在 GeoSpoof 應用中升級，以模糊你的精確位置。",
+    "description": "Shown for non-Pro iOS users when the precision control is disabled, explaining that approximate location is a Pro feature."
+  },
+  "advanced_precisionCadence": {
+    "message": "選取新地點",
+    "description": "Label for the dropdown setting how often Approximate location picks a new random point in the same radius."
+  },
+  "advanced_precisionCadence_never": {
+    "message": "從不",
+    "description": "Default. Keep the same point until the location or precision changes."
+  },
+  "advanced_precisionCadence_session": {
+    "message": "每次瀏覽器會話",
+    "description": "A new point each time the browser starts."
+  },
+  "advanced_precisionCadence_hour": {
+    "message": "每小時",
+    "description": "A new point about once an hour. Open pages move too."
+  },
+  "advanced_precisionCadence_day": {
+    "message": "每天",
+    "description": "A new point about once a day. Open pages move too."
+  },
+  "advanced_coffee": {
+    "message": "☕ 請我喝咖啡",
+    "description": "Footer link inviting the user to buy the maintainer a coffee."
+  },
+  "advanced_language": {
+    "message": "語言",
+    "description": "Label for the popup UI language selector in Advanced settings."
+  },
+  "advanced_language_system": {
+    "message": "系統（瀏覽器語言）",
+    "description": "Language selector option that follows the browser's UI language instead of a fixed choice."
+  },
+  "advanced_locale": {
+    "message": "報告的語言",
+    "description": "Label for the control that sets the language websites see (navigator.language, Intl formats, and the Accept-Language header). Deliberately distinct from 'Language', which sets GeoSpoof's own popup language."
+  },
+  "advanced_locale_off": {
+    "message": "關閉（使用真實語言）",
+    "description": "Reported Language option that leaves the browser's real language untouched (the default)."
+  },
+  "advanced_locale_match": {
+    "message": "跟隨位置",
+    "description": "Reported Language option that derives the language automatically from the spoofed location."
+  },
+  "advanced_locale_custom": {
+    "message": "選擇語言…",
+    "description": "Reported Language option that reveals a text input for picking a specific language tag."
+  },
+  "advanced_locale_customTag": {
+    "message": "語言標籤",
+    "description": "Accessible label for the text input where a BCP47 language tag such as fr-FR is entered."
+  },
+  "advanced_locale_customSet": {
+    "message": "設定",
+    "description": "Button that commits the typed language tag. The value is applied only when this button is clicked or Enter is pressed."
+  },
+  "advanced_locale_customEdit": {
+    "message": "編輯",
+    "description": "Button that reopens the language editor from the compact display showing the committed tag."
+  },
+  "advanced_locale_customHint": {
+    "message": "請輸入瀏覽器支援的語言標籤，例如 fr-FR 或 ja",
+    "description": "Inline hint shown when the entered language tag is malformed or unsupported by the browser, so it was not applied."
+  },
+  "advanced_locale_warning": {
+    "message": "⚠️ 許多網站會切換到該語言，並且每次請求都會發送該語言。",
+    "description": "Caution shown while a reported language is active, explaining that sites will visibly change language and that the choice is also sent as an HTTP header."
+  },
+  "advanced_locale_hint": {
+    "message": "設定網站看到的語言 — navigator.language、日期和數字格式，以及 Accept-Language 標頭。",
+    "description": "Explanatory note under the Reported Language control describing which signals it changes."
+  },
+  "advanced_locale_proNote": {
+    "message": "🔒 報告的語言是 GeoSpoof Pro 功能。請在 GeoSpoof 應用中升級，以更改網站看到的語言。",
+    "description": "Shown for non-Pro users when the Reported Language control is disabled, explaining that it is a Pro feature."
+  },
+  "siteLocation_statusSite": {
+    "message": "在 $SITE$：$PLACE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Mexico City"
+      }
+    },
+    "description": "Compact line on the Main tab, shown only when a site location applies to the current tab. $SITE$ is the site's host name without a leading www., $PLACE$ the site location's name."
+  },
+  "siteLocation_useMain": {
+    "message": "使用主位置",
+    "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
+  },
+  "siteLocation_hintAllowlist": {
+    "message": "篩選規則不會對此網站進行偽裝。要將其新增到允許列表嗎？",
+    "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
+  },
+  "siteLocation_addToAllowlist": {
+    "message": "新增到允許列表",
+    "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
+  },
+  "siteLocation_hintDenylist": {
+    "message": "此網站在你的拒絕列表中，因此篩選規則不會對其進行偽裝。",
+    "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
+  },
+  "siteLocation_hintVpn": {
+    "message": "網站仍會看到你的 VPN 的 IP 地址。在此使用其他位置可能顯得不一致。",
+    "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
+  },
+  "siteLocation_reloadHint": {
+    "message": "請重新載入此網站的頁面，使更改在所有地方生效。",
+    "description": "Hint shown right after a site location change made from the popup, because already-open pages keep their old values until reloaded."
+  },
+  "siteLocation_sitesLabel": {
+    "message": "網站",
+    "description": "Label of the site location editor's text field listing the sites the location applies to."
+  },
+  "siteLocation_sitesHint": {
+    "message": "用逗號分隔網站，例如 chatgpt.com, openai.com",
+    "description": "Help text under the Sites field. Keep the example domains unchanged."
+  },
+  "siteLocation_searchLabel": {
+    "message": "位置",
+    "description": "Label of the site location editor's location search field."
+  },
+  "siteLocation_favoriteLabel": {
+    "message": "或選擇收藏",
+    "description": "Label of the site location editor's favorites dropdown."
+  },
+  "siteLocation_favoriteNone": {
+    "message": "選擇收藏",
+    "description": "Placeholder option in the site location editor's favorites dropdown."
+  },
+  "siteLocation_chosenNone": {
+    "message": "尚未選擇位置",
+    "description": "Shown in the site location editor before a location has been picked."
+  },
+  "siteLocation_explain": {
+    "message": "$SITES$ 上的頁面及其中嵌入的所有內容將看到 $PLACE$。其他網站保持你的主位置。",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "chatgpt.com, openai.com"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Dublin"
+      }
+    },
+    "description": "Plain-language summary in the site location editor. $SITES$ is the comma-separated site list, $PLACE$ the chosen location."
+  },
+  "siteLocation_save": {
+    "message": "儲存",
+    "description": "Button that saves the site location in the editor."
+  },
+  "siteLocation_cancel": {
+    "message": "取消",
+    "description": "Button that closes the site location editor without saving."
+  },
+  "siteLocation_errorPattern": {
+    "message": "請使用類似 example.com 的網站，不含路徑，也不能只是 *。",
+    "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
+  },
+  "siteLocation_errorInUse": {
+    "message": "$SITE$ 已在使用 $PLACE$。",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "place": {
+        "content": "$2",
+        "example": "Mexico City"
+      }
+    },
+    "description": "Error when a site already belongs to another entry in Per-site locations. $SITE$ is the site, $PLACE$ the name of the location it already uses."
+  },
+  "siteLocation_editOwner": {
+    "message": "編輯那個",
+    "description": "Button next to the siteLocation_errorInUse error that opens the other entry for editing."
+  },
+  "siteLocation_errorCapacity": {
+    "message": "此處最多可以有 $MAX$ 個位置。請先刪除一個。",
+    "placeholders": {
+      "max": {
+        "content": "$1",
+        "example": "50"
+      }
+    },
+    "description": "Error when Per-site locations already holds the maximum number of entries. $MAX$ is the limit. 'here' means this list; avoid wording that reads as a limit per site."
+  },
+  "siteLocation_errorTooManySites": {
+    "message": "一個位置最多可覆蓋 $MAX$ 個網站。",
+    "placeholders": {
+      "max": {
+        "content": "$1",
+        "example": "10"
+      }
+    },
+    "description": "Error when too many sites are listed for one location in Per-site locations. $MAX$ is the limit."
+  },
+  "siteLocation_errorTimezone": {
+    "message": "無法查詢此地點的時區。請檢查網路連線後重試。",
+    "description": "Error when the time zone of the chosen place couldn't be determined, so the site location wasn't saved."
+  },
+  "siteLocation_errorNoLocation": {
+    "message": "請先選擇位置。",
+    "description": "Error when saving a site location before picking a location."
+  },
+  "siteLocation_sectionTitle": {
+    "message": "網站專屬位置",
+    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
+  },
+  "siteLocation_sectionDesc": {
+    "message": "在特定網站上使用不同的位置。",
+    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
+  },
+  "siteLocation_add": {
+    "message": "為網站設定位置",
+    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
+  },
+  "siteLocation_edit": {
+    "message": "編輯",
+    "description": "Button on a site location row on the Filters tab, and on the Main-tab site location line, that opens the site location for editing."
+  },
+  "siteLocation_editAriaLabel": {
+    "message": "編輯位置",
+    "description": "Accessible label prefix on the edit button of an entry in Per-site locations; the location's name follows (e.g. 'Edit location Dublin'), as with filters_removeAriaLabel."
+  },
+  "siteLocation_removeAriaLabel": {
+    "message": "刪除位置",
+    "description": "Accessible label prefix on the remove button of an entry in Per-site locations; the location's name follows (e.g. 'Remove location Dublin'), as with filters_removeAriaLabel."
+  },
+  "siteLocation_listAriaLabel": {
+    "message": "網站專屬位置",
+    "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
+  },
+  "siteLocation_proNote": {
+    "message": "🔒 網站專屬位置是 GeoSpoof Pro 功能。請在 GeoSpoof 應用中升級，為網站設定專屬位置。",
+    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
+  },
+  "details_siteLocation": {
+    "message": "在此網站上",
+    "description": "Details tab heading for the location Per-site locations applies to the current tab; the value names the place, the site, and the time zone. Shown only when one applies."
+  },
+  "badge_titleSiteLocation": {
+    "message": "GeoSpoof：$SITE$ 上的 $PLACE$",
+    "placeholders": {
+      "place": {
+        "content": "$1",
+        "example": "Dublin"
+      },
+      "site": {
+        "content": "$2",
+        "example": "chatgpt.com"
+      }
+    },
+    "description": "Toolbar button tooltip when a site location applies to the current tab. $PLACE$ is the site location's name, $SITE$ the host name."
+  }
+}
