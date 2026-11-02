@@ -587,6 +587,12 @@ async function pushRegionToNativeHost(settings: Settings): Promise<void> {
 }
 
 /**
+ * The same push without a save, for the app bridge's one-time region request
+ * (`regionWanted`, see adoptPendingResponse in app-bridge.ts). Non-throwing.
+ */
+export const pushRegionNow = pushRegionToNativeHost;
+
+/**
  * Get current settings (alias for loadSettings for consistency)
  */
 export async function getSettings(): Promise<Settings> {
