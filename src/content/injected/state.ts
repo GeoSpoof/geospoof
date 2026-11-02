@@ -276,6 +276,14 @@ export let localeData: LocaleData | null = null;
  */
 export let engineTimezoneMode = false;
 
+/**
+ * The page's zone where the engine owns Date/Intl in this realm (Engine-level
+ * Spoofing, `timezoneData` null). Read only by `document-overrides.ts`: Chrome
+ * formats `document.lastModified` in the OS zone, below the engine's emulated
+ * one, so that getter still needs the zone. Null otherwise.
+ */
+export let engineTimezoneData: TimezoneData | null = null;
+
 // Setter functions for state mutation from other modules
 export function setSpoofingEnabled(v: boolean): void {
   spoofingEnabled = v;
@@ -311,4 +319,8 @@ export function setLocaleData(v: LocaleData | null): void {
 
 export function setEngineTimezoneMode(v: boolean): void {
   engineTimezoneMode = v;
+}
+
+export function setEngineTimezoneData(v: TimezoneData | null): void {
+  engineTimezoneData = v;
 }

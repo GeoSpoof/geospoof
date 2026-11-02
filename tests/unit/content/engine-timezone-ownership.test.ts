@@ -63,6 +63,8 @@ describe("Engine-level Spoofing: per-realm ownership of the zone", () => {
     dispatch(state, HOST_ZONE, true);
     expect(state.timezoneData).toBeNull();
     expect(state.engineTimezoneMode).toBe(true);
+    // document.lastModified sits below the engine, so it still gets the zone.
+    expect(state.engineTimezoneData?.identifier).toBe(HOST_ZONE);
   });
 
   test("the engine reports another zone: the injected overrides take the page's zone", async () => {
@@ -70,6 +72,7 @@ describe("Engine-level Spoofing: per-realm ownership of the zone", () => {
     dispatch(state, OTHER_ZONE, true);
     expect(state.timezoneData?.identifier).toBe(OTHER_ZONE);
     expect(state.engineTimezoneMode).toBe(true);
+    expect(state.engineTimezoneData).toBeNull();
   });
 
   test("without the flag, the zone is installed as before, even the engine's own", async () => {
@@ -90,10 +93,11 @@ describe("Engine-level Spoofing: per-realm ownership of the zone", () => {
     expect(state.engineTimezoneMode).toBe(false);
   });
 
-  test("an invalid zone disables timezone spoofing", async () => {
+  test("an invalid zone disables timezone spoofing, lastModified included", async () => {
     const { state } = await load();
     dispatch(state, "", true);
     expect(state.timezoneData).toBeNull();
+    expect(state.engineTimezoneData).toBeNull();
   });
 
   test("engineReportsZone: the host zone yes, another zone or a bad id no", async () => {

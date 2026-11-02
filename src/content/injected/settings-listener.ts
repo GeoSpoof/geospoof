@@ -21,6 +21,7 @@ import {
   setPreserveGeolocationPrompt,
   setLocaleData,
   setEngineTimezoneMode,
+  setEngineTimezoneData,
 } from "./state";
 import { engineReportsZone, validateTimezoneData } from "./timezone-helpers";
 import { validateLocaleData } from "./locale-helpers";
@@ -102,13 +103,18 @@ export function installSettingsListener(): void {
         if (validateTimezoneData(event.detail.timezone)) {
           const engineOwned = engineMode && engineReportsZone(event.detail.timezone.identifier);
           setTimezoneData(engineOwned ? null : event.detail.timezone);
+          // `document.lastModified` sits below the engine's emulation, so its
+          // override still needs the zone where the engine owns Date/Intl.
+          setEngineTimezoneData(engineOwned ? event.detail.timezone : null);
           logger.debug("Timezone data updated:", event.detail.timezone, { engineOwned });
         } else {
           logger.error("Invalid timezone data received, timezone spoofing disabled");
           setTimezoneData(null);
+          setEngineTimezoneData(null);
         }
       } else {
         setTimezoneData(null);
+        setEngineTimezoneData(null);
       }
 
       // Reported Language. Validated before adoption for the same reason as
