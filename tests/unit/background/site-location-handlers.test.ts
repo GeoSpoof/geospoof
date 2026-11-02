@@ -452,6 +452,139 @@ describe("REMOVE_SITE_LOCATION", () => {
   });
 });
 
+/**
+ * A storage write that lands `ms` later, so two overlapping operations both
+ * read the list before either write lands (the lost-update shape).
+ */
+function slowSet(ms = 5) {
+  return (obj: { settings: Settings }) =>
+    new Promise<void>((resolve) =>
+      setTimeout(() => {
+        stored = structuredClone(obj.settings);
+        resolve();
+      }, ms)
+    );
+}
+
+const at = (patterns: string[]) => ({
+  patterns,
+  latitude: DUBLIN.latitude,
+  longitude: DUBLIN.longitude,
+});
+
+describe("overlapping list changes", () => {
+  const APP_ENTRY = makeSiteLocation({ id: "app", patterns: ["twitch.tv"] });
+
+  test("two saves both survive, with distinct ids", async () => {
+    const bg = await boot(makeSettings(), slowSet());
+    const results = await Promise.all([
+      bg.handleSaveSiteLocation(at(["chatgpt.com"])),
+      bg.handleSaveSiteLocation(at(["twitch.tv"])),
+    ]);
+    expect(results.every((r) => "success" in r)).toBe(true);
+    expect(stored.siteLocations.map((e) => e.patterns)).toEqual([["chatgpt.com"], ["twitch.tv"]]);
+    expect(new Set(stored.siteLocations.map((e) => e.id)).size).toBe(2);
+  });
+
+  test("two saves of one pattern: one is stored, the other gets PATTERN_IN_USE", async () => {
+    const bg = await boot(makeSettings(), slowSet());
+    const results = await Promise.all([
+      bg.handleSaveSiteLocation(at(["chatgpt.com"])),
+      bg.handleSaveSiteLocation(at(["chatgpt.com"])),
+    ]);
+    expect(results.filter((r) => "success" in r)).toHaveLength(1);
+    expect(results.filter((r) => "error" in r && r.error === "PATTERN_IN_USE")).toHaveLength(1);
+    expect(stored.siteLocations).toHaveLength(1);
+  });
+
+  test("the last free slot goes to one of two saves", async () => {
+    const almostFull = Array.from({ length: MAX_SITE_LOCATIONS - 1 }, (_, i) =>
+      makeSiteLocation({ id: `id${i}`, patterns: [`site${i}.com`] })
+    );
+    const bg = await boot(makeSettings({ siteLocations: almostFull }), slowSet());
+    const results = await Promise.all([
+      bg.handleSaveSiteLocation(at(["chatgpt.com"])),
+      bg.handleSaveSiteLocation(at(["twitch.tv"])),
+    ]);
+    expect(results.filter((r) => "success" in r)).toHaveLength(1);
+    expect(results.filter((r) => "error" in r && r.error === "AT_CAPACITY")).toHaveLength(1);
+    expect(stored.siteLocations).toHaveLength(MAX_SITE_LOCATIONS);
+  });
+
+  test("a save and a remove both take effect", async () => {
+    const multi = makeSiteLocation({ id: "multi", patterns: ["a.com", "b.com"] });
+    const bg = await boot(makeSettings({ siteLocations: [multi] }), slowSet());
+    const [saved, removed] = await Promise.all([
+      bg.handleSaveSiteLocation(at(["chatgpt.com"])),
+      bg.handleRemoveSiteLocation({ id: "multi" }),
+    ]);
+    expect("success" in saved).toBe(true);
+    expect(removed).toEqual({ success: true, id: "multi" });
+    expect(stored.siteLocations.map((e) => e.patterns)).toEqual([["chatgpt.com"]]);
+  });
+
+  test("an app adoption written during a save's final step keeps both changes", async () => {
+    let releaseSaveLookup!: () => void;
+    lookups.timezone.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseSaveLookup = () => resolve(DUBLIN_TZ);
+        })
+    );
+    // The adoption's write lands 10 ms late, and the save's lookup returns
+    // while that write is still in flight.
+    const bg = await boot(makeSettings(), (obj) => {
+      const list = obj.settings.siteLocations;
+      if (list.length === 1 && list[0].id === APP_ENTRY.id) {
+        releaseSaveLookup();
+        return slowSet(10)(obj);
+      }
+      stored = structuredClone(obj.settings);
+      return Promise.resolve();
+    });
+    const { adoptPendingSnapshot } = await import("@/background/app-bridge");
+
+    const save = bg.handleSaveSiteLocation(at(["chatgpt.com"]));
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+    await adoptPendingSnapshot({
+      updatedAt: Date.now() / 1000 + 60,
+      siteLocations: JSON.stringify([APP_ENTRY]),
+    });
+
+    expect("success" in (await save)).toBe(true);
+    expect(stored.siteLocations.map((e) => e.patterns)).toEqual([["twitch.tv"], ["chatgpt.com"]]);
+  });
+
+  test("a save written after an app snapshot's newer-than check wins over its list", async () => {
+    let releaseAdoptionLookup!: () => void;
+    lookups.timezone.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseAdoptionLookup = () => resolve(TOKYO_TZ);
+        })
+    );
+    const bg = await boot(makeSettings());
+    const { adoptPendingSnapshot } = await import("@/background/app-bridge");
+
+    // The app moved the main location and lists only its own entry. The
+    // adoption waits on the main location's lookup while the user saves.
+    const adoption = adoptPendingSnapshot({
+      updatedAt: Date.now() / 1000 + 60,
+      latitude: 35,
+      longitude: 139,
+      siteLocations: JSON.stringify([APP_ENTRY]),
+    });
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+    expect("success" in (await bg.handleSaveSiteLocation(at(["chatgpt.com"])))).toBe(true);
+    releaseAdoptionLookup();
+    await adoption;
+
+    expect(stored.siteLocations.map((e) => e.patterns)).toEqual([["chatgpt.com"]]);
+    // The rest of the snapshot is still adopted.
+    expect(stored.location?.latitude).toBe(35);
+  });
+});
+
 describe("VPN resync leaves site locations pinned", () => {
   test("handleSetLocation(fromVpnSync) changes only the main location", async () => {
     const bg = await boot(

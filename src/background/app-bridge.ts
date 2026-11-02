@@ -25,6 +25,7 @@ import {
   validateSiteLocations,
 } from "./settings";
 import { computeOffsets } from "./timezone";
+import { localSiteLocationEdits, runSiteLocationJob } from "./site-location-queue";
 import {
   applyPrecisionCadence,
   handleSetLocation,
@@ -209,6 +210,9 @@ export async function adoptPendingSettingsFromApp(): Promise<void> {
  * it only from there. Never throws.
  */
 export async function adoptPendingSnapshot(pending: PendingSettings): Promise<void> {
+  // Read before the newer-than check below, so step 9 can tell whether a
+  // site-location save or remove landed after it.
+  const siteLocationEditsAtCheck = localSiteLocationEdits();
   const settings = await loadSettings();
 
   // The app writes updatedAt as Unix seconds; settings.lastUpdated is Unix ms.
@@ -520,19 +524,24 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
     // as a JSON string like favorites. A non-array or invalid JSON is a no-op,
     // never a wipe; `[]` is a real "the app cleared the list". Bare IANA zone
     // ids are repaired with offsets, then every entry is re-validated, so the
-    // extension stays the source of truth for list hygiene. Its own try/catch
-    // so a failure here never undoes the steps above.
+    // extension stays the source of truth for list hygiene. The load and write
+    // run in the site-location queue, and a save or remove written after the
+    // newer-than check wins over this older snapshot. Its own try/catch so a
+    // failure here never undoes the steps above.
     if (typeof pending.siteLocations === "string") {
       try {
         const parsed: unknown = JSON.parse(pending.siteLocations);
         if (!Array.isArray(parsed)) throw new Error("siteLocations is not an array");
         const next = validateSiteLocations(repairBridgedSiteLocationTimezones(parsed));
-        const latestForSites = await loadSettings();
-        if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
-          const updated = await updateSettings({ siteLocations: next });
-          await broadcastSettingsToTabs(updated);
-          await updateBadge();
-        }
+        await runSiteLocationJob(async () => {
+          if (localSiteLocationEdits() !== siteLocationEditsAtCheck) return;
+          const latestForSites = await loadSettings();
+          if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
+            const updated = await updateSettings({ siteLocations: next });
+            await broadcastSettingsToTabs(updated);
+            await updateBadge();
+          }
+        });
       } catch (error) {
         logger.debug("adoptPendingSettingsFromApp: siteLocations adoption failed:", error);
       }

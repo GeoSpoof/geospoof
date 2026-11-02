@@ -85,6 +85,7 @@ import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worke
 import { syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
 import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
+import { noteLocalSiteLocationEdit, runSiteLocationJob } from "./site-location-queue";
 
 export async function handleMessage(
   message: Message,
@@ -892,7 +893,9 @@ function newSiteLocationId(list: readonly SiteLocation[]): string {
  * before writing, because a concurrent save, VPN resync, or app adoption may
  * have landed during the awaits. Broadcasts, re-badges, and re-syncs CDP after
  * a successful save (`saveSettings` already pushes REGION_UPDATE and the
- * bootstrap).
+ * bootstrap). The re-load through delivery runs in the site-location queue
+ * (`site-location-queue.ts`), so overlapping list changes can't erase each
+ * other.
  */
 export async function handleSaveSiteLocation(
   payload: SaveSiteLocationPayload
@@ -998,46 +1001,51 @@ export async function handleSaveSiteLocation(
     longitude,
   });
 
-  // 10. Re-load after the awaits and re-check against the latest list.
-  const latest = await loadSettings();
-  const list = latest.siteLocations;
-  const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
-  const lateConflict = findPatternConflict(list, patterns, existing?.id);
-  if (lateConflict) return lateConflict;
-  if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
-    return { error: "AT_CAPACITY" };
-  }
+  // 10–11 run in the site-location queue, so no other save, remove, or app
+  // adoption can write between this re-load and this write.
+  return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+    // 10. Re-load after the awaits and re-check against the latest list.
+    const latest = await loadSettings();
+    const list = latest.siteLocations;
+    const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
+    const lateConflict = findPatternConflict(list, patterns, existing?.id);
+    if (lateConflict) return lateConflict;
+    if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
+      return { error: "AT_CAPACITY" };
+    }
 
-  // 9. The entry. An edited entry whose original vanished meanwhile keeps its
-  // id (it's unused now) and is appended.
-  const id = existing?.id ?? newSiteLocationId(list);
-  const entry: SiteLocation = {
-    id,
-    kind: "location",
-    patterns,
-    location: { latitude, longitude, accuracy },
-    timezone,
-    locationName,
-    label:
-      payload.label !== undefined
-        ? normalizeSiteLocationLabel(payload.label)
-        : (existing?.label ?? null),
-    updatedAt: Date.now(),
-  };
-  const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
+    // 9. The entry. An edited entry whose original vanished meanwhile keeps its
+    // id (it's unused now) and is appended.
+    const id = existing?.id ?? newSiteLocationId(list);
+    const entry: SiteLocation = {
+      id,
+      kind: "location",
+      patterns,
+      location: { latitude, longitude, accuracy },
+      timezone,
+      locationName,
+      label:
+        payload.label !== undefined
+          ? normalizeSiteLocationLabel(payload.label)
+          : (existing?.label ?? null),
+      updatedAt: Date.now(),
+    };
+    const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
 
-  let updated: Settings;
-  try {
-    updated = await updateSettings({ siteLocations: next });
-  } catch {
-    return { error: "STORAGE_ERROR" };
-  }
+    let updated: Settings;
+    try {
+      updated = await updateSettings({ siteLocations: next });
+    } catch {
+      return { error: "STORAGE_ERROR" };
+    }
+    noteLocalSiteLocationEdit();
 
-  // 11. Deliver.
-  await broadcastSettingsToTabs(updated);
-  await updateBadge();
-  await syncDebuggerSpoofing(updated);
-  return { success: true, id };
+    // 11. Deliver, inside the queue so broadcasts go out in write order.
+    await broadcastSettingsToTabs(updated);
+    await updateBadge();
+    await syncDebuggerSpoofing(updated);
+    return { success: true, id };
+  });
 }
 
 /**
@@ -1045,43 +1053,47 @@ export async function handleSaveSiteLocation(
  * (this backs "Use main location" for one site of a multi-site entry) and the
  * entry with it when it was the last. Without one, removes the entry. An
  * unknown id or pattern is a no-op success. Broadcasts, re-badges, and
- * re-syncs CDP after a successful save.
+ * re-syncs CDP after a successful save. Runs entirely in the site-location
+ * queue, like the final step of a save.
  */
-export async function handleRemoveSiteLocation(
+export function handleRemoveSiteLocation(
   payload: RemoveSiteLocationPayload
 ): Promise<SiteLocationResponse> {
-  const id = payload?.id;
-  const settings = await loadSettings();
-  const list = settings.siteLocations;
-  const entry = list.find((e) => e.id === id);
-  if (!entry) {
-    return { success: true, id };
-  }
-
-  let next: SiteLocation[];
-  if (typeof payload.pattern === "string") {
-    const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
-    if (!entry.patterns.includes(canonical)) {
+  return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+    const id = payload?.id;
+    const settings = await loadSettings();
+    const list = settings.siteLocations;
+    const entry = list.find((e) => e.id === id);
+    if (!entry) {
       return { success: true, id };
     }
-    const remaining = entry.patterns.filter((p) => p !== canonical);
-    next =
-      remaining.length === 0
-        ? list.filter((e) => e.id !== id)
-        : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
-  } else {
-    next = list.filter((e) => e.id !== id);
-  }
 
-  let updated: Settings;
-  try {
-    updated = await updateSettings({ siteLocations: next });
-  } catch {
-    return { error: "STORAGE_ERROR" };
-  }
+    let next: SiteLocation[];
+    if (typeof payload.pattern === "string") {
+      const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
+      if (!entry.patterns.includes(canonical)) {
+        return { success: true, id };
+      }
+      const remaining = entry.patterns.filter((p) => p !== canonical);
+      next =
+        remaining.length === 0
+          ? list.filter((e) => e.id !== id)
+          : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
+    } else {
+      next = list.filter((e) => e.id !== id);
+    }
 
-  await broadcastSettingsToTabs(updated);
-  await updateBadge();
-  await syncDebuggerSpoofing(updated);
-  return { success: true, id };
+    let updated: Settings;
+    try {
+      updated = await updateSettings({ siteLocations: next });
+    } catch {
+      return { error: "STORAGE_ERROR" };
+    }
+    noteLocalSiteLocationEdit();
+
+    await broadcastSettingsToTabs(updated);
+    await updateBadge();
+    await syncDebuggerSpoofing(updated);
+    return { success: true, id };
+  });
 }
