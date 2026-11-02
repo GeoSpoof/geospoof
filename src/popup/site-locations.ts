@@ -754,8 +754,7 @@ function updateChosen(): void {
   }
   const sites = patterns.join(", ");
   explainEl.textContent =
-    t("siteLocation_explain", [sites, chosen.name]) ||
-    `Pages on ${sites}, and everything embedded in them, will see ${chosen.name}. Other sites keep your main location.`;
+    t("siteLocation_explain", [sites, chosen.name]) || `Pages on ${sites} will see ${chosen.name}.`;
 }
 
 function choose(chosen: ChosenLocation): void {

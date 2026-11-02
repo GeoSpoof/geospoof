@@ -563,6 +563,28 @@ describe("Editor", () => {
     expect(text("siteLocationExplain")).toContain("Work");
   });
 
+  // Per-site locations work without a main location, and some embedded content
+  // can't be reached, so the summary promises neither.
+  test("the summary says only which place the sites will see", () => {
+    openFromAdd(
+      "https://www.example.com/page",
+      makeSettings({ location: null, timezone: null, locationName: null })
+    );
+    pickFavorite(FAVORITE.id);
+    const en = (
+      JSON.parse(readFileSync("_locales/en/messages.json", "utf8")) as Record<
+        string,
+        { message: string }
+      >
+    ).siteLocation_explain.message;
+
+    expect(text("siteLocationExplain")).toBe("Pages on example.com will see Work.");
+    expect(en.replace("$SITES$", "example.com").replace("$PLACE$", "Work")).toBe(
+      text("siteLocationExplain")
+    );
+    expect(text("siteLocationExplain")).not.toMatch(/main location|embedded/i);
+  });
+
   test("the add row hides while the editor is open, and Cancel brings it and focus back", () => {
     openFromAdd();
     expect(isShown("siteLocationsAddRow")).toBe(false);

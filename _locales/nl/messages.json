@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "Pagina's op $SITES$, en alles wat erin is ingesloten, zien $PLACE$. Andere sites houden je hoofdlocatie.",
+    "message": "Pagina's op $SITES$ zien $PLACE$.",
     "placeholders": {
       "sites": {
         "content": "$1",

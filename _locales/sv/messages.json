@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "Sidor på $SITES$, och allt som är inbäddat i dem, ser $PLACE$. Andra webbplatser behåller din huvudplats.",
+    "message": "Sidor på $SITES$ ser $PLACE$.",
     "placeholders": {
       "sites": {
         "content": "$1",

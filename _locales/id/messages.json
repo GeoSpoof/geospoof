@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "Halaman di $SITES$, beserta semua yang disematkan di dalamnya, akan melihat $PLACE$. Situs lain tetap memakai lokasi utama Anda.",
+    "message": "Halaman di $SITES$ akan melihat $PLACE$.",
     "placeholders": {
       "sites": {
         "content": "$1",

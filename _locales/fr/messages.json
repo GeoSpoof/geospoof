@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "Les pages de $SITES$, et tout ce qui y est intégré, verront $PLACE$. Les autres sites conservent votre localisation principale.",
+    "message": "Les pages de $SITES$ verront $PLACE$.",
     "placeholders": {
       "sites": {
         "content": "$1",

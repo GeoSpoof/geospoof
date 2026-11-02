@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "$SITES$ のページと、そこに埋め込まれたすべてのものには $PLACE$ が見えます。その他のサイトはメインの位置のままです。",
+    "message": "$SITES$ のページには $PLACE$ が見えます。",
     "placeholders": {
       "sites": {
         "content": "$1",
