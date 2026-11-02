@@ -1061,11 +1061,31 @@ export async function handleSaveSiteLocation(
     noteLocalSiteLocationEdit();
 
     // 11. Deliver, inside the queue so broadcasts go out in write order.
-    await broadcastSettingsToTabs(updated);
-    await updateBadge();
-    await syncDebuggerSpoofing(updated);
+    await deliverSiteLocationChange(updated);
     return { success: true, id };
   });
+}
+
+/**
+ * Broadcast, re-badge, and re-sync CDP after a site-location write. The change
+ * is already stored (and pushed to the app), so a failed step is logged, the
+ * rest still run, and the handler still reports success. Reporting "not saved"
+ * for a stored change would have the user retry a create (and meet
+ * PATTERN_IN_USE from it) or see a removed entry come back until the next load.
+ */
+async function deliverSiteLocationChange(updated: Settings): Promise<void> {
+  const steps: Array<[string, () => Promise<void>]> = [
+    ["broadcast", () => broadcastSettingsToTabs(updated)],
+    ["badge", () => updateBadge()],
+    ["engine-level sync", () => syncDebuggerSpoofing(updated)],
+  ];
+  for (const [name, step] of steps) {
+    try {
+      await step();
+    } catch (error) {
+      logger.error(`Site location saved, but its ${name} failed:`, error);
+    }
+  }
 }
 
 /**
@@ -1111,9 +1131,7 @@ export function handleRemoveSiteLocation(
     }
     noteLocalSiteLocationEdit();
 
-    await broadcastSettingsToTabs(updated);
-    await updateBadge();
-    await syncDebuggerSpoofing(updated);
+    await deliverSiteLocationChange(updated);
     return { success: true, id };
   });
 }

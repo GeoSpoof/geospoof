@@ -475,6 +475,36 @@ describe("REMOVE_SITE_LOCATION", () => {
   });
 });
 
+// The change is stored before delivery, so a delivery failure can't turn it
+// into "Change not saved".
+describe("a delivery failure after the write still reports success", () => {
+  function failTabQueries(): void {
+    browser.tabs.query = vi.fn().mockRejectedValue(new Error("tabs unavailable"));
+  }
+
+  test("SAVE_SITE_LOCATION", async () => {
+    const bg = await boot(makeSettings());
+    failTabQueries();
+    const res = (await bg.handleMessage(
+      { type: "SAVE_SITE_LOCATION", payload: at(["chatgpt.com"]) },
+      {}
+    )) as SiteLocationResponse;
+    expect(res).toEqual({ success: true, id: expect.any(String) as string });
+    expect(stored.siteLocations.map((e) => e.patterns)).toEqual([["chatgpt.com"]]);
+  });
+
+  test("REMOVE_SITE_LOCATION", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN, ENTRY_MEXICO_CITY] }));
+    failTabQueries();
+    const res = (await bg.handleMessage(
+      { type: "REMOVE_SITE_LOCATION", payload: { id: ENTRY_DUBLIN.id } },
+      {}
+    )) as SiteLocationResponse;
+    expect(res).toEqual({ success: true, id: ENTRY_DUBLIN.id });
+    expect(stored.siteLocations).toEqual([ENTRY_MEXICO_CITY]);
+  });
+});
+
 /**
  * A storage write that lands `ms` later, so two overlapping operations both
  * read the list before either write lands (the lost-update shape).
