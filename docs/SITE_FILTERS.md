@@ -139,7 +139,7 @@ Filters are checked first. If they keep GeoSpoof off for a site, its own locatio
 - **No paths.** `example.com/app/*` is rejected: a page's location can't change with its path, and every frame in a tab already follows the top-level page.
 - **No bare `*`.** `*`, `*://*`, and `*:8080` are rejected: per-site locations name specific sites, and your main location already covers "everything else".
 
-Everything else works the same: `example.com` covers the site and its subdomains, `*.example.com` subdomains only, `*.ru` a whole TLD, plus ports (`localhost:3000`), schemes (`https://example.com`), and internationalized domains. Every pattern accepted here is also a valid filter pattern. One location can list up to 10 sites, separated by commas, and you can have up to 50. A pattern can belong to only one of them.
+Everything else works the same: `example.com` covers the site and its subdomains, `*.example.com` subdomains only, `*.ru` a whole TLD, plus ports (`localhost:3000`), schemes (`https://example.com`), and internationalized domains. Every pattern accepted here is also a valid filter pattern. One location can list up to 10 sites, separated by commas, and you can have up to 50. A pattern can belong to only one of them, and the Unicode and `xn--` spellings of a domain (`münchen.de`, `xn--mnchen-3ya.de`) count as the same pattern.
 
 **The most specific pattern wins.** When several per-site locations match a page, the most specific pattern decides, whatever the order of the list:
 

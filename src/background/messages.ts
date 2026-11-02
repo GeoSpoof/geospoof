@@ -50,6 +50,7 @@ import {
   normalizeSiteLocationLabel,
   normalizeSiteLocationName,
   parseSiteLocationPattern,
+  siteLocationPatternKey,
 } from "@/shared/utils/site-locations";
 import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { resolveAccuracy } from "@/shared/accuracy/resolver";
@@ -860,7 +861,9 @@ export async function handleSetLocaleSpoofing(
 
 /**
  * The first pattern in `patterns` that an entry other than `selfId` already
- * owns, as a PATTERN_IN_USE response naming that entry, or null.
+ * owns, as a PATTERN_IN_USE response naming that entry, or null. Patterns are
+ * compared by `siteLocationPatternKey`, so `münchen.de` conflicts with a
+ * stored `xn--mnchen-3ya.de`.
  */
 function findPatternConflict(
   list: readonly SiteLocation[],
@@ -868,7 +871,10 @@ function findPatternConflict(
   selfId: string | undefined
 ): SiteLocationResponse | null {
   for (const pattern of patterns) {
-    const owner = list.find((e) => e.id !== selfId && e.patterns.includes(pattern));
+    const key = siteLocationPatternKey(pattern);
+    const owner = list.find(
+      (e) => e.id !== selfId && e.patterns.some((p) => siteLocationPatternKey(p) === key)
+    );
     if (owner) {
       return { error: "PATTERN_IN_USE", pattern, ownerId: owner.id };
     }
@@ -920,13 +926,20 @@ export async function handleSaveSiteLocation(
   if (!Array.isArray(payload.patterns)) {
     return { error: "INVALID_PATTERN" };
   }
+  // A host with no A-label form has no key and could never match, so it's
+  // invalid too. Two spellings of one host (Unicode and A-label) keep the first.
   const patterns: string[] = [];
+  const keys = new Set<string>();
   for (const raw of payload.patterns as unknown[]) {
     const canonical = typeof raw === "string" ? parseSiteLocationPattern(raw) : null;
-    if (canonical === null) {
+    const key = canonical === null ? null : siteLocationPatternKey(canonical);
+    if (canonical === null || key === null) {
       return { error: "INVALID_PATTERN", pattern: String(raw) };
     }
-    if (!patterns.includes(canonical)) patterns.push(canonical);
+    if (!keys.has(key)) {
+      keys.add(key);
+      patterns.push(canonical);
+    }
   }
   if (patterns.length === 0) {
     return { error: "INVALID_PATTERN" };

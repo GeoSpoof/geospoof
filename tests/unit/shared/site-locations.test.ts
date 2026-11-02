@@ -13,6 +13,7 @@ import {
   parseSiteLocationPattern,
   resolveSiteSettings,
   siteLocationDisplayName,
+  siteLocationPatternKey,
   siteLocationSpecificity,
   suggestSiteLocationPattern,
   validateSiteLocations,
@@ -193,6 +194,34 @@ describe("matchSiteLocation precedence", () => {
   });
 });
 
+describe("siteLocationPatternKey", () => {
+  it.each([
+    ["münchen.de", "xn--mnchen-3ya.de"],
+    ["xn--mnchen-3ya.de", "xn--mnchen-3ya.de"],
+    ["*.münchen.de", "*.xn--mnchen-3ya.de"],
+    ["https://münchen.de:8080", "https://xn--mnchen-3ya.de:8080"],
+    ["*://faß.de", "*://xn--fa-hia.de"],
+    ["example.com", "example.com"],
+    ["localhost", "localhost"],
+    ["192.168.1.10", "192.168.1.10"],
+    ["http://192.168.1.10:8080", "http://192.168.1.10:8080"],
+  ])("%s → %s", (pattern, key) => {
+    expect(siteLocationPatternKey(parseSiteLocationPattern(pattern)!)).toBe(key);
+  });
+
+  it("is null for a host with no A-label form", () => {
+    expect(siteLocationPatternKey(parseSiteLocationPattern("xn--zz.com")!)).toBeNull();
+    expect(siteLocationPatternKey(parseSiteLocationPattern("\u0300example.com")!)).toBeNull();
+  });
+
+  it("keeps scheme, wildcard, and port distinct", () => {
+    const keys = ["münchen.de", "*.münchen.de", "https://münchen.de", "münchen.de:8080"].map((p) =>
+      siteLocationPatternKey(parseSiteLocationPattern(p)!)
+    );
+    expect(new Set(keys).size).toBe(4);
+  });
+});
+
 describe("suggestSiteLocationPattern", () => {
   it.each([
     ["https://www.twitch.tv/x", "twitch.tv"],
@@ -332,6 +361,32 @@ describe("validateSiteLocations", () => {
       ["a", ["a.com", "shared.com"]],
       ["b", ["b.com"]],
     ]);
+  });
+
+  it("treats Unicode and A-label spellings of one host as one pattern within an entry", () => {
+    const [out] = validateSiteLocations([
+      { ...valid, patterns: ["münchen.de", "xn--mnchen-3ya.de", "MÜNCHEN.de"] },
+    ]);
+    expect(out.patterns).toEqual(["münchen.de"]);
+  });
+
+  it("treats Unicode and A-label spellings as one pattern across entries, first entry wins", () => {
+    const a = makeSiteLocation({ id: "a", patterns: ["xn--mnchen-3ya.de"] });
+    const b = makeSiteLocation({ id: "b", patterns: ["münchen.de", "b.com"] });
+    const c = makeSiteLocation({ id: "c", patterns: ["*.münchen.de"] });
+    const d = makeSiteLocation({ id: "d", patterns: ["*.xn--mnchen-3ya.de"] });
+    const out = validateSiteLocations([a, b, c, d]);
+    expect(out.map((e) => [e.id, e.patterns])).toEqual([
+      ["a", ["xn--mnchen-3ya.de"]],
+      ["b", ["b.com"]],
+      ["c", ["*.münchen.de"]],
+    ]);
+  });
+
+  it("drops a pattern whose host has no A-label form", () => {
+    const [out] = validateSiteLocations([{ ...valid, patterns: ["xn--zz.com", "twitch.tv"] }]);
+    expect(out.patterns).toEqual(["twitch.tv"]);
+    expect(validateSiteLocations([{ ...valid, patterns: ["xn--zz.com"] }])).toEqual([]);
   });
 
   it("drops a duplicate id, keeping the first", () => {

@@ -10,6 +10,7 @@ import { describe, test, expect, vi, beforeEach } from "vitest";
 import type { LocationName, Settings, SiteLocation, Timezone } from "@/shared/types/settings";
 import { DEFAULT_SETTINGS, MAX_SITE_LOCATIONS } from "@/shared/types/settings";
 import type { Message, SiteLocationResponse } from "@/shared/types/messages";
+import { parseSiteLocationPattern } from "@/shared/utils/site-locations";
 import {
   DUBLIN,
   DUBLIN_NAME,
@@ -215,7 +216,7 @@ describe("SAVE_SITE_LOCATION", () => {
     expect(stored.siteLocations).toEqual([]);
   });
 
-  test.each(["twitch.tv/videos", "*", "", "not a site"])(
+  test.each(["twitch.tv/videos", "*", "", "not a site", "xn--zz.com"])(
     "INVALID_PATTERN for %j, naming it",
     async (pattern) => {
       const bg = await boot(makeSettings());
@@ -264,6 +265,28 @@ describe("SAVE_SITE_LOCATION", () => {
     });
     expect(lookups.timezone).not.toHaveBeenCalled();
     expect(stored.siteLocations).toEqual([ENTRY_DUBLIN]);
+  });
+
+  test.each([
+    ["münchen.de", "xn--mnchen-3ya.de"],
+    ["xn--mnchen-3ya.de", "MÜNCHEN.de"],
+  ])("PATTERN_IN_USE when another entry owns %s and the save uses %s", async (owned, submitted) => {
+    const owner = makeSiteLocation({ id: "owner", patterns: [owned] });
+    const bg = await boot(makeSettings({ siteLocations: [owner] }));
+    const res = await bg.handleSaveSiteLocation(at([submitted]));
+    expect(res).toEqual({
+      error: "PATTERN_IN_USE",
+      pattern: parseSiteLocationPattern(submitted),
+      ownerId: "owner",
+    });
+    expect(stored.siteLocations).toEqual([owner]);
+  });
+
+  test("two spellings of one host in one save are stored once, as first given", async () => {
+    const bg = await boot(makeSettings());
+    const res = await bg.handleSaveSiteLocation(at(["münchen.de", "xn--mnchen-3ya.de"]));
+    expect("success" in res).toBe(true);
+    expect(stored.siteLocations[0].patterns).toEqual(["münchen.de"]);
   });
 
   test("an entry may keep its own patterns on edit", async () => {
