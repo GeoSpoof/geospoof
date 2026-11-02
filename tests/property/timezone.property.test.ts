@@ -154,9 +154,10 @@ test("Invalid timezone identifiers are rejected - random strings", async () => {
     fc.property(
       fc.string().filter((s) => {
         // Filter out strings that accidentally match valid IANA patterns
-        const ianaPattern = /^[A-Z][a-zA-Z_]+\/[A-Z][a-zA-Z_]+(?:\/[A-Z][a-zA-Z_]+)?$/;
+        const ianaPattern =
+          /^[A-Z][a-zA-Z_]+\/[A-Z][a-zA-Z_]+(?:-[a-zA-Z_]+)*(?:\/[A-Z][a-zA-Z_]+(?:-[a-zA-Z_]+)*)?$/;
         const etcGmtPattern = /^Etc\/GMT([+-]\d{1,2})?$/;
-        return !ianaPattern.test(s) && s !== "UTC" && !etcGmtPattern.test(s);
+        return !ianaPattern.test(s) && s !== "UTC" && s !== "GMT" && !etcGmtPattern.test(s);
       }),
       (invalidTimezone) => {
         return isValidIANATimezone(invalidTimezone) === false;

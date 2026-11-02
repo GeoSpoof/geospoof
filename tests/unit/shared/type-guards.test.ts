@@ -28,6 +28,18 @@ describe("isValidIANATimezone", () => {
     expect(isValidIANATimezone("Etc/GMT+12")).toBe(true);
   });
 
+  // The five real zones the check used to refuse: all of Haiti and Benin,
+  // Blanc-Sablon (Quebec), Ust-Nera (Russia), and Apple's bare "GMT".
+  it.each([
+    "America/Port-au-Prince",
+    "Africa/Porto-Novo",
+    "America/Blanc-Sablon",
+    "Asia/Ust-Nera",
+    "GMT",
+  ])("accepts %s", (identifier) => {
+    expect(isValidIANATimezone(identifier)).toBe(true);
+  });
+
   it("rejects invalid values", () => {
     expect(isValidIANATimezone("")).toBe(false);
     expect(isValidIANATimezone(null)).toBe(false);
@@ -35,6 +47,27 @@ describe("isValidIANATimezone", () => {
     expect(isValidIANATimezone(42)).toBe(false);
     expect(isValidIANATimezone("invalid")).toBe(false);
     expect(isValidIANATimezone("lowercase/timezone")).toBe(false);
+  });
+
+  it.each([
+    "123/456",
+    "America/",
+    "/Los_Angeles",
+    "America/Los Angeles",
+    "../../etc/passwd",
+    "America/../Europe/London",
+    "America/Port-au-Prince/",
+    "America/-Port",
+    "America/Port-",
+    "America/Port--au-Prince",
+    "Port-au-Prince",
+    "Africa/Porto-Novo\n",
+    "America/Port-au-Prince; rm -rf /",
+    "gmt",
+    "GMT+5",
+    "Etc/GMT+123",
+  ])("still rejects %j", (identifier) => {
+    expect(isValidIANATimezone(identifier)).toBe(false);
   });
 });
 
