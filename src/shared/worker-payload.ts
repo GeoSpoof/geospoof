@@ -289,7 +289,12 @@ var spoofedGTZO = __nativeMethod(function getTimezoneOffset() {
     var west = -east;
     // Keep or truncate the seconds of a pre-standard-time offset exactly as the
     // host engine's native method does (see __fractionalOffset above).
-    return __fractionalOffset ? west : Math.trunc(west);
+    var result = __fractionalOffset ? west : Math.trunc(west);
+    // Native returns +0 for a zero offset. ICU 78 (Chrome 156, Firefox 159)
+    // formats one as "GMT+0" rather than "GMT", which lands here, and negating
+    // it gives -0, which Object.is tells apart from the page realm's +0.
+    // Mirrors zeroAsPositive in content/injected/timezone-overrides.ts.
+    return result === 0 ? 0 : result;
   } catch(e) {
     return origGTZO.call(this);
   }
