@@ -644,5 +644,30 @@ describe("a SharedWorker whose top-level page Firefox doesn't report", () => {
       updateWorkerFilterSettings(SETTINGS);
       expect(runSharedWorker(top)).toBe(DUBLIN_PAYLOAD + BODY);
     });
+
+    // originUrl differs from documentUrl so these also pin documentUrl-first.
+    const FRAME_WORKER = {
+      documentUrl: "https://chatgpt.com/embed",
+      originUrl: "https://example.org/",
+      thirdParty: true,
+    };
+
+    test("Filters follow the starting document: a frame's worker on an out-of-scope page is patched", async () => {
+      await install([{ id: 1, url: "https://example.org/" }]);
+      updateWorkerFilterSettings({
+        ...SETTINGS,
+        scopeMode: "allowlist",
+        allowlist: ["chatgpt.com"],
+      });
+      const out = runSharedWorker(FRAME_WORKER);
+      expect(out).toBe(MAIN + BODY);
+      expect(out).not.toContain("Europe/Dublin");
+    });
+
+    test("Filters follow the starting document: a frame's worker on an in-scope page is left alone", async () => {
+      await install([{ id: 1, url: "https://example.org/" }]);
+      updateWorkerFilterSettings({ ...SETTINGS, scopeMode: "denylist", denylist: ["chatgpt.com"] });
+      expect(runSharedWorker(FRAME_WORKER)).toBe(BODY);
+    });
   });
 });
