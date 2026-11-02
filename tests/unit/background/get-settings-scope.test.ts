@@ -18,8 +18,9 @@
 
 import { describe, test, expect, vi } from "vitest";
 import type { Settings } from "@/shared/types/settings";
-import type { Message } from "@/shared/types/messages";
+import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
 import { computeEffectiveEnabled } from "@/shared/utils/scope";
+import { makeSiteLocation, TOKYO, TOKYO_NAME, TOKYO_TZ } from "../../helpers/site-locations";
 
 function makeSettings(overrides?: Partial<Settings>): Settings {
   return {
@@ -173,6 +174,86 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
 
       expect(response.accuracySetting).toEqual({ mode: "fixed", meters: 250 });
       expect(response.accuracySeed).toBe(1234567);
+    });
+  });
+
+  // A page Chrome prerenders runs in the tab the user is still looking at, so
+  // `tab.url` is the page being left. Its outermost frame has a non-zero
+  // frameId; the content script's `topFrame` claim, honored only while the
+  // document is prerendering, says it's a top-level document.
+  describe("prerendered and top-frame senders", () => {
+    const A_URL = "https://a.test/";
+    const B_URL = "https://b.test/page";
+    const settingsForB = (): Settings =>
+      makeSettings({
+        scopeMode: "allowlist",
+        allowlist: ["b.test"],
+        siteLocations: [
+          makeSiteLocation({
+            patterns: ["b.test"],
+            location: TOKYO,
+            timezone: TOKYO_TZ,
+            locationName: TOKYO_NAME,
+          }),
+        ],
+      });
+    const prerenderSender = (tabId: number): browser.runtime.MessageSender =>
+      ({
+        frameId: 7,
+        documentLifecycle: "prerender",
+        url: B_URL,
+        tab: { id: tabId, url: A_URL } as browser.tabs.Tab,
+      }) as browser.runtime.MessageSender;
+
+    test("a prerendered page on site B while tab.url is site A gets B's values", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      const response = (await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: true } },
+        prerenderSender(21)
+      )) as UpdateSettingsPayload;
+
+      expect(response.enabled).toBe(true);
+      expect(response.timezone?.identifier).toBe("Asia/Tokyo");
+      expect(response.location?.latitude).toBe(TOKYO.latitude);
+      expect(response.location?.longitude).toBe(TOKYO.longitude);
+    });
+
+    test("a prerendered subframe (no top-frame claim) still follows the tab", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      const response = (await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: false } },
+        prerenderSender(22)
+      )) as UpdateSettingsPayload;
+
+      expect(response.enabled).toBe(false);
+      expect(response.timezone?.identifier).not.toBe("Asia/Tokyo");
+    });
+
+    test("the badge for a prerendered page keeps describing the visible page", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: true } },
+        prerenderSender(23)
+      );
+
+      // a.test isn't allowlisted, so the visible tab is out of scope ("•"),
+      // even though the prerendered b.test document is in scope.
+      expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "•", tabId: 23 });
+    });
+
+    test("an active top frame whose own URL is B while tab.url is A resolves B", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      const response = (await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: true } },
+        { frameId: 0, url: B_URL, tab: { id: 24, url: A_URL } as browser.tabs.Tab }
+      )) as UpdateSettingsPayload;
+
+      expect(response.enabled).toBe(true);
+      expect(response.timezone?.identifier).toBe("Asia/Tokyo");
     });
   });
 

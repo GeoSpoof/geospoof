@@ -118,7 +118,7 @@ Anything invalid is rejected inline when you add it, so a bad pattern is never s
 
 ## Limitations and behavior notes
 
-- **The decision is made from the tab's top-level (address-bar) URL.** Every frame in the tab — including cross-origin iframes and embedded widgets — inherits the top-level page's decision. An iframe's own URL is never evaluated separately.
+- **The decision is made from the tab's top-level (address-bar) URL.** Every frame in the tab — including cross-origin iframes and embedded widgets — inherits the top-level page's decision. An iframe's own URL is never evaluated separately. A page Chrome prerenders in the background is judged by its own URL, the one it shows once opened.
 - **Single-page apps (path filters).** When a site changes route without a full page load (History API), GeoSpoof re-evaluates and turns spoofing on/off for new activity. However, overrides already applied to objects the page created while in scope stay in effect until the page reloads. If you rely on path filtering on a heavy single-page app, a reload gives the cleanest result.
 - **Trailing slash / `:*`.** `example.com/` is treated the same as `example.com` (whole site), and `example.com:*` the same as `example.com` (any port).
 - **Case.** Scheme and host are case-insensitive; the path is case-sensitive.

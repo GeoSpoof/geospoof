@@ -211,6 +211,14 @@ export interface UpdateSettingsPayload {
 }
 
 /**
+ * Optional GET_SETTINGS payload. Extension pages send none.
+ */
+export interface GetSettingsPayload {
+  /** Content scripts: this document is its tab's top frame (`window.top === window`). */
+  topFrame?: boolean;
+}
+
+/**
  * Response shape for GET_SETTINGS messages.
  */
 export type GetSettingsResponse = Settings;

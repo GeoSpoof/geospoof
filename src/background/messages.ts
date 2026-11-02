@@ -32,6 +32,7 @@ import type {
   SaveSiteLocationPayload,
   RemoveSiteLocationPayload,
   SiteLocationResponse,
+  GetSettingsPayload,
 } from "@/shared/types/messages";
 import type {
   LocationName,
@@ -77,6 +78,7 @@ import {
   checkTabInjection,
 } from "./tabs";
 import { buildPagePayload } from "./page-payload";
+import { topLevelUrlForSender } from "./sender-page-url";
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
@@ -145,11 +147,18 @@ export async function handleMessage(
 
         const senderTabId = _sender.tab.id;
 
+        // The page is judged by its top-level URL: the document's own URL for
+        // a top-level document (a page Chrome is prerendering isn't the one
+        // `tab.url` shows yet), the tab's for a subframe. See sender-page-url.
+        const claimsTopFrame =
+          (message.payload as GetSettingsPayload | undefined)?.topFrame === true;
+        const pageUrl = topLevelUrlForSender(_sender, claimsTopFrame);
+
         // Effective_Enabled resolves to false when the URL is missing,
         // unparseable, restricted, or out of scope (Req 8.7). The shared
         // builder also withholds the timezone in Chromium debugger mode, as the
         // broadcast path does.
-        const payload = await buildPagePayload(settings, _sender.tab.url);
+        const payload = await buildPagePayload(settings, pageUrl);
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
         // alive. Reflect the per-tab decision via the shared three-state badge
@@ -159,6 +168,10 @@ export async function handleMessage(
         // `applyTabIndicator` resolves through the same `resolveSiteSettings`
         // as the payload, so its badge agrees with `payload.enabled`, and it
         // also sets the title that names an applied site location.
+        //
+        // It deliberately reads `tab.url`, not `pageUrl`: the badge describes
+        // the page the user sees, and a prerendered document must not repaint
+        // it for a page that isn't showing.
         if (senderTabId != null) {
           applyTabIndicator(senderTabId, settings, _sender.tab.url);
         }

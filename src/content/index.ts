@@ -7,7 +7,7 @@
  */
 
 import type { Location, Timezone, AccuracySetting } from "@/shared/types/settings";
-import type { UpdateSettingsPayload } from "@/shared/types/messages";
+import type { GetSettingsPayload, UpdateSettingsPayload } from "@/shared/types/messages";
 import type { SpoofedLocalePayload } from "@/shared/locale/resolver";
 import { createLogger, setDebugEnabled, setVerbosityLevel } from "@/shared/utils/debug-logger";
 import { now } from "@/shared/utils/safe-time";
@@ -252,14 +252,28 @@ browser.runtime.onMessage.addListener(
   }
 );
 
+/**
+ * Whether this document is its tab's top frame. Sent with GET_SETTINGS so the
+ * background can judge a page Chrome is prerendering by its own URL (its
+ * `frameId` isn't 0 yet). Read in the isolated world, so the page sees nothing.
+ */
+function isTopFrame(): boolean {
+  try {
+    return window.top === window;
+  } catch {
+    return false;
+  }
+}
+
 // Request initial settings on load
 logger.info("Content script loaded, requesting initial settings");
 // Timing probes for cold-start diagnosis. Routed through logger.debug
 // so they're silent by default and surface when debug logging is on.
 const CS_SEND_AT = now();
 logger.debug(`Sending GET_SETTINGS to background (page-start=${CS_SEND_AT.toFixed(1)}ms)`);
+const getSettingsPayload: GetSettingsPayload = { topFrame: isTopFrame() };
 browser.runtime
-  .sendMessage({ type: "GET_SETTINGS" })
+  .sendMessage({ type: "GET_SETTINGS", payload: getSettingsPayload })
   .then(
     (settings: {
       enabled: boolean;

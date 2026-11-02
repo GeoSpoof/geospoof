@@ -625,10 +625,14 @@ Error: `{ error: "TIMEOUT" | "NETWORK" | "NO_RESULTS", message: string }`
 ```typescript
 {
   type: "GET_SETTINGS";
+  payload?: { topFrame?: boolean }; // content scripts: window.top === window
 }
 ```
 
-Response: Complete settings object.
+Response depends on the sender:
+
+- **Extension pages** (the popup, including the popup opened as a tab on Android) get the complete `Settings` object.
+- **Content scripts** get the `UpdateSettingsPayload` for their top-level page, with no list keys. The top-level URL is `topLevelUrlForSender` in `src/background/sender-page-url.ts`: a top-level document is judged by its own URL (`sender.url`), and a subframe by its tab's (`sender.tab.url`). A document counts as top-level when `sender.frameId === 0`, or when it's prerendering (`documentLifecycle: "prerender"`, Chrome) and sent `topFrame: true`, because a prerendered page's outermost frame has a non-zero `frameId`. For the active top frame, a same-origin `tab.url` wins, since Firefox fixes `sender.url` when the content script starts and a History API navigation can't leave the origin. A missing `sender.url` falls back to `tab.url`. The toolbar badge and title always follow `tab.url`, the page the user sees.
 
 #### COMPLETE_ONBOARDING
 
@@ -831,7 +835,7 @@ Caps: `MAX_SITE_LOCATIONS = 50` entries and `MAX_PATTERNS_PER_SITE_LOCATION = 10
 
 **Pattern grammar.** The [Site Filters](SITE_FILTERS.md#per-site-locations) grammar without paths and without a wildcard-only host (`*`, `*://*`, `https://*:8080`). Every accepted pattern is also a valid Filters pattern with the identical canonical form. `tests/fixtures/site-location-vectors.json` pins the accept/reject cases for other implementations.
 
-**Resolution order**, per tab, from the tab's top-level URL (`resolveSiteSettings` in `src/shared/utils/site-locations.ts`):
+**Resolution order**, per tab, from the tab's top-level URL (`resolveSiteSettings` in `src/shared/utils/site-locations.ts`). For a content script's `GET_SETTINGS`, a top-level document supplies its own URL, so a page Chrome is prerendering is judged as the page it will show (see [GET_SETTINGS](#get_settings)):
 
 1. Master switch off → nothing applies.
 2. Restricted or host-less URL → nothing applies.
@@ -1019,6 +1023,8 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 12. **Per-site locations: embedded content follows the page it's in.** Every frame and worker in a tab gets the top-level page's decision. A Twitch player embedded on another site gets that site's location, not Twitch's, and a page embedded inside `twitch.tv` gets Twitch's. A SharedWorker isn't tied to a tab, so on Firefox it resolves through the request's `frameAncestors` to the top-level page of the frame that started it. Where Firefox doesn't report that, it follows the frame's own URL, and since a SharedWorker can be shared across tabs, it keeps the site location of the page that started it.
 
 13. **Per-site locations: some open pages keep old values until reloaded.** A change is pushed to open tabs right away, as for any settings change, but a page restored from the back/forward cache and a worker that's already running keep the values they started with. A value changing under a live page is also a visible discontinuity, so the popup suggests reloading after each change.
+
+14. **Per-site locations: prerendered pages (Chrome).** Chrome can prerender a page (speculation rules, the omnibox) inside the tab the user is still looking at, so `tab.url` is the page being left. The prerendered page itself is judged by its own URL, for Filters and per-site locations alike (see [GET_SETTINGS](#get_settings)). Its subframes can't be: a message sender names no parent document, and finding one needs the optional `webNavigation` permission. So until the page is shown, its subframes get the decision for the page being left. The `Accept-Language` header and Engine-level Spoofing on a prerender navigation are unverified.
 
 ## Performance Targets
 
