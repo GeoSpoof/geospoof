@@ -744,7 +744,7 @@ Response: `{ success: true }`; `{ error: "STORAGE_ERROR" }` when the save fails 
 
 `REMOVE_SITE_LOCATION` with a `pattern` removes just that pattern (the popup's "Use main location" for one site of a multi-site entry), and the entry goes with its last pattern. Without one it removes the entry. An unknown id or pattern is a no-op success.
 
-Both handlers and the Safari bridge's adoption write the list through one queue (`src/background/site-location-queue.ts`). A save's re-load, re-check, write, and delivery run as one job, a remove runs entirely as one, and so does adoption's load and write. Two overlapping changes therefore can't both read the same list and have the later write erase the earlier one. The time-zone and place-name lookups run outside the queue.
+Both handlers and the Safari bridge's adoption write the list through one queue (`src/background/site-location-queue.ts`). A save's re-load, re-check, write, and delivery run as one job, a remove runs entirely as one, and so does adoption's load and write. Two overlapping changes therefore can't both read the same list and have the later write erase the earlier one. The time-zone and place-name lookups run outside the queue. Underneath, every settings write goes through `updateSettings`, which loads, merges, and saves the whole settings object one write at a time (`runSettingsWrite` in `src/background/settings.ts`), and the startup migration's save runs the same way. So a write to another field, such as a VPN resync's location or an app adoption's Filters, can't restore an older list, and a list write can't drop that field.
 
 Response: `{ success: true, id: string }` or `{ error: SiteLocationErrorCode, pattern?: string, ownerId?: string }`:
 

@@ -555,6 +555,28 @@ describe("overlapping list changes", () => {
     expect(stored.siteLocations.map((e) => e.patterns)).toEqual([["twitch.tv"], ["chatgpt.com"]]);
   });
 
+  test("a save and an overlapping VPN resync both survive", async () => {
+    const bg = await boot(makeSettings({ vpnSyncEnabled: true }), slowSet());
+    const [saved] = await Promise.all([
+      bg.handleSaveSiteLocation(at(["chatgpt.com"])),
+      bg.handleSetLocation(MEXICO_CITY, { fromVpnSync: true, locationName: MEXICO_CITY_NAME }),
+    ]);
+    expect("success" in saved).toBe(true);
+    expect(stored.siteLocations.map((e) => e.patterns)).toEqual([["chatgpt.com"]]);
+    expect(stored.location?.latitude).toBe(MEXICO_CITY.latitude);
+  });
+
+  test("a remove and an overlapping location change both take effect", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), slowSet());
+    const [removed] = await Promise.all([
+      bg.handleRemoveSiteLocation({ id: ENTRY_DUBLIN.id }),
+      bg.handleSetLocation(MEXICO_CITY),
+    ]);
+    expect(removed).toEqual({ success: true, id: ENTRY_DUBLIN.id });
+    expect(stored.siteLocations).toEqual([]);
+    expect(stored.location?.latitude).toBe(MEXICO_CITY.latitude);
+  });
+
   test("a save written after an app snapshot's newer-than check wins over its list", async () => {
     let releaseAdoptionLookup!: () => void;
     lookups.timezone.mockImplementationOnce(
