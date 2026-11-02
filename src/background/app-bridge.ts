@@ -243,8 +243,11 @@ export async function adoptPendingResponse(response: PendingResponse | undefined
   if (!regionWanted) return;
 
   // 3. Push only if adoption saved nothing: every save already pushed, through
-  // saveSettings. So a push that isn't a save never carries a list older than
-  // an app edit Safari hasn't adopted yet. A read that failed skips the push:
+  // saveSettings. The push carries the stored list, normally at least as new as
+  // this snapshot's. The exception is a step 9 that deferred to a newer snapshot
+  // still in flight: the push carries Safari's list from before both, and the
+  // newer pass's save follows with the adopted list ("Region request" in
+  // docs/API.md has the window this leaves). A read that failed skips the push:
   // loadSettings would have answered DEFAULT_SETTINGS, and the app would take
   // their empty site list as Safari's. A later pass that sees the flag asks again.
   if (before === null) return;

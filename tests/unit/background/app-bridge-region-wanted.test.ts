@@ -258,8 +258,9 @@ describe("regionWanted handshake (design §3.3.1)", () => {
     expect(regionPushes()).toHaveLength(0);
   });
 
-  test("9. an older snapshot that defers to a newer one never pushes its own list", async () => {
+  test("9. an older snapshot that defers to a newer one pushes only the pre-adoption list", async () => {
     await boot(base());
+    const preAdoption = stored().siteLocations;
     const older = asking({
       updatedAt: T0 / 1000 + 1,
       siteLocations: JSON.stringify([ENTRY_DUBLIN]),
@@ -274,12 +275,15 @@ describe("regionWanted handshake (design §3.3.1)", () => {
 
     // Step 9 skips the older list, so the newer one is stored. The older pass
     // saved nothing, so it may push the list Safari had before either snapshot,
-    // ahead of the newer pass's save. It never pushes the list it skipped.
+    // ahead of the newer pass's save ("Region request" in docs/API.md). That is
+    // the only list a handshake push can carry here: never the one it skipped,
+    // and never the newer one, whose save is its push.
     expect(stored().siteLocations).toEqual([ENTRY_MEXICO_CITY]);
+    expect(preAdoption).toEqual([]);
     const pushes = regionPushes();
     expect(pushes.length).toBeLessThanOrEqual(1);
     for (const push of pushes) {
-      expect(JSON.parse(push.siteLocations as string)).not.toEqual([ENTRY_DUBLIN]);
+      expect(JSON.parse(push.siteLocations as string)).toEqual(preAdoption);
     }
   });
 });
