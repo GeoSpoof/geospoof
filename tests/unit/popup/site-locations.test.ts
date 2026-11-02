@@ -597,6 +597,41 @@ describe("Editor", () => {
     byId("siteLocationSave").click();
     await flush();
     expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+
+    // A host with no A-label form never matches, so the background rejects it.
+    setPatterns("xn--zz.com");
+    byId("siteLocationSave").click();
+    await flush();
+    expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+    expect(isShown("siteLocationError")).toBe(true);
+  });
+
+  describe("two spellings of one host count once, as the background counts them", () => {
+    const nine = Array.from({ length: 9 }, (_, i) => `site${i}.com`);
+
+    test("ten sites plus an alias is at the cap, and sends the first spelling", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      setPatterns([...nine, "münchen.de", "xn--mnchen-3ya.de"].join(", "));
+      sendMessage.mockResolvedValue({ success: true, id: "new" });
+      byId("siteLocationSave").click();
+      await flush();
+
+      const [payload] = messagesOfType("SAVE_SITE_LOCATION") as Array<{ patterns: string[] }>;
+      expect(payload?.patterns).toEqual([...nine, "münchen.de"]);
+      expect(isShown("siteLocationError")).toBe(false);
+    });
+
+    test("eleven sites plus an alias is still over the cap", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      setPatterns([...nine, "other.com", "xn--mnchen-3ya.de", "münchen.de"].join(", "));
+      byId("siteLocationSave").click();
+      await flush();
+
+      expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+      expect(text("siteLocationErrorText")).toBe("One location can cover up to 10 sites.");
+    });
   });
 
   test("no location chosen blocks the send", async () => {

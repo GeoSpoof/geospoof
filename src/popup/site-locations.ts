@@ -37,6 +37,7 @@ import {
   parseSiteLocationPattern,
   resolveSiteSettings,
   siteLocationDisplayName,
+  siteLocationPatternKey,
   suggestSiteLocationPattern,
 } from "@/shared/utils/site-locations";
 import { getChipDisplayText } from "./favorites";
@@ -123,20 +124,30 @@ function currentSuggestion(): string | null {
   return suggestSiteLocationPattern(url);
 }
 
-/** Split the sites field on commas into canonical patterns, or report the first bad token. */
+/**
+ * Split the sites field on commas into canonical patterns, or report the first
+ * bad token. Dedupes by pattern identity as the background's save does, so
+ * `münchen.de` and `xn--mnchen-3ya.de` count once (the first spelling is
+ * kept), and a host with no A-label form is a bad token.
+ */
 export function parsePatternsField(raw: string): {
   patterns: string[];
   invalid: string | null;
 } {
   const patterns: string[] = [];
+  const keys = new Set<string>();
   const tokens = raw
     .split(",")
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
   for (const token of tokens) {
     const canonical = parseSiteLocationPattern(token);
-    if (canonical === null) return { patterns, invalid: token };
-    if (!patterns.includes(canonical)) patterns.push(canonical);
+    const key = canonical === null ? null : siteLocationPatternKey(canonical);
+    if (canonical === null || key === null) return { patterns, invalid: token };
+    if (!keys.has(key)) {
+      keys.add(key);
+      patterns.push(canonical);
+    }
   }
   return { patterns, invalid: null };
 }
