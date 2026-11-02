@@ -79,7 +79,11 @@ import {
   checkTabInjection,
 } from "./tabs";
 import { buildPagePayload } from "./page-payload";
-import { isPrerendering, topLevelUrlForSender } from "./sender-page-url";
+import {
+  isPrerendering,
+  isUndeterminedPrerenderedFrame,
+  topLevelUrlForSender,
+} from "./sender-page-url";
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
@@ -160,9 +164,12 @@ export async function handleMessage(
         // unparseable, restricted, or out of scope (Req 8.7). The shared
         // builder also withholds the timezone in Chromium debugger mode, as the
         // broadcast path does, except from a prerendering document, which the
-        // tab's debugger session doesn't reach.
+        // tab's debugger session doesn't reach. A prerendered subframe is
+        // judged by the page being left, so it gets that page's Filters
+        // decision and the main location, never its per-site location.
         const payload = await buildPagePayload(settings, pageUrl, {
           prerendering: isPrerendering(_sender),
+          withoutSiteLocation: isUndeterminedPrerenderedFrame(_sender, claimsTopFrame),
         });
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is

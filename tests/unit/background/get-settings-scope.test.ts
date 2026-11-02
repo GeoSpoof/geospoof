@@ -288,7 +288,94 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
         vi.doUnmock("@/background/page-payload");
       }
 
-      expect(seen).toEqual([{ prerendering: true }, { prerendering: false }]);
+      expect(seen).toEqual([
+        { prerendering: true, withoutSiteLocation: false },
+        { prerendering: false, withoutSiteLocation: false },
+      ]);
+    });
+
+    // The reverse case: visible A owns an entry, and hidden prerendered B
+    // doesn't. B's subframe is judged by A (its sender names no parent), so it
+    // follows A's Filters decision and gets the main location, never A's
+    // entry. Once B is shown the subframe asks again and gets B's own values.
+    describe("visible A owns a site location; a subframe of prerendered B", () => {
+      const settingsForA = (overrides: Partial<Settings> = {}): Settings =>
+        makeSettings({
+          localeSpoofing: { mode: "match" },
+          siteLocations: [
+            makeSiteLocation({
+              patterns: ["a.test"],
+              location: TOKYO,
+              timezone: TOKYO_TZ,
+              locationName: TOKYO_NAME,
+            }),
+          ],
+          ...overrides,
+        });
+      const subframe = (tabId: number, lifecycle: string, tabUrl: string) =>
+        ({
+          frameId: 8,
+          documentLifecycle: lifecycle,
+          url: "https://b.test/frame",
+          tab: { id: tabId, url: tabUrl } as browser.tabs.Tab,
+        }) as browser.runtime.MessageSender;
+      const ask = (
+        handleMessage: Awaited<ReturnType<typeof importBackgroundWith>>["handleMessage"],
+        sender: browser.runtime.MessageSender
+      ) =>
+        handleMessage(
+          { type: "GET_SETTINGS", payload: { topFrame: false } },
+          sender
+        ) as Promise<UpdateSettingsPayload>;
+      const expectNoTokyo = (payload: UpdateSettingsPayload): void => {
+        expect(payload.location?.latitude).not.toBe(TOKYO.latitude);
+        expect(payload.location?.longitude).not.toBe(TOKYO.longitude);
+        expect(payload.timezone?.identifier).not.toBe("Asia/Tokyo");
+        expect(payload.locale?.tag).not.toMatch(/^ja/);
+      };
+
+      test("unmatched B: the main location before and after it's shown", async () => {
+        const s = settingsForA();
+        const { handleMessage } = await importBackgroundWith(s);
+
+        const before = await ask(handleMessage, subframe(31, "prerender", A_URL));
+        expectNoTokyo(before);
+        expect(before.enabled).toBe(true);
+        expect(before.location?.latitude).toBe(s.location!.latitude);
+        expect(before.timezone?.identifier).toBe("America/Los_Angeles");
+        expect(before.locale?.tag).toBe("en-US");
+
+        const after = await ask(handleMessage, subframe(31, "active", B_URL));
+        expect(after.enabled).toBe(true);
+        expect(after.location?.latitude).toBe(s.location!.latitude);
+        expect(after.timezone?.identifier).toBe("America/Los_Angeles");
+      });
+
+      test("out-of-scope B: never A's entry, and off once it's shown", async () => {
+        const { handleMessage } = await importBackgroundWith(
+          settingsForA({ scopeMode: "denylist", denylist: ["b.test"] })
+        );
+
+        // Filters still follow the page being left until B is shown.
+        const before = await ask(handleMessage, subframe(32, "prerender", A_URL));
+        expectNoTokyo(before);
+        expect(before.timezone?.identifier).toBe("America/Los_Angeles");
+
+        const after = await ask(handleMessage, subframe(32, "active", B_URL));
+        expect(after.enabled).toBe(false);
+        expectNoTokyo(after);
+      });
+
+      test("A's own active subframe still gets A's entry", async () => {
+        const { handleMessage } = await importBackgroundWith(settingsForA());
+        const own = await ask(handleMessage, {
+          frameId: 3,
+          documentLifecycle: "active",
+          url: "https://embed.test/",
+          tab: { id: 33, url: A_URL } as browser.tabs.Tab,
+        } as browser.runtime.MessageSender);
+        expect(own.timezone?.identifier).toBe("Asia/Tokyo");
+      });
     });
 
     test("an active top frame whose own URL is B while tab.url is A resolves B", async () => {

@@ -5,7 +5,11 @@
  * `documentLifecycle`; Firefox and Safari don't.
  */
 import { describe, test, expect } from "vitest";
-import { topLevelUrlForSender, type PageSender } from "@/background/sender-page-url";
+import {
+  isUndeterminedPrerenderedFrame,
+  topLevelUrlForSender,
+  type PageSender,
+} from "@/background/sender-page-url";
 
 const A = "https://a.test/";
 const B = "https://b.test/";
@@ -85,5 +89,44 @@ describe("topLevelUrlForSender", () => {
       tab: { url: A } as browser.tabs.Tab,
     };
     expect(topLevelUrlForSender(sender, true)).toBe(B);
+  });
+});
+
+// A prerendering document whose top-level page the sender can't name gets
+// Filters and the main location from tab.url, but no per-site location.
+describe("isUndeterminedPrerenderedFrame", () => {
+  test.each<[label: string, sender: PageSender, claimsTopFrame: boolean, undetermined: boolean]>([
+    [
+      "a prerendered subframe is undetermined",
+      { frameId: 7, documentLifecycle: "prerender", url: B, tab: { url: A } },
+      false,
+      true,
+    ],
+    [
+      "a prerendering document with no URL is undetermined",
+      { frameId: 7, documentLifecycle: "prerender", tab: { url: A } },
+      true,
+      true,
+    ],
+    [
+      "a prerendered top frame is determined",
+      { frameId: 7, documentLifecycle: "prerender", url: B, tab: { url: A } },
+      true,
+      false,
+    ],
+    [
+      "an active subframe is determined",
+      { frameId: 3, documentLifecycle: "active", url: B, tab: { url: A } },
+      false,
+      false,
+    ],
+    [
+      "a Firefox/Safari subframe is determined",
+      { frameId: 4, url: B, tab: { url: A } },
+      false,
+      false,
+    ],
+  ])("%s", (_label, sender, claimsTopFrame, undetermined) => {
+    expect(isUndeterminedPrerenderedFrame(sender, claimsTopFrame)).toBe(undetermined);
   });
 });

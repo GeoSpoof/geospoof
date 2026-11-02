@@ -12,7 +12,9 @@
  *   can't tell it from a prerendered subframe. The content script reports
  *   whether `window.top === window`, and that claim counts only while
  *   `documentLifecycle` is `"prerender"`. A fenced frame is also its own top,
- *   but it's `"active"`, so it keeps following the tab.
+ *   but it's `"active"`, so it keeps following the tab. A prerendered page's
+ *   subframe falls back to the tab too, which may be another site, so it gets
+ *   no per-site location (`isUndeterminedPrerenderedFrame`).
  * - The active top frame (`frameId === 0`) is the tab's page. When its own URL
  *   and `tab.url` name different origins, `tab.url` belongs to another
  *   document. When they share an origin, `tab.url` wins: Firefox fixes
@@ -69,4 +71,22 @@ export function topLevelUrlForSender(
 /** Whether the sending document is being prerendered (Chromium only; false elsewhere). */
 export function isPrerendering(sender: PageSender): boolean {
   return sender.documentLifecycle === "prerender";
+}
+
+/**
+ * Whether a prerendering document's top-level page can't be determined: a
+ * subframe (no top-frame claim), or a document with no URL of its own. Then
+ * {@link topLevelUrlForSender} falls back to `tab.url`, the page being left,
+ * which can be a different site. Filters and the main location still follow
+ * it, but that page's per-site location mustn't reach this one, so none
+ * applies until the page is shown and asks again (Known Limitation 14).
+ * Finding the real parent would need the optional `webNavigation` permission.
+ */
+export function isUndeterminedPrerenderedFrame(
+  sender: PageSender,
+  claimsTopFrame: boolean
+): boolean {
+  if (!isPrerendering(sender)) return false;
+  if (typeof sender.url !== "string" || sender.url.length === 0) return true;
+  return sender.frameId !== 0 && !claimsTopFrame;
 }

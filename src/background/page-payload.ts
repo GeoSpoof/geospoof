@@ -33,6 +33,14 @@ export interface PagePayloadOptions {
    */
   prerendering?: boolean;
   /**
+   * `topLevelUrl` may not be the requesting document's top-level page (a
+   * subframe of a page Chrome is prerendering; see
+   * `isUndeterminedPrerenderedFrame`). Filters and the main location still
+   * follow it, but no per-site location applies, so one site's entry can't
+   * reach another site's page.
+   */
+  withoutSiteLocation?: boolean;
+  /**
    * Whether Engine-level spoofing owns the timezone. Defaults to this build's
    * value, `__CHROMIUM__ && settings.debuggerModeEnabled`; tests pass it,
    * because test builds aren't Chromium.
@@ -64,7 +72,11 @@ export async function buildPagePayload(
   // input itself, so an entry's coordinates can't reach a page Filters keep
   // GeoSpoof off. Only location, timezone, and locale follow the site; every
   // other field stays global.
-  const r = resolveSiteSettings(settings, topLevelUrl, isRestrictedUrl);
+  const r = resolveSiteSettings(
+    options.withoutSiteLocation === true ? { ...settings, siteLocations: [] } : settings,
+    topLevelUrl,
+    isRestrictedUrl
+  );
 
   // When browser-level (chrome.debugger) spoofing is active on Chromium, CDP
   // owns the TIMEZONE (it covers every frame/worker before first script).
