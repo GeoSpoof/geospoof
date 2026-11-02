@@ -244,6 +244,53 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
       expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "•", tabId: 23 });
     });
 
+    // Engine-level spoofing (Chromium debugger mode) withholds the timezone from
+    // the injected path because CDP owns it, but CDP is attached to the tab,
+    // which still shows A, so it doesn't reach a page being prerendered.
+    test("Engine-level spoofing keeps the timezone only for a prerendering document", async () => {
+      const { buildPagePayload } = await import("@/background/page-payload");
+      const s = { ...settingsForB(), debuggerModeEnabled: true };
+
+      const active = await buildPagePayload(s, B_URL, { engineTimezone: true });
+      const prerendering = await buildPagePayload(s, B_URL, {
+        engineTimezone: true,
+        prerendering: true,
+      });
+
+      expect(active.timezone).toBeNull();
+      expect(prerendering.timezone?.identifier).toBe("Asia/Tokyo");
+      expect(prerendering.location).toEqual(active.location);
+    });
+
+    test("GET_SETTINGS tells the payload builder whether the sender is prerendering", async () => {
+      const seen: unknown[] = [];
+      vi.doMock("@/background/page-payload", async (importOriginal) => {
+        const mod = await importOriginal<typeof import("@/background/page-payload")>();
+        return {
+          ...mod,
+          buildPagePayload: (...args: Parameters<typeof mod.buildPagePayload>) => {
+            seen.push(args[2]);
+            return mod.buildPagePayload(...args);
+          },
+        };
+      });
+      try {
+        const { handleMessage } = await importBackgroundWith(settingsForB());
+        await handleMessage(
+          { type: "GET_SETTINGS", payload: { topFrame: true } },
+          prerenderSender(25)
+        );
+        await handleMessage(
+          { type: "GET_SETTINGS", payload: { topFrame: true } },
+          { frameId: 0, url: B_URL, tab: { id: 26, url: B_URL } as browser.tabs.Tab }
+        );
+      } finally {
+        vi.doUnmock("@/background/page-payload");
+      }
+
+      expect(seen).toEqual([{ prerendering: true }, { prerendering: false }]);
+    });
+
     test("an active top frame whose own URL is B while tab.url is A resolves B", async () => {
       const { handleMessage } = await importBackgroundWith(settingsForB());
 

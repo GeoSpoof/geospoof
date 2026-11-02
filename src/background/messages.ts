@@ -78,7 +78,7 @@ import {
   checkTabInjection,
 } from "./tabs";
 import { buildPagePayload } from "./page-payload";
-import { topLevelUrlForSender } from "./sender-page-url";
+import { isPrerendering, topLevelUrlForSender } from "./sender-page-url";
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
@@ -157,8 +157,11 @@ export async function handleMessage(
         // Effective_Enabled resolves to false when the URL is missing,
         // unparseable, restricted, or out of scope (Req 8.7). The shared
         // builder also withholds the timezone in Chromium debugger mode, as the
-        // broadcast path does.
-        const payload = await buildPagePayload(settings, pageUrl);
+        // broadcast path does, except from a prerendering document, which the
+        // tab's debugger session doesn't reach.
+        const payload = await buildPagePayload(settings, pageUrl, {
+          prerendering: isPrerendering(_sender),
+        });
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
         // alive. Reflect the per-tab decision via the shared three-state badge

@@ -65,3 +65,8 @@ export function topLevelUrlForSender(
   }
   return tabUrl;
 }
+
+/** Whether the sending document is being prerendered (Chromium only; false elsewhere). */
+export function isPrerendering(sender: PageSender): boolean {
+  return sender.documentLifecycle === "prerender";
+}

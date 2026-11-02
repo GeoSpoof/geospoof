@@ -24,6 +24,22 @@ export type BootstrapPayload = { enabled: true } & Pick<
   "timezone" | "location" | "webrtcProtection" | "locale"
 >;
 
+/** Per-request context for {@link buildPagePayload}. */
+export interface PagePayloadOptions {
+  /**
+   * The requesting document is a page Chrome is prerendering. Engine-level
+   * spoofing attaches to the tab, which is still showing the page being left,
+   * so it doesn't reach this document; the injected path keeps the timezone.
+   */
+  prerendering?: boolean;
+  /**
+   * Whether Engine-level spoofing owns the timezone. Defaults to this build's
+   * value, `__CHROMIUM__ && settings.debuggerModeEnabled`; tests pass it,
+   * because test builds aren't Chromium.
+   */
+  engineTimezone?: boolean;
+}
+
 /**
  * Build the per-tab `UPDATE_SETTINGS` payload for a tab whose top-level URL is
  * `topLevelUrl`.
@@ -39,7 +55,8 @@ export type BootstrapPayload = { enabled: true } & Pick<
  */
 export async function buildPagePayload(
   settings: Settings,
-  topLevelUrl: string | undefined
+  topLevelUrl: string | undefined,
+  options: PagePayloadOptions = {}
 ): Promise<UpdateSettingsPayload> {
   // Resolve Effective_Enabled for this tab against its top-level URL (Req 8.1,
   // 8.2), then the site location, if one matches. Restricted or undeterminable
@@ -55,8 +72,11 @@ export async function buildPagePayload(
   // no-op (they gate on having timezone data) — but keep `enabled` and
   // `location` so the injected GEOLOCATION override still runs (CDP can't make
   // geolocation reliably prompt-free). WebRTC is independent. Compiled out on
-  // Firefox/Safari.
-  const debuggerActive = __CHROMIUM__ && settings.debuggerModeEnabled;
+  // Firefox/Safari. A prerendering document keeps the timezone: CDP isn't
+  // attached to it, and its re-request when it's shown withholds it again.
+  const debuggerActive =
+    (options.engineTimezone ?? (__CHROMIUM__ && settings.debuggerModeEnabled)) &&
+    options.prerendering !== true;
 
   return {
     enabled: r.enabled,
