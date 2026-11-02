@@ -14,7 +14,7 @@
 import { describe, test, expect, vi } from "vitest";
 import type { Settings } from "@/shared/types/settings";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
-import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
+import type { ContentSettingsReply, Message, UpdateSettingsPayload } from "@/shared/types/messages";
 import { resolveLocale, resolvePageLocale } from "@/shared/locale/resolver";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { mocks } from "../../helpers/cadence";
@@ -127,13 +127,15 @@ async function collectPayloads(url: string): Promise<UpdateSettingsPayload[]> {
   await bg.broadcastSettingsToTabs(SETTINGS);
   payloads.push(sent.find((m) => m.tabId === 1)!.payload);
 
-  // 2. Content-script GET_SETTINGS.
-  payloads.push(
-    (await bg.handleMessage(
-      { type: "GET_SETTINGS" },
-      { tab: { id: 2, url } as browser.tabs.Tab }
-    )) as UpdateSettingsPayload
-  );
+  // 2. Content-script GET_SETTINGS. The reply also carries the settings
+  // revision it was built from (pushes carry it on the envelope instead), so
+  // the payload is the rest.
+  const { revision, ...reply } = (await bg.handleMessage(
+    { type: "GET_SETTINGS" },
+    { tab: { id: 2, url } as browser.tabs.Tab }
+  )) as ContentSettingsReply;
+  expect(typeof revision).toBe("number");
+  payloads.push(reply);
 
   // 3. tabs.onCreated, sent after its 100ms delay.
   const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as

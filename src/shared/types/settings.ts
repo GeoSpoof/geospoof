@@ -221,6 +221,14 @@ export interface Settings {
   version: string;
   /** Timestamp of last settings update (milliseconds since epoch) */
   lastUpdated: number;
+  /**
+   * Strictly increasing per save (`max(Date.now(), previous + 1)`, capped at
+   * `Number.MAX_SAFE_INTEGER`). Background-owned: only `saveSettings` sets it,
+   * and `updateSettings` / `updateSettingsWith` ignore a `revision` in their
+   * updates. Extension-internal: never bridged, never sent to pages.
+   * `validateSettings` always sets it; it's absent only on objects built by hand.
+   */
+  revision?: number;
   /** Whether VPN sync mode is the active location method */
   vpnSyncEnabled: boolean;
   /**
@@ -369,6 +377,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // the user's earlier in-app setup and silently discard it. saveSettings()
   // always stamps Date.now() before persisting, so stored settings are real.
   lastUpdated: 0,
+  // A never-saved settings object has revision 0; saveSettings issues the first real one.
+  revision: 0,
   vpnSyncEnabled: false,
   debuggerModeEnabled: false,
   autoSyncBlocked: false,
