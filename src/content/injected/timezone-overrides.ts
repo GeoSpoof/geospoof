@@ -45,6 +45,15 @@ import { createLogger } from "@/shared/utils/debug-logger";
 const logger = createLogger("INJ");
 
 /**
+ * Native `getTimezoneOffset` returns +0 for a zero offset (UTC, London in
+ * winter). Negating a zero offset gives -0, which `Object.is` tells apart and
+ * which the worker payload doesn't return, so normalize it.
+ */
+function zeroAsPositive(minutes: number): number {
+  return minutes === 0 ? 0 : minutes;
+}
+
+/**
  * Install the `getTimezoneOffset` override on the supplied Date.prototype.
  *
  * `originalGetTimezoneOffset` is passed in rather than closed over so the
@@ -79,7 +88,7 @@ export function installGetTimezoneOffsetOverrideOn(
             // component getters read; truncating it gives the native value.
             const offsetMinutes = deriveOffsetFromParts(this, timezoneData.identifier);
             if (offsetMinutes !== undefined) {
-              const result = Math.trunc(-offsetMinutes);
+              const result = zeroAsPositive(Math.trunc(-offsetMinutes));
               logger.trace(
                 "getTimezoneOffset (truncated): epoch",
                 epoch,
@@ -100,7 +109,7 @@ export function installGetTimezoneOffsetOverrideOn(
               timezoneData.identifier,
               timezoneData.offset
             );
-            const result = -offsetMinutes;
+            const result = zeroAsPositive(-offsetMinutes);
             logger.trace(
               "getTimezoneOffset (fractional): epoch",
               epoch,
