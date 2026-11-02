@@ -628,7 +628,7 @@ The extension uses `browser.runtime.sendMessage` and `browser.runtime.onMessage`
 { type: "SET_LOCATION", payload: { latitude: number, longitude: number } }
 ```
 
-Side effects: Calculates timezone (local lookup via browser-geo-tz boundary data fetched from geospoof.com), performs reverse geocoding, saves to storage, broadcasts to all content scripts, updates badge.
+Side effects: Calculates timezone (local lookup via browser-geo-tz boundary data fetched from geospoof.com), performs reverse geocoding, saves to storage, broadcasts to all content scripts, updates badge. The automatic VPN syncs (startup and auto-resync) store their location only if VPN sync is still on when the write runs, so a manual location set during their network calls is kept.
 
 #### SET_PROTECTION_STATUS
 
@@ -685,7 +685,7 @@ Content scripts send it at `document_start`, again when a page is restored from 
 { type: "SYNC_VPN", payload?: { forceRefresh?: boolean } }
 ```
 
-Detects the public exit IP, geolocates it, applies the location (with timezone hint), and sets `vpnSyncEnabled: true`. Clears per-endpoint cooldowns first so every endpoint gets a fresh shot. `forceRefresh` bypasses caches and in-flight dedup (the Re-sync button).
+Detects the public exit IP, geolocates it, applies the location (with timezone hint), and stores the location and `vpnSyncEnabled: true` in one write. Clears per-endpoint cooldowns first so every endpoint gets a fresh shot. `forceRefresh` bypasses caches and in-flight dedup (the Re-sync button).
 Response: `{ latitude, longitude, city, country, ip }` or `{ error: "IP_DETECTION_FAILED" | "GEOLOCATION_FAILED" | "IP_BLOCKED" | "NETWORK", message }`. See [VPN_SYNC.md](VPN_SYNC.md).
 
 #### DISABLE_VPN_SYNC
@@ -732,7 +732,7 @@ Response: `{ injected: boolean, error: string | null }`.
 { type: "RENAME_FAVORITE", payload: { id: string, label: string } }
 ```
 
-Response: `{ success: true }` or `{ error: "AT_CAPACITY" | "STORAGE_ERROR" }`. Capacity is 50 (`MAX_FAVORITES`); saves dedupe by coordinates rounded to 4 decimal places.
+Response: `{ success: true }` or `{ error: "AT_CAPACITY" | "STORAGE_ERROR" }`. Capacity is 50 (`MAX_FAVORITES`); saves dedupe by coordinates rounded to 4 decimal places. Each runs as one settings write (load, change and save together), so overlapping changes don't lose each other.
 
 #### SET_PRECISION
 
@@ -773,7 +773,7 @@ Response: `{ success: true }`; `{ error: "STORAGE_ERROR" }` when the save fails 
 
 `REMOVE_SITE_LOCATION` with a `pattern` removes just that pattern (the popup's "Use main location" for one site of a multi-site entry), and the entry goes with its last pattern. Without one it removes the entry. An unknown id or pattern is a no-op success. The popup offers "Use main location" only when removing the winning pattern changes just this site and leaves it on the main location: a main location is set (`settings.location` isn't null), the pattern is the site's own (its identity is the host's or `suggestSiteLocationPattern`'s), and with it removed `resolveSiteSettings` gives the page no site location. Otherwise the Main-tab line shows only Edit.
 
-Both handlers and the Safari bridge's adoption write the list through one queue (`src/background/site-location-queue.ts`). A save's re-load, re-check, write, and delivery run as one job, a remove runs entirely as one, and so does adoption's load and write. Two overlapping changes therefore can't both read the same list and have the later write erase the earlier one. The time-zone and place-name lookups run outside the queue, so a save that changes coordinates can reach the queue after a remove or save sent later. Each save and remove is therefore stamped when it arrives, and a save whose entry was already written by a later-stamped remove or save writes nothing and returns `SUPERSEDED`: the later user action wins. A save sent after a remove still wins over it, and recreates the entry. While a save is in flight, the popup also disables that entry's ✕ and "Use main location", so only another popup can send such a remove. Underneath, every settings write goes through `updateSettings`, which loads, merges, and saves the whole settings object one write at a time (`runSettingsWrite` in `src/background/settings.ts`), and the startup migration's save runs the same way. So a write to another field, such as a VPN resync's location or an app adoption's Filters, can't restore an older list, and a list write can't drop that field.
+Both handlers and the Safari bridge's adoption write the list through one queue (`src/background/site-location-queue.ts`). A save's re-load, re-check, write, and delivery run as one job, a remove runs entirely as one, and so does adoption's load and write. Two overlapping changes therefore can't both read the same list and have the later write erase the earlier one. The time-zone and place-name lookups run outside the queue, so a save that changes coordinates can reach the queue after a remove or save sent later. Each save and remove is therefore stamped when it arrives, and a save whose entry was already written by a later-stamped remove or save writes nothing and returns `SUPERSEDED`: the later user action wins. A save sent after a remove still wins over it, and recreates the entry. While a save is in flight, the popup also disables that entry's ✕ and "Use main location", so only another popup can send such a remove. Underneath, every settings write goes through `updateSettings` or `updateSettingsWith`, which load, merge, and save the whole settings object one write at a time (`runSettingsWrite` in `src/background/settings.ts`), and the startup migration's save runs the same way. So a write to another field, such as a VPN resync's location or an app adoption's Filters, can't restore an older list, and a list write can't drop that field.
 
 Response: `{ success: true, id: string }` or `{ error: SiteLocationErrorCode, pattern?: string, ownerId?: string }`:
 

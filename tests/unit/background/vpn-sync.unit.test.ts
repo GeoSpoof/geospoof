@@ -6,6 +6,7 @@
 
 import { storageData, sessionStorageData } from "../../setup";
 import { importBackground } from "../../helpers/import-background";
+import { deferred } from "../../helpers/cadence";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 
 // Mock browser-geo-tz so timezone lookups don't make real CDN requests
@@ -377,6 +378,81 @@ describe("Startup auto-sync", () => {
     expect(settings.location).not.toBeNull();
     expect(settings.location!.latitude).toBe(37.7749);
     expect(settings.location!.longitude).toBe(-122.4194);
+  });
+
+  /**
+   * A manual location set while the startup sync is on its network calls is
+   * kept: the sync's write re-checks vpnSyncEnabled (onlyWhileVpnSync).
+   */
+  test("keeps a manual location set while the startup sync is on its IP lookup", async () => {
+    storageData.settings = {
+      ...DEFAULT_SETTINGS,
+      vpnSyncEnabled: true,
+      enabled: true,
+    };
+
+    // The IP detection is held; the three geo services answer as above.
+    const ipResponse = deferred<Response>();
+    vi.mocked(fetch)
+      .mockReturnValueOnce(ipResponse.promise)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ip: "203.0.113.42",
+            city: "San Francisco",
+            country: "United States",
+            latitude: "37.7749",
+            longitude: "-122.4194",
+          }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ipAddress: "203.0.113.42",
+            cityName: "San Francisco",
+            countryName: "United States",
+            latitude: 37.7749,
+            longitude: -122.4194,
+          }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            ip: "203.0.113.42",
+            city: "San Francisco",
+            country_name: "United States",
+            latitude: 37.7749,
+            longitude: -122.4194,
+          }),
+      } as Response);
+
+    const { initialize, loadSettings, handleSetLocation } = await importBackground();
+    const startup = initialize();
+    await vi.waitFor(() =>
+      expect(
+        vi
+          .mocked(fetch)
+          .mock.calls.some((c) => typeof c[0] === "string" && IP_ECHO_HOST_RE.test(c[0]))
+      ).toBe(true)
+    );
+
+    // A manual set with a name, as bridge step 2's manual branch makes, so no
+    // reverse-geocode fetch.
+    await handleSetLocation(
+      { latitude: 48.8566, longitude: 2.3522 },
+      { locationName: { city: "Paris", country: "France", displayName: "Paris, France" } }
+    );
+
+    ipResponse.resolve({ ok: true, text: () => Promise.resolve("203.0.113.42\n") } as Response);
+    await startup;
+
+    const settings = await loadSettings();
+    expect(settings.location!.latitude).toBe(48.8566);
+    expect(settings.location!.longitude).toBe(2.3522);
+    expect(settings.vpnSyncEnabled).toBe(false);
   });
 
   /**

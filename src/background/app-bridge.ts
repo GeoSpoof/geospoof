@@ -359,10 +359,12 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
           round4(settings.location.latitude) !== round4(pending.latitude) ||
           round4(settings.location.longitude) !== round4(pending.longitude);
         if (changed || !settings.vpnSyncEnabled) {
+          // enableVpnSync stores vpnSyncEnabled: true in the location's write.
           await handleSetLocation(
             { latitude: pending.latitude, longitude: pending.longitude },
             {
               fromVpnSync: true,
+              enableVpnSync: true,
               timezoneHint: pending.timezone,
               locationName: {
                 city: "",
@@ -374,17 +376,23 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
             }
           );
         }
-        await updateSettings({ vpnSyncEnabled: true });
+        // Only when no location was written above.
+        if (!changed && settings.vpnSyncEnabled) {
+          await updateSettings({ vpnSyncEnabled: true });
+        }
       } else {
         // No coords from the app — the extension owns IP detection + geolocation.
         const needSync = pending.resync === true || !settings.vpnSyncEnabled;
+        let wrote = false;
         if (needSync) {
           const result = await syncVpnLocation(true);
           if (!("error" in result)) {
-            await handleSetLocation(
+            // enableVpnSync stores vpnSyncEnabled: true in the location's write.
+            wrote = await handleSetLocation(
               { latitude: result.latitude, longitude: result.longitude },
               {
                 fromVpnSync: true,
+                enableVpnSync: true,
                 locationName: {
                   city: result.city,
                   country: result.country,
@@ -401,7 +409,10 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
             logger.warn("adoptPendingSettingsFromApp: VPN sync failed:", result);
           }
         }
-        await updateSettings({ vpnSyncEnabled: true });
+        // Only when no location was written above (no sync, or it failed).
+        if (!wrote) {
+          await updateSettings({ vpnSyncEnabled: true });
+        }
       }
     } else if (pending.cleared) {
       if (settings.location || settings.vpnSyncEnabled) {

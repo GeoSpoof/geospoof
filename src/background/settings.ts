@@ -646,3 +646,24 @@ export function updateSettings(updates: Partial<Settings>): Promise<Settings> {
     return updated;
   });
 }
+
+/**
+ * Load, change, and save as one settings write, with the change computed from
+ * the settings as stored when the write runs. `derive` is synchronous and must
+ * not call updateSettings or runSettingsWrite. It returns the fields to write,
+ * or null to write nothing. Resolves the saved settings, or null when nothing
+ * was written. Rejects when `derive` throws or the save fails; nothing is
+ * written then.
+ */
+export function updateSettingsWith(
+  derive: (current: Settings) => Partial<Settings> | null
+): Promise<Settings | null> {
+  return runSettingsWrite(async () => {
+    const current = await loadSettings();
+    const u = derive(current);
+    if (u === null) return null;
+    const updated: Settings = { ...current, ...u };
+    await saveSettings(updated);
+    return updated;
+  });
+}

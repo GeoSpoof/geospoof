@@ -314,9 +314,11 @@ async function initialize(): Promise<void> {
     try {
       const result = await syncVpnLocation(false);
       if (!("error" in result)) {
+        // onlyWhileVpnSync: a manual location or a Disable made during the
+        // sync's network calls is kept.
         await handleSetLocation(
           { latitude: result.latitude, longitude: result.longitude },
-          { fromVpnSync: true, timezoneHint: result.timezone }
+          { fromVpnSync: true, onlyWhileVpnSync: true, timezoneHint: result.timezone }
         );
       }
     } catch (error) {
