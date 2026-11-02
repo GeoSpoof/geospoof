@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import vm from "node:vm";
 import { buildStandaloneWorkerPayload } from "@/shared/worker-payload";
+import {
+  LMT_CASES,
+  TZP_INSTANTS,
+  eastSecondsAt,
+  expectedGto,
+  gettersWestMinutes,
+  gmtTokenEastMinutes,
+} from "../../helpers/lmt-offsets";
 
 /**
  * Executes the standalone worker payload (the string prepended to worker
@@ -23,10 +31,17 @@ interface PayloadRealm {
   evalInRealm: <T>(expr: string) => T;
 }
 
-function spoofedDateInRealm(timezone: string): PayloadRealm {
+function spoofedDateInRealm(
+  timezone: string,
+  fractionalOffset = false,
+  prelude = ""
+): PayloadRealm {
   const sandbox: Record<string, unknown> = { self: {} };
   vm.createContext(sandbox);
-  vm.runInContext(buildStandaloneWorkerPayload(timezone), sandbox);
+  // Runs before the payload captures the realm's natives, to stand in for a
+  // different engine or ICU build.
+  if (prelude) vm.runInContext(prelude, sandbox);
+  vm.runInContext(buildStandaloneWorkerPayload(timezone, null, fractionalOffset), sandbox);
   const self = sandbox.self as { Date?: DateConstructor };
   if (typeof self.Date !== "function") {
     throw new Error("payload did not install a spoofed Date on self");
@@ -115,6 +130,118 @@ describe("worker payload SPOOF_CORE — Date getter spoofing", () => {
     expect(d.getHours()).toBe(1);
     expect(d.getMinutes()).toBe(30);
   });
+});
+
+describe("worker payload SPOOF_CORE — sub-minute historical offsets", () => {
+  // Same cases and oracle as tests/unit/content/timezone-fractional-offset.test.ts,
+  // so the worker and the main realm are checked against identical values.
+  const realms = new Map<string, PayloadRealm>();
+  function realmFor(zone: string, fractional: boolean): PayloadRealm {
+    const key = `${zone}|${fractional}`;
+    let realm = realms.get(key);
+    if (!realm) {
+      realm = spoofedDateInRealm(zone, fractional);
+      realms.set(key, realm);
+    }
+    return realm;
+  }
+
+  for (const fractional of [true, false]) {
+    describe(fractional ? "native keeps the fraction" : "native truncates", () => {
+      for (const zone of LMT_CASES) {
+        for (const t of TZP_INSTANTS) {
+          it(`${zone.identifier} ${new Date(t).toISOString().slice(0, 10)}`, () => {
+            const { Date: D } = realmFor(zone.identifier, fractional);
+            const d = new D(t);
+            const eastSec = eastSecondsAt(zone.identifier, t);
+            const gto = d.getTimezoneOffset();
+
+            expect(gto).toBe(expectedGto(eastSec, fractional));
+            expect(gettersWestMinutes(d)).toBe(expectedGto(eastSec, true));
+
+            // toString / toTimeString print whole minutes truncated toward zero,
+            // like every engine; never "GMT+0918.98…".
+            for (const str of [d.toString(), d.toTimeString()]) {
+              expect(str).toMatch(/ GMT[+-]\d{4} \(/);
+              expect(gmtTokenEastMinutes(str)).toBe(Math.trunc(eastSec / 60));
+            }
+          });
+        }
+      }
+    });
+  }
+
+  it("prints 1879 Tokyo as GMT+0918 under both decisions", () => {
+    for (const fractional of [true, false]) {
+      const { Date: D } = realmFor("Asia/Tokyo", fractional);
+      expect(new D(Date.UTC(1879, 0, 15, 13)).toString()).toContain(" GMT+0918 ");
+    }
+  });
+
+  it("substitutes the decision as a literal and leaves no placeholder", () => {
+    for (const fractional of [true, false]) {
+      const payload = buildStandaloneWorkerPayload("Asia/Tokyo", null, fractional);
+      expect(payload).toContain(`var __fractionalOffset = ${String(fractional)};`);
+      expect(payload).not.toContain("__NATIVE_FRACTIONAL_OFFSET__");
+      expect(payload).not.toContain("__SPOOF_TZ_ID__");
+    }
+  });
+});
+
+describe("worker payload SPOOF_CORE — zero offset", () => {
+  // A zero shortOffset is "GMT" under ICU 77 (Node 24.12) and "GMT+0" under
+  // ICU 78 (Node 24.22; also measured in Chrome 156 and Firefox 159), and the
+  // payload negated "GMT+0" into -0. Native getTimezoneOffset returns +0 either
+  // way, and so does the page realm, so a page comparing the two with Object.is
+  // would see the worker differ.
+  //
+  // The prelude rewrites the realm's zero-offset timeZoneName to each rendering,
+  // so both are tested whichever ICU this Node carries.
+  function renderZeroOffsetAs(rendering: string): string {
+    return `(function () {
+      var native = Intl.DateTimeFormat.prototype.formatToParts;
+      Intl.DateTimeFormat.prototype.formatToParts = function formatToParts(d) {
+        var parts = native.call(this, d);
+        for (var i = 0; i < parts.length; i++) {
+          if (parts[i].type === "timeZoneName" && /^GMT(?:[+-]0)?$/.test(parts[i].value)) {
+            parts[i].value = ${JSON.stringify(rendering)};
+          }
+        }
+        return parts;
+      };
+    })();`;
+  }
+
+  const ZERO_OFFSET_CASES: ReadonlyArray<{ zone: string; t: number }> = [
+    { zone: "UTC", t: Date.UTC(2025, 0, 15, 13) },
+    { zone: "UTC", t: Date.UTC(1879, 0, 15, 13) },
+    { zone: "Europe/London", t: Date.UTC(2025, 0, 15, 13) },
+    { zone: "Africa/Abidjan", t: 0 },
+  ];
+
+  for (const rendering of ["GMT", "GMT+0"]) {
+    for (const fractional of [true, false]) {
+      describe(`rendered "${rendering}", ${fractional ? "native keeps the fraction" : "native truncates"}`, () => {
+        for (const { zone, t } of ZERO_OFFSET_CASES) {
+          it(`${zone} ${new Date(t).toISOString().slice(0, 10)} returns +0`, () => {
+            const realm = spoofedDateInRealm(zone, fractional, renderZeroOffsetAs(rendering));
+            const d = new realm.Date(t);
+            // toBe is Object.is, so -0 fails here.
+            expect(d.getTimezoneOffset()).toBe(0);
+            expect(d.toString()).toContain(" GMT+0000 (");
+            // The prelude really is what the payload read.
+            expect(
+              realm.evalInRealm<string | undefined>(
+                `new Intl.DateTimeFormat("en-US", { timeZone: ${JSON.stringify(zone)}, timeZoneName: "shortOffset" })` +
+                  `.formatToParts(new Date(${t}))` +
+                  `.find(function (p) { return p.type === "timeZoneName"; }).value`
+              )
+            ).toBe(rendering);
+          });
+        }
+      });
+    }
+  }
 });
 
 describe("worker payload SPOOF_CORE — Date setter spoofing", () => {

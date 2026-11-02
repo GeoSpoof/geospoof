@@ -117,6 +117,11 @@
 
 import type { Settings } from "@/shared/types/settings";
 import { buildStandaloneWorkerPayload } from "@/shared/worker-payload";
+import {
+  decideNativeFractionalOffset,
+  engineFamilyFromBuild,
+  nativeDateSurfaceOf,
+} from "@/shared/native-offset-precision";
 import { resolvePageLocale } from "@/shared/locale/resolver";
 import { loadSettings } from "./settings";
 import { isRestrictedUrl } from "./tabs";
@@ -346,6 +351,24 @@ export function hasWorkerTimezoneSource(settings: Settings): boolean {
   );
 }
 
+let cachedFractionalOffset: boolean | undefined;
+
+/**
+ * Whether native `getTimezoneOffset` keeps the seconds of a pre-standard-time
+ * offset. This path builds payloads in the background realm, which has no
+ * page decision to forward, so it runs the same probe once on its own `Date`.
+ * Same engine and same system zone as the page, so the same answer. The
+ * background never overrides `Date`, so the probe reads natives.
+ */
+function backgroundFractionalOffset(): boolean {
+  cachedFractionalOffset ??= decideNativeFractionalOffset(
+    nativeDateSurfaceOf(Date),
+    engineFamilyFromBuild(),
+    () => navigator.userAgent
+  );
+  return cachedFractionalOffset;
+}
+
 /**
  * Build the worker payload for a worker created by the document at `pageUrl`.
  * The timezone and locale come from the same per-site resolution the page
@@ -376,7 +399,9 @@ export function workerPayloadFor(
     identifier ?? null,
     effective.proFeaturesBlocked
   );
-  return identifier || locale ? buildStandaloneWorkerPayload(identifier, locale) : "";
+  return identifier || locale
+    ? buildStandaloneWorkerPayload(identifier, locale, backgroundFractionalOffset())
+    : "";
 }
 
 /**

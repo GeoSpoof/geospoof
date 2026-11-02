@@ -94,10 +94,10 @@ Installed on `Permissions.prototype` preserving native descriptor flags.
 
 | API                                    | Override Behavior                                                                                                                          |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Date.prototype.getTimezoneOffset`     | Negated Intl-based offset for spoofed tz                                                                                                   |
-| `Date.prototype.toString`              | Formatted with spoofed tz name and offset                                                                                                  |
+| `Date.prototype.getTimezoneOffset`     | Negated Intl-based offset for spoofed tz; keeps or drops seconds as the browser does ([details](#sub-minute-historical-offsets))           |
+| `Date.prototype.toString`              | Formatted with spoofed tz name and offset; offset in whole minutes truncated toward zero, as every engine prints it                        |
 | `Date.prototype.toDateString`          | Formatted in spoofed timezone                                                                                                              |
-| `Date.prototype.toTimeString`          | Formatted with spoofed offset and tz name                                                                                                  |
+| `Date.prototype.toTimeString`          | Formatted with spoofed offset and tz name; offset in whole minutes truncated toward zero, as every engine prints it                        |
 | `Date.prototype.toLocaleString`        | Timezone injected into options                                                                                                             |
 | `Date.prototype.toLocaleDateString`    | Timezone injected into options                                                                                                             |
 | `Date.prototype.toLocaleTimeString`    | Timezone injected into options                                                                                                             |
@@ -121,6 +121,33 @@ Installed on `Permissions.prototype` preserving native descriptor flags.
 | `Date.prototype.toISOString`           | **Not overridden** — UTC surface, true UTC epoch preserved                                                                                 |
 | `Date.prototype.toJSON`                | **Not overridden** — delegates to toISOString, true UTC epoch preserved                                                                    |
 | `Date.prototype.getUTC*` (all eight)   | **Not overridden** — UTC surfaces, true UTC values preserved                                                                               |
+
+### Sub-minute historical offsets
+
+Before a zone adopted standard time its offset was local mean time, which has seconds: Asia/Tokyo was +9:18:59 until 1888 and America/Los_Angeles −7:52:58 until 1883. Browsers disagree on what `getTimezoneOffset()` returns for those dates:
+
+| Engine                     | `getTimezoneOffset()`, 1879 Tokyo | Source                                                                                                                                                                                         |
+| -------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SpiderMonkey (Firefox)     | −558.98333… (exact)               | `js/src/jsdate.cpp`; measured on Firefox 159                                                                                                                                                   |
+| V8, Chrome 156 and later   | −558.98333… (exact)               | [v8/v8@646e0b7](https://github.com/v8/v8/commit/646e0b706cd01876093bdfb2b6708e853ee30e94), fixing [crbug 40814804](https://issues.chromium.org/issues/40814804); first shipped in 156.0.8078.0 |
+| V8, Chrome 155 and earlier | −558 (truncated toward zero)      | Same commit                                                                                                                                                                                    |
+| JavaScriptCore (Safari)    | −558 (truncated toward zero)      | WebKit `DatePrototype.cpp` (an `int32` minute offset); measured with macOS's system JavaScriptCore (`jsc`), not yet in Safari itself                                                           |
+
+In all of them the local getters (`getHours` … `getSeconds`) keep the seconds, and `toString` / `toTimeString` print whole minutes truncated toward zero (`GMT+0918`). The override has to return what the browser itself returns. Otherwise `getTimezoneOffset` disagrees with every other method for those dates, and arkenfox TZP's `[offsets] timezone` row reads "mixed".
+
+**How the extension decides.** Engine identity can't tell Chrome 155 from 156, so `state.ts` probes behavior once at load (`nativeFractionalOffset`, logic in `src/shared/native-offset-precision.ts`). It runs before any override is installed and, since the injected script runs at `document_start`, before any page script. It reads the native `getTimezoneOffset` and the native local getters at 1800-01-01 12:00 UTC in the real system zone, when every zone was on local mean time. If the getters show seconds, `getTimezoneOffset` either keeps them or drops them, and the override does the same in the top realm and in every same-origin iframe. The probe makes eight native calls on one `Date` and leaves nothing behind.
+
+**When the real zone has no seconds.** The probe can only see the real zone. With ICU 77, 43 of 428 zone ids have no seconds at the probe instant, nor at any January or July from 1800 to 2000: UTC and `Etc/*`, zones whose history starts at offset 0 (Antarctic and Canadian Arctic stations), and whole-minute local mean time zones such as Europe/Warsaw, Asia/Taipei and Africa/Johannesburg. No in-page surface reveals the precision there, so the extension uses what each engine is known to do:
+
+| Build    | Fallback                                                                                                        |
+| -------- | --------------------------------------------------------------------------------------------------------------- |
+| Firefox  | Keep the seconds                                                                                                |
+| Safari   | Truncate                                                                                                        |
+| Chromium | `Chrome/N` in the user agent: 156 or later keep the seconds, 155 or earlier truncate, no token keep the seconds |
+
+What the fallback can get wrong: a user agent that claims a different Chrome major than the real one, and the Chromium build running on an engine that isn't V8, both get the user agent's answer.
+
+**Workers** never probe on their own. The content-script path bakes the page realm's decision into the payload as a literal, so blob, data and nested workers agree with the page. The Firefox `filterResponseData` path builds payloads in the background, which runs the same probe once on its own `Date` (same engine and system zone as the page).
 
 ### Intl
 
@@ -157,11 +184,11 @@ The payload reaches **full parity with the main realm** — every timezone-affec
 | Surface (in worker scope)                                                               | Override behavior                                                                                                                                                                                                                                          |
 | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Date` constructor + `Date.parse`                                                       | `new.target`-aware (subclassing / `Reflect.construct` preserve the subclass prototype); ambiguous-string and multi-arg construction epoch-adjusted to the spoofed zone; no-`new` `Date()` returns a spoofed-zone string (CreepJS `valid.date` consistency) |
-| `Date.prototype.getTimezoneOffset`                                                      | Intl-derived spoofed offset; sub-minute historical offsets truncated on V8 (Chrome 156 no longer truncates natively, see Known Limitation 16)                                                                                                              |
+| `Date.prototype.getTimezoneOffset`                                                      | Intl-derived spoofed offset; keeps or drops seconds before standard time per the page's decision ([details](#sub-minute-historical-offsets))                                                                                                               |
 | `Date.prototype` local getters (`getHours`…`getFullYear`, `getDay`)                     | Read in the spoofed zone                                                                                                                                                                                                                                   |
 | `Date.prototype.getMilliseconds`                                                        | Passthrough (timezone-independent); registered for `toString` masking                                                                                                                                                                                      |
 | `Date.prototype` local setters (`setHours`…`setFullYear`)                               | Components interpreted in the spoofed zone, DST-refined; round-trip against the spoofed getters                                                                                                                                                            |
-| `Date.prototype.{toString,toDateString,toTimeString,toLocale*}`                         | Formatted in the spoofed zone                                                                                                                                                                                                                              |
+| `Date.prototype.{toString,toDateString,toTimeString,toLocale*}`                         | Formatted in the spoofed zone; `GMT±HHMM` offset in whole minutes truncated toward zero                                                                                                                                                                    |
 | `Intl.DateTimeFormat` constructor + `resolvedOptions`                                   | `new.target`-aware; injects the spoofed zone when none is explicit                                                                                                                                                                                         |
 | `Temporal.Now.{timeZoneId,plainDateTimeISO,plainDateISO,plainTimeISO,zonedDateTimeISO}` | Spoofed identifier / spoofed zone when no explicit arg (feature-detected)                                                                                                                                                                                  |
 | `Function.prototype.toString`                                                           | Masks every override as `[native code]`; derives the engine-specific surround format at runtime                                                                                                                                                            |
@@ -433,6 +460,8 @@ Exports:
 - `spoofingEnabled`, `spoofedLocation`, `timezoneData`, `settingsReceived` — mutable state with setter functions
 - `OriginalDate`, `OriginalDateParse`, `OriginalDateTimeFormat` — pristine constructors
 - `originalGetTimezoneOffset`, `originalToString`, `originalGetHours`, etc. — unbound prototype methods
+- `nativeFractionalOffset` — whether native `getTimezoneOffset` keeps the seconds of a pre-standard-time offset, probed from the originals at load ([Sub-minute historical offsets](#sub-minute-historical-offsets)); drives the `getTimezoneOffset` override and is baked into worker payloads
+- `componentsViaShortOffset` — which path the local getters and `toString` family use to derive local time (epoch shift by the Intl shortOffset on V8 / JavaScriptCore, `formatToParts` on SpiderMonkey); keyed on the SpiderMonkey-only `InternalError` global, and independent of `getTimezoneOffset` precision
 - `overrideRegistry` — `Map<Function, string>` for toString masking
 - `explicitTimezoneInstances` — `WeakSet<Intl.DateTimeFormat>` for self-interference prevention
 - `EVENT_NAME` — configurable event name (build-time)
@@ -458,7 +487,7 @@ Randomness the page can't observe. Overrides must never call the page's `Math.ra
 Pure utility functions (no side effects on globals):
 
 - `getIntlBasedOffset(date, timezoneId, fallback)` — Resolve UTC offset via `Intl.DateTimeFormat` with `shortOffset`
-- `formatGMTOffset(offsetMinutes)` — Convert offset to `GMT±HHMM` string
+- `formatGMTOffset(offsetMinutes)` — Convert offset to `GMT±HHMM` string, in whole minutes truncated toward zero as every engine prints it
 - `getLongTimezoneName(date, timezoneId)` — Extract long timezone name (e.g. "Pacific Daylight Time")
 - `isAmbiguousDateString(str)` — Detect date strings without explicit timezone indicator
 - `computeEpochAdjustment(parsedDate, timezoneId, fallback)` — Compute ms adjustment for Date constructor spoofing with iterative DST refinement
@@ -515,7 +544,7 @@ Wraps the `Worker` and `SharedWorker` constructors so worker realms receive the 
 
 #### worker-payload.ts
 
-Defines `SPOOF_CORE` — the self-contained ES5 spoofing payload injected into worker scopes — and `buildStandaloneWorkerPayload(identifier)`, which wraps it in an IIFE with the spoofed IANA id substituted. Shared by both `worker-patching.ts` (content-script path) and `src/background/worker-request-filter.ts` (Firefox `filterResponseData` path) so both paths inject byte-identical behavior. Provides full main-realm parity — `Date` constructor / `Date.parse`, `getTimezoneOffset`, local getters and setters, `getMilliseconds`, the formatter family, `Intl.DateTimeFormat` + `resolvedOptions`, and `Temporal.Now.*` — with `new.target`-aware constructors and, via the `__nativeMethod` concise-method wrapper, native method shape (no `prototype` / `[[Construct]]`, correct `name` / `length` / `[native code]` toString). See [Worker-scope overrides](#worker-scope-overrides-spoof_core).
+Defines `SPOOF_CORE` — the self-contained ES5 spoofing payload injected into worker scopes — and `buildStandaloneWorkerPayload(identifier, locale, fractionalOffset)`, which wraps it in an IIFE with the spoofed IANA id, the locale, and the `getTimezoneOffset` precision decision ([Sub-minute historical offsets](#sub-minute-historical-offsets)) substituted. Shared by both `worker-patching.ts` (content-script path) and `src/background/worker-request-filter.ts` (Firefox `filterResponseData` path) so both paths inject byte-identical behavior. Provides full main-realm parity — `Date` constructor / `Date.parse`, `getTimezoneOffset`, local getters and setters, `getMilliseconds`, the formatter family, `Intl.DateTimeFormat` + `resolvedOptions`, and `Temporal.Now.*` — with `new.target`-aware constructors and, via the `__nativeMethod` concise-method wrapper, native method shape (no `prototype` / `[[Construct]]`, correct `name` / `length` / `[native code]` toString). See [Worker-scope overrides](#worker-scope-overrides-spoof_core).
 
 ### Content Script → Injected Script Communication
 
@@ -1042,8 +1071,6 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 14. **Per-site locations: prerendered pages (Chrome).** Chrome can prerender a page (speculation rules, the omnibox) inside the tab the user is still looking at, so `tab.url` is the page being left. The prerendered page itself is judged by its own URL, for Filters and per-site locations alike (see [GET_SETTINGS](#get_settings)). Its subframes can't be: a message sender names no parent document, and finding one needs the optional `webNavigation` permission. So until the page is shown, its subframes follow the page being left for Filters and get the main location, if you've set one, but never a per-site location: the page being left's per-site location may belong to a different site than the prerendered page. When it's shown, every frame asks for its settings again (`prerenderingchange`) and catches up. Engine-level Spoofing's debugger session is attached to the tab, not the prerendered page, so that page keeps the injected timezone until it's shown and the session takes over. The `Accept-Language` header can't follow the prerendered page: header rules are per tab, so its requests carry the visible page's value until it's shown. Measured in Chrome 156 under Match mode, prerendering a Paris site from a Tokyo site sent `ja-JP` (with `Sec-Purpose: prefetch;prerender`) while the page reported `fr-FR`.
 
 15. **Per-site locations: Engine-level Spoofing right after a cross-site navigation (Chrome).** The debugger override is per tab, and it's switched to the new page's zone when the navigation starts. Both calls are asynchronous, so when the new page arrives first, its earliest scripts can see the **previous** page's zone: after moving from a site with a per-site location (Tokyo) to one without (Los Angeles) in the same tab, the second site's first `<head>` script read `Asia/Tokyo`. Later reads, and the next load, are correct. Measured in Chrome 156 against a local server that answers in about a millisecond, with and without the `webNavigation` permission; slower real sites hit it less often. Reloading the page avoids it.
-
-16. **Historical sub-minute offsets in Chrome.** Before standard time (for example 1879), most zones had offsets with seconds, such as Tokyo's +9:18:59. GeoSpoof's `getTimezoneOffset` truncates those to whole minutes on Chrome, because V8 used to. Chrome 156 itself now returns the fraction, while GeoSpoof's other Date, Intl and Temporal values keep it, so a page comparing them for an 1879 date sees `getTimezoneOffset` disagree by under a minute (TZP reports its offsets as "mixed"). This applies to every spoofed page in Chrome, with or without per-site locations, and doesn't affect present-day dates. Firefox is unaffected.
 
 ## Performance Targets
 

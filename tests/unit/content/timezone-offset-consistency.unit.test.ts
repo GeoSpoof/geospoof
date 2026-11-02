@@ -138,8 +138,9 @@ const HISTORICAL_UTC_EPOCHS = [
  * APIs return consistent offset values.
  *
  * Checks: getTimezoneOffset, toString GMT offset, toTimeString GMT offset.
- * For sub-minute historical offsets, getTimezoneOffset returns fractional minutes
- * while toString/toTimeString show whole-minute GMT±HHMM strings (rounded).
+ * For sub-minute historical offsets, getTimezoneOffset may return fractional minutes
+ * while toString/toTimeString show whole-minute GMT±HHMM strings (truncated toward
+ * zero, as every engine prints them).
  * Returns the UTC offset in minutes (positive = east) for further assertions.
  */
 function assertAllOffsetsAgree(cs: ReturnType<typeof setupContentScript>, date: Date): number {
@@ -155,14 +156,14 @@ function assertAllOffsetsAgree(cs: ReturnType<typeof setupContentScript>, date: 
   const toTimeStringResult = cs.Date.prototype.toTimeString.call(date);
   const toTimeStringOffset = parseGMTOffsetFromString(toTimeStringResult);
 
-  // String offsets are whole-minute rounded; getTimezoneOffset may be fractional.
-  // They must agree at the rounded-minute level.
-  const roundedUtcOffset = Math.round(utcOffset);
+  // String offsets are whole minutes truncated toward zero; getTimezoneOffset may
+  // be fractional. They must agree at the truncated-minute level.
+  const truncatedUtcOffset = Math.trunc(utcOffset);
   if (toStringOffset !== null) {
-    expect(toStringOffset).toBe(roundedUtcOffset);
+    expect(toStringOffset).toBe(truncatedUtcOffset);
   }
   if (toTimeStringOffset !== null) {
-    expect(toTimeStringOffset).toBe(roundedUtcOffset);
+    expect(toTimeStringOffset).toBe(truncatedUtcOffset);
   }
 
   return utcOffset;
@@ -282,18 +283,18 @@ describe("Cross-method offset consistency", () => {
             const gtzOffset = cs.Date.prototype.getTimezoneOffset.call(date);
             expect(-gtzOffset).toBeCloseTo(expectedOffset, 4);
 
-            // toString should contain the matching GMT offset (rounded to whole minutes)
+            // toString should contain the matching GMT offset (whole minutes, truncated toward zero)
             const toStringResult = cs.Date.prototype.toString.call(date);
             const toStringOffset = parseGMTOffsetFromString(toStringResult);
             if (toStringOffset !== null) {
-              expect(toStringOffset).toBe(Math.round(expectedOffset));
+              expect(toStringOffset).toBe(Math.trunc(expectedOffset));
             }
 
-            // toTimeString should contain the matching GMT offset (rounded to whole minutes)
+            // toTimeString should contain the matching GMT offset (whole minutes, truncated toward zero)
             const toTimeStringResult = cs.Date.prototype.toTimeString.call(date);
             const toTimeStringOffset = parseGMTOffsetFromString(toTimeStringResult);
             if (toTimeStringOffset !== null) {
-              expect(toTimeStringOffset).toBe(Math.round(expectedOffset));
+              expect(toTimeStringOffset).toBe(Math.trunc(expectedOffset));
             }
           });
         }
@@ -383,7 +384,7 @@ describe("Cross-method offset consistency", () => {
  * deriveOffsetFromParts (formatToParts, whole-second precision → loses sub-second
  * LMT detail) while TZP's offsetNanoseconds and timeZoneName methods use the
  * shortOffset string path (e.g. "GMT-9:59:36") which preserves full fractional
- * precision. On Firefox (engineTruncatesOffset = false), this caused a split:
+ * precision. On Firefox (fractional getTimezoneOffset), this caused a split:
  * 8 methods returning 599 and 2 returning 599.6 for America/Anchorage in 1879.
  *
  * Fix: on Firefox, getTimezoneOffset uses getIntlBasedOffset (shortOffset string)
