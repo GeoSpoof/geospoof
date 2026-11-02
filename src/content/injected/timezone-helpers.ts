@@ -302,12 +302,15 @@ export function getLocalDateViaOffset(
   return new OriginalDate(date.getTime() + offsetMinutes * 60000);
 }
 
-/** Convert an offset in minutes from UTC to a `GMT±HHMM` string.
- *  Rounds fractional minutes to the nearest whole minute for display,
- *  matching native toString() behavior for sub-minute historical offsets. */
+/** Convert an offset in minutes east of UTC to a `GMT±HHMM` string.
+ *  Prints whole minutes truncated toward zero, with the sign of the truncated
+ *  value, as every engine's native toString() does (V8 date.cc, SpiderMonkey
+ *  jsdate.cpp, JavaScriptCore DateConversion.cpp): 1879 Tokyo, +9:18:59, prints
+ *  GMT+0918, even on engines whose getTimezoneOffset keeps the seconds. */
 export function formatGMTOffset(offsetMinutes: number): string {
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const abs = Math.round(Math.abs(offsetMinutes));
+  const whole = Math.trunc(offsetMinutes);
+  const sign = whole < 0 ? "-" : "+";
+  const abs = Math.abs(whole);
   const hours = Math.floor(abs / 60);
   const minutes = abs % 60;
   return `GMT${sign}${String(hours).padStart(2, "0")}${String(minutes).padStart(2, "0")}`;

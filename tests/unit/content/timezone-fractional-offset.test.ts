@@ -8,7 +8,9 @@
  * Whichever the engine does, the override must do the same, and the local
  * getters must keep the seconds either way, because that is what every engine's
  * native getters do. Otherwise arkenfox TZP's `[offsets] timezone` row, which
- * hashes the offset from ten methods, reads "mixed".
+ * hashes the offset from ten methods, reads "mixed". `toString` and
+ * `toTimeString` print the offset in whole minutes truncated toward zero under
+ * both, as every engine does.
  *
  * Runs the production installers against a synthetic `Date.prototype` (an
  * object inheriting from the real one), so the global `Date` is never modified.
@@ -23,6 +25,7 @@ import {
   expectedGto,
   fakeSurface,
   gettersWestMinutes,
+  gmtTokenEastMinutes,
 } from "../../helpers/lmt-offsets";
 import {
   OFFSET_PROBE_EPOCH_MS,
@@ -92,6 +95,10 @@ function label(t: number): string {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+function zeroAsPositive(n: number): number {
+  return n === 0 ? 0 : n;
+}
+
 /**
  * The agreement checks for every case. Registered twice: once on the V8 /
  * JavaScriptCore component path, once on the SpiderMonkey one.
@@ -113,6 +120,14 @@ function describeAgreement(get: () => { state: StateModule; realm: BuildRealm })
             // The getters keep the seconds under both decisions.
             expect(gettersWest).toBe(expectedGto(eastSec, true));
             expect(gto).toBe(fractional ? gettersWest : Math.trunc(gettersWest));
+
+            // toString / toTimeString print whole minutes truncated toward zero,
+            // as every engine does, which is also -getTimezoneOffset truncated.
+            for (const str of [d.toString(), d.toTimeString()]) {
+              expect(str).toMatch(/ GMT[+-]\d{4} \(/);
+              expect(gmtTokenEastMinutes(str)).toBe(Math.trunc(eastSec / 60));
+              expect(gmtTokenEastMinutes(str)).toBe(zeroAsPositive(Math.trunc(-gto)));
+            }
           });
         }
       }
@@ -147,6 +162,21 @@ describe("pinned values, 1879-01-15 13:00 UTC", () => {
     shared.state!.setTimezoneData(zone);
     expect(shared.realm!(true)(T).getTimezoneOffset()).toBe(fractionalValue);
     expect(shared.realm!(false)(T).getTimezoneOffset()).toBe(truncatedValue);
+  });
+
+  test.each([
+    ["Asia/Tokyo", "GMT+0918"],
+    ["America/Los_Angeles", "GMT-0752"],
+    ["Europe/Amsterdam", "GMT+0017"],
+    ["America/New_York", "GMT-0456"],
+  ])("%s prints %s in toString and toTimeString under both decisions", (identifier, token) => {
+    const zone = LMT_CASES.find((z) => z.identifier === identifier)!;
+    shared.state!.setTimezoneData(zone);
+    for (const fractional of [true, false]) {
+      const d = shared.realm!(fractional)(T);
+      expect(d.toString()).toContain(` ${token} (`);
+      expect(d.toTimeString()).toContain(` ${token} (`);
+    }
   });
 
   test("2025 values are whole minutes and identical under both decisions", () => {
