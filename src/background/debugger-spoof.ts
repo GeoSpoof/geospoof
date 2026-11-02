@@ -66,8 +66,11 @@ const logger = createLogger("BG");
 /** CDP version string passed to chrome.debugger.attach. */
 const PROTOCOL_VERSION = "1.3";
 
-/** The tabs we hold a session on, and their child sessions. */
-const tracker = new TabSessionTracker();
+/**
+ * The tabs we hold a session on, and their child sessions. Pure, so Firefox
+ * and Safari builds, where nothing reads it, drop it.
+ */
+const tracker = /* @__PURE__ */ new TabSessionTracker();
 
 /** Flat child sessions (`sendCommand` with a `sessionId`) need Chrome 125+. */
 function childSessionsSupported(): boolean {
@@ -307,15 +310,16 @@ function onDebuggerDetach(
 }
 
 /**
- * Fired before a navigation's network request — the earliest hook, but it
- * doesn't hold the navigation, so a fast response can still commit first
- * (Known Limitation 15). Top-level frames only. Requires the optional
- * `webNavigation` permission (the popup requests it when the mode is enabled);
- * absent that, `onTabUpdated` is the fallback.
+ * Fired before a navigation's network request — the earliest hook, though an
+ * override sent now doesn't reach a cross-site document before its first
+ * scripts (Known Limitation 15). Top-level frames only (bound through
+ * `onTopFrame`). Requires the optional `webNavigation` permission (the popup
+ * requests it when the mode is enabled); absent that, `onTabUpdated` is the
+ * fallback.
  */
-const onBeforeNavigate = onTopFrame((details: ChromeWebNavigation.OnBeforeNavigateDetails) => {
+function onBeforeNavigate(details: ChromeWebNavigation.OnBeforeNavigateDetails): void {
   void ensureTabSpoofed(details.tabId, details.url);
-});
+}
 
 /**
  * A top-level navigation committed: re-apply for the URL that actually
@@ -323,21 +327,21 @@ const onBeforeNavigate = onTopFrame((details: ChromeWebNavigation.OnBeforeNaviga
  * so after a cross-site redirect the tab would otherwise keep the pre-redirect
  * URL's zone.
  */
-const onCommitted = onTopFrame((details: ChromeWebNavigation.OnCommittedDetails) => {
+function onCommitted(details: ChromeWebNavigation.OnCommittedDetails): void {
   void ensureTabSpoofed(details.tabId, details.url);
-});
+}
 
 /**
  * A top-level navigation failed or became a download / 204, so the page that
  * was showing stays. `onBeforeNavigate` already switched the tab to the
  * abandoned URL's zone; switch it back to the page's.
  */
-const onErrorOccurred = onTopFrame((details: ChromeWebNavigation.OnErrorOccurredDetails) => {
+function onErrorOccurred(details: ChromeWebNavigation.OnErrorOccurredDetails): void {
   void browser.tabs.get(details.tabId).then(
     (tab) => ensureTabSpoofed(details.tabId, tab.url),
     () => undefined // the tab closed
   );
-});
+}
 
 /**
  * Fallback attach path used only when `onBeforeNavigate` isn't bound (i.e. the
@@ -367,9 +371,9 @@ function registerWebNavigationListener(): void {
   if (webNavRegistered) return;
   const nav = chrome.webNavigation;
   if (nav?.onBeforeNavigate) {
-    nav.onBeforeNavigate.addListener(onBeforeNavigate);
-    nav.onCommitted?.addListener(onCommitted);
-    nav.onErrorOccurred?.addListener(onErrorOccurred);
+    nav.onBeforeNavigate.addListener(onTopFrame(onBeforeNavigate));
+    nav.onCommitted?.addListener(onTopFrame(onCommitted));
+    nav.onErrorOccurred?.addListener(onTopFrame(onErrorOccurred));
     webNavRegistered = true;
     logger.debug("[debugger] webNavigation listeners bound");
   }
