@@ -73,7 +73,7 @@ Control which sites GeoSpoof spoofs on. In the **Filters** tab, choose **All** (
 
 ### Per-site locations
 
-Give specific sites their own location while every other site keeps your **main location** (the one you set on the Main tab). For example, `twitch.tv` can see Mexico City and `chatgpt.com` can see Dublin, while everything else sees Tokyo.
+Give specific sites their own location while every other site keeps your **main location** (the one you set on the Main tab), if you've set one. For example, `twitch.tv` can see Mexico City and `chatgpt.com` can see Dublin, while everything else sees Tokyo.
 
 **What it changes, and what it doesn't.** A site's own location changes what that site's pages can read from your browser: the location they get if they ask for it, the time zone in dates and clocks, and the language if **Reported Language** is set to **Match my location**. It doesn't change your IP address, your account details, or where you legally live, and those are what services usually use for ads, prices, and which terms apply to you. So giving a site its own location won't, by itself, remove ads that are decided by your IP, and it won't change how a service classifies your account. For the most consistent result, pair it with a VPN exit in the same place.
 
@@ -81,7 +81,7 @@ Give specific sites their own location while every other site keeps your **main 
 
 **One location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, under one location. Then the same company sees one location throughout.
 
-**Embedded content goes with the page.** Everything inside a page, such as embedded videos and sign-in frames, sees that page's location. A Twitch player embedded on another site gets that other site's location.
+**Embedded content goes with the page.** Content inside a page, such as embedded videos and sign-in frames, sees that page's location wherever GeoSpoof can reach it. [Known Limitations](API.md#known-limitations) lists the exceptions. A Twitch player embedded on another site gets that other site's location.
 
 **Trackers that work across sites.** A tracker embedded on many sites may notice your time zone changing from site to site while your IP address stays the same. Picking per-site locations in the same time zone as your main location avoids this.
 

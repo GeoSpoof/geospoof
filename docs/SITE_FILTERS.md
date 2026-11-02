@@ -132,7 +132,7 @@ The **Per-site locations** list at the bottom of the Filters tab gives specific 
 | **Filters** (mode)     | **Whether** GeoSpoof is on for a site                 |
 | **Per-site locations** | **Which** location it reports on a site where it's on |
 
-Filters are checked first. If they keep GeoSpoof off for a site, its own location doesn't apply. Otherwise the matching location replaces the main location and time zone (and, with Reported Language on **Match my location**, the language); every other site keeps your main location. Neither setting changes your IP address. See [Per-site locations in the User Guide](USER_GUIDE.md#per-site-locations) for what that means in practice.
+Filters are checked first. If they keep GeoSpoof off for a site, its own location doesn't apply. Otherwise the matching location replaces the main location and time zone (and, with Reported Language on **Match my location**, the language); every other site keeps your main location, if you've set one. Neither setting changes your IP address. See [Per-site locations in the User Guide](USER_GUIDE.md#per-site-locations) for what that means in practice.
 
 **Patterns are host-only.** Per-site locations use the same pattern language as filters, minus two forms:
 
