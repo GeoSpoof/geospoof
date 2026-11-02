@@ -319,6 +319,27 @@ describe("Main tab: the line when a site location applies", () => {
       expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
     });
 
+    // Removing the rule would leave the site unspoofed, not on a main location.
+    test("hidden with no main location set, even for this site's own rule", async () => {
+      renderSiteLocationLine(
+        makeSettings({
+          location: null,
+          timezone: null,
+          locationName: null,
+          siteLocations: [ENTRY_MEXICO_CITY],
+        }),
+        "https://twitch.tv/x",
+        false
+      );
+      expect(isShown("siteLocationLineMain")).toBe(true);
+      expect(isShown("siteLocationLineEdit")).toBe(true);
+      expect(isShown("siteLocationLineUseMain")).toBe(false);
+
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
+    });
+
     test("a later render shows it again where it applies", () => {
       renderSiteLocationLine(
         makeSettings({ siteLocations: [rule("a", ["*.ru"])] }),

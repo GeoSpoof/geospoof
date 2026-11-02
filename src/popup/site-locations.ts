@@ -5,8 +5,9 @@
  * Three surfaces onto `settings.siteLocations`:
  *   - the Main tab's one-line note (`#siteLocationLine`), rendered only when a
  *     site location applies to the active tab: "On twitch.tv: Mexico City",
- *     with Edit, and Use main location when removing this site's own rule
- *     leaves it on the main location. Nothing renders anywhere else;
+ *     with Edit, and Use main location when a main location is set and
+ *     removing this site's own rule leaves it there. Nothing renders anywhere
+ *     else;
  *   - the Filters tab's collapsed "Per-site locations" disclosure at the
  *     bottom: every entry, with edit and remove (optimistic, reverted on failure
  *     like the scope list), and the one editor;
@@ -230,7 +231,9 @@ export function computeSiteLocationLineState(
 
 /**
  * Whether "Use main location", which removes only the winning `pattern`,
- * gives exactly this site the main location. Both must hold:
+ * gives exactly this site the main location. All must hold:
+ *   - a main location is set, so removing the rule doesn't leave the site
+ *     unspoofed;
  *   - the pattern is this site's own: its identity is the host's or the
  *     suggested pattern's, so `twitch.tv` on www.twitch.tv qualifies, while a
  *     wildcard like `*.ru` or a parent domain covering other sites doesn't;
@@ -243,6 +246,7 @@ function useMainDeliversMain(
   entry: SiteLocation,
   pattern: string
 ): boolean {
+  if (!effective.location) return false;
   const key = siteLocationPatternKey(pattern);
   const ownKeys = [parseSiteLocationPattern(host), suggestSiteLocationPattern(tabUrl)].map((own) =>
     own === null ? null : siteLocationPatternKey(own)
