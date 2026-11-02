@@ -76,9 +76,10 @@ export interface SetPreserveGeoPromptPayload {
 }
 
 /**
- * Toggles browser-level (chrome.debugger / CDP) geo+timezone spoofing.
- * Chromium only — the popup requests the optional `debugger` permission before
- * sending `enabled: true`, and revokes it after sending `enabled: false`.
+ * Toggles Engine-level (chrome.debugger / CDP) timezone spoofing. Chromium
+ * only. `debugger` is a required permission there; the popup requests the
+ * optional `webNavigation` permission when it sends `enabled: true`, and
+ * removes it after sending `enabled: false`.
  */
 export interface SetDebuggerModePayload {
   enabled: boolean;

@@ -527,11 +527,12 @@ export async function handleSetProtectionStatus(
 }
 
 /**
- * Toggle browser-level (chrome.debugger / CDP) spoofing. Persists the flag,
- * reconciles the live debugger state (attach + apply when turning on, detach
- * when turning off), then re-broadcasts so the content-script geo/timezone
- * injection is suppressed/restored to match (WebRTC injection is unaffected).
- * Chromium-only in effect; a no-op spoof sync on other engines.
+ * Toggle Engine-level (chrome.debugger / CDP) timezone spoofing. Persists the
+ * flag, reconciles the live debugger state (attach + apply when turning on,
+ * detach when turning off), then re-broadcasts so every frame gets the new
+ * `engineTimezone` flag and re-checks whether its engine reports its zone
+ * (geolocation and WebRTC injection are unaffected). Chromium-only in effect;
+ * a no-op spoof sync on other engines.
  */
 export async function handleSetDebuggerMode(payload: SetDebuggerModePayload): Promise<void> {
   const { enabled } = payload;
