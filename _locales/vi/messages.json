@@ -770,7 +770,7 @@
     "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
   },
   "siteLocation_reloadHint": {
-    "message": "Tải lại các trang của trang web này để áp dụng thay đổi ở mọi nơi.",
+    "message": "Tải lại các trang bị ảnh hưởng để áp dụng thay đổi.",
     "description": "Hint shown right after a site location change made from the popup, because already-open pages keep their old values until reloaded."
   },
   "siteLocation_sitesLabel": {

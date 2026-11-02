@@ -1211,7 +1211,7 @@ describe("Accessibility", () => {
   });
 
   describe("confirmations are announced", () => {
-    const RELOAD = "Reload pages on this site to apply the change everywhere.";
+    const RELOAD = "Reload affected pages to apply the change.";
 
     /** Wait out the announcer's clear-then-set delay, then read it. */
     async function announced(): Promise<string> {
@@ -1224,6 +1224,18 @@ describe("Accessibility", () => {
       renderAll(settings, url);
       byId("siteLocationsAddButton").click();
     }
+
+    // One hint for every change, and a change can reach sites other than the
+    // one in the tab (up to ten in one save), so it names no site.
+    test("the fallback is the en catalog's wording", () => {
+      const en = JSON.parse(readFileSync("_locales/en/messages.json", "utf8")) as Record<
+        string,
+        { message: string }
+      >;
+      expect(en.siteLocation_reloadHint.message).toBe(RELOAD);
+      expect(text("siteLocationsReloadHint")).toBe(RELOAD);
+      expect(text("siteLocationLineReloadHint")).toBe(RELOAD);
+    });
 
     test("Save", async () => {
       openEditorAt("https://www.example.com/page", makeSettings());

@@ -415,9 +415,7 @@ function announce(text: string): void {
 
 /** The confirmation after a change: the same words as the visible reload hint. */
 function announceReloadHint(): void {
-  announce(
-    t("siteLocation_reloadHint") || "Reload pages on this site to apply the change everywhere."
-  );
+  announce(t("siteLocation_reloadHint") || "Reload affected pages to apply the change.");
 }
 
 // ── Filters tab: the "Per-site locations" disclosure ────────────────────────
