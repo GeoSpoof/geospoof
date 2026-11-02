@@ -18,6 +18,8 @@ import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import {
   loadSettings,
+  loadSettingsOrThrow,
+  pushRegionNow,
   updateSettings,
   validateAccuracySetting,
   validateLocationPrecision,
@@ -107,8 +109,23 @@ export interface PendingSettings {
   siteLocations?: string;
 }
 
-interface PendingResponse {
+/**
+ * Field of the GET_PENDING_SETTINGS response (not an App Group key) that the
+ * native handler sets to `true` while the app has no current per-site list.
+ * It asks the extension to push its region once. Only the handler writes it,
+ * and only adoptPendingResponse reads it. The geospoof-ios parity test reads
+ * this literal, so keep it on one line.
+ */
+export const REGION_WANTED_FIELD = "regionWanted";
+
+export interface PendingResponse {
   pending: PendingSettings | null;
+  /**
+   * The app's one-time request for a region push. It rides next to
+   * `pending: null` too. Absent from an older handler, and anything but `true`
+   * asks for nothing.
+   */
+  [REGION_WANTED_FIELD]?: boolean;
 }
 
 function round4(v: number): number {
@@ -188,20 +205,68 @@ export async function adoptPendingSettingsFromApp(): Promise<void> {
     return;
   }
 
-  const pending = response?.pending;
-  if (!pending || typeof pending.updatedAt !== "number") {
-    return;
-  }
+  await adoptPendingResponse(response);
+}
 
-  await adoptPendingSnapshot(pending);
+/**
+ * Act on the native host's GET_PENDING_SETTINGS response: adopt its snapshot,
+ * then answer the app's region request. Split from adoptPendingSettingsFromApp
+ * so tests can drive it: Vitest compiles `__SAFARI__` to false, which removes
+ * the native fetch above. Production calls it only from there. Never throws.
+ */
+export async function adoptPendingResponse(response: PendingResponse | undefined): Promise<void> {
+  // 1. Read the flag before the no-snapshot return below: the handler sends it
+  // next to `pending: null` too, which is the usual case while the app is unset.
+  const regionWanted = response?.[REGION_WANTED_FIELD] === true;
+  const before = regionWanted ? await readSettingsForRegionPush() : null;
+
+  const pending = response?.pending;
+  if (pending && typeof pending.updatedAt === "number") {
+    // 2. Adoption first, awaited.
+    await adoptPendingSnapshot(pending);
+  }
+  if (!regionWanted) return;
+
+  // 3. Push only if adoption saved nothing: every save already pushed, through
+  // saveSettings. So a push that isn't a save never carries a list older than
+  // an app edit Safari hasn't adopted yet. A read that failed skips the push:
+  // loadSettings would have answered DEFAULT_SETTINGS, and the app would take
+  // their empty site list as Safari's. A later pass that sees the flag asks again.
+  if (before === null) return;
+  const settings = await readSettingsForRegionPush();
+  if (settings === null || settings.lastUpdated !== before.lastUpdated) return;
+  pushRegionOnce(settings);
+}
+
+/** The stored settings, or null when the storage read throws. Never throws. */
+async function readSettingsForRegionPush(): Promise<Settings | null> {
+  try {
+    return await loadSettingsOrThrow();
+  } catch (error) {
+    logger.warn("regionWanted: settings read failed, not pushing the region:", error);
+    return null;
+  }
+}
+
+// 4. Single-flight. Adoption runs on background boot, tab activation, navigation
+// start, popup open and content-script boot, so several calls can see the flag
+// before the first push lands. The guard clears when the push settles, so a
+// later adoption that still sees the flag (after a failed push, say) pushes again.
+let regionPushInFlight = false;
+
+function pushRegionOnce(settings: Settings): void {
+  if (regionPushInFlight) return;
+  regionPushInFlight = true;
+  void pushRegionNow(settings).finally(() => {
+    regionPushInFlight = false;
+  });
 }
 
 /**
  * Adopt one app-written snapshot when it's newer than the extension's last
  * change (symmetric last-writer-wins on `updatedAt`), in numbered steps.
- * Split from adoptPendingSettingsFromApp so tests can drive it: Vitest compiles
- * `__SAFARI__` to false, which removes the native fetch above. Production calls
- * it only from there. Never throws.
+ * Exported so tests can drive it directly. Production calls it only from
+ * adoptPendingResponse. Never throws.
  */
 export async function adoptPendingSnapshot(pending: PendingSettings): Promise<void> {
   const settings = await loadSettings();
