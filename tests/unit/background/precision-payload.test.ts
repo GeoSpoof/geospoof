@@ -474,7 +474,8 @@ describe("location-precision cadence through the page-bound builders", () => {
       gate.resolve();
       await Promise.all([pa, pb]);
 
-      expect(userScripts.log).toEqual(["unregister", "register", "unregister", "register"]);
+      // The first call was overtaken, so it only unregisters (review F19).
+      expect(userScripts.log).toEqual(["unregister", "unregister", "register"]);
       expect(lastRegisteredPayload(userScripts.register).location).toEqual(
         resolvePageLocation(b, null)
       );
