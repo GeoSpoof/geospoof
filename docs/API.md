@@ -560,6 +560,8 @@ interface SettingsEventDetail {
 
 On Firefox, `cloneInto()` is used to make the detail object accessible across content-script / page-context boundaries.
 
+The [settings revision](#settings-revision) that pushes and `GET_SETTINGS` replies carry stays in the content script; it's never part of the event detail.
+
 ### Hosted Safari activation handshake
 
 The isolated-world content script also owns a deliberately narrow `window.postMessage`
@@ -669,7 +671,7 @@ Response depends on the sender:
 - **Extension pages** (the popup, including the popup opened as a tab on Android) get the complete `Settings` object.
 - **Content scripts** get the `UpdateSettingsPayload` for their top-level page, with no list keys. The top-level URL is `topLevelUrlForSender` in `src/background/sender-page-url.ts`: a top-level document is judged by its own URL (`sender.url`), and a subframe by its tab's (`sender.tab.url`). A document counts as top-level when `sender.frameId === 0`, or when it's prerendering (`documentLifecycle: "prerender"`, Chrome) and sent `topFrame: true`, because a prerendered page's outermost frame has a non-zero `frameId`. For the active top frame, a same-origin `tab.url` wins, since Firefox fixes `sender.url` when the content script starts and a History API navigation can't leave the origin. A missing `sender.url` falls back to `tab.url`. A subframe of a prerendering document, or a prerendering document with no `sender.url`, can't name its top-level page, so it follows `tab.url` for Filters and the main location but gets no per-site location (`isUndeterminedPrerenderedFrame`, [Known Limitation 14](#known-limitations)). The toolbar badge and title always follow `tab.url`, the page the user sees. With Engine-level Spoofing on, the reply withholds `timezone` as the broadcast does, except to a prerendering document, which the tab's debugger session doesn't reach.
 
-Content scripts send it at `document_start`, again when a page is restored from the back/forward cache (`pageshow` with `persisted`), and once when a prerendered page is shown (`prerenderingchange`, Chrome). Only the newest reply is applied.
+Content scripts send it at `document_start`, again when a page is restored from the back/forward cache (`pageshow` with `persisted`), and once when a prerendered page is shown (`prerenderingchange`, Chrome). The reply to a content script also carries `revision`, the [settings revision](#settings-revision) it was built from. A content script applies a reply only if it sent no newer request since, and the reply's revision isn't lower than one it has already applied.
 
 #### COMPLETE_ONBOARDING
 
@@ -812,9 +814,12 @@ Fire-and-forget. Sent by the content-script Worker wrapper just before handing o
     debugLogging: boolean,
     verbosityLevel: string,
     webrtcProtection: boolean
-  }
+  },
+  revision: number // settings revision the payload was built from; on the envelope, not in the payload
 }
 ```
+
+`revision` is the [settings revision](#settings-revision) of the snapshot the payload was built from. The content script drops a push whose revision is lower than one it has already applied, and applies one that's equal or missing.
 
 #### PING
 
@@ -848,9 +853,31 @@ Persisted in `browser.storage.local` under the key `"settings"`.
   precisionCadence: "never" | "session" | "hour" | "day", // default "never"; bridged to the Safari app as a plain string
   version: string,
   lastUpdated: number,              // epoch ms; default 0 (never-saved sentinel — see app-bridge.ts)
+  revision: number,                 // strictly increasing per save; never bridged or sent to pages
   siteLocations: SiteLocation[]     // default []; see Per-site locations below
 }
 ```
+
+### Settings revision
+
+`revision` orders the settings snapshots that reach pages, so a delivery built before a change can't undo that change. It's extension-internal.
+
+- **Issued per save.** Every save runs inside the serialized settings write and stores `max(Date.now(), previous + 1)`. `previous` is the higher of the stored revision and the highest revision this background has read or issued since it started, so two saves in one millisecond, a clock set back, or a background restart still get a higher revision. At `Number.MAX_SAFE_INTEGER` it stops increasing instead of overflowing, and later saves store the same value. Only the save sets it: `updateSettings` and `updateSettingsWith` ignore a `revision` in their updates. Settings stored before the field existed load as revision 0.
+- **Carried on every page delivery.** The `UPDATE_SETTINGS` envelope (outside `payload`) and a content script's `GET_SETTINGS` reply carry the revision of the snapshot they were built from. Every push goes through `sendSettingsToTab`, including the injection-check alarm's and the `tabs.onCreated` push.
+- **Content script rule.** A content script drops a delivery whose revision is lower than the highest one it has applied. An equal revision applies, because a precision rollover, a navigation or a tab event often re-sends the same settings. A missing or invalid one applies too, and doesn't change the revision the page has recorded. A page that has applied nothing drops nothing. A delivery built from a failed settings read (the defaults, revision 0) is therefore dropped by a page that has applied real settings.
+- **Cache and bootstrap rule.** The worker-filter cache, the Accept-Language snapshot and the Firefox bootstrap registration skip a snapshot older than the newest one they've taken. A navigation still needs its Accept-Language re-plan, so it uses the newer of the cached snapshot and its own. These marks live in background memory and reset when the background restarts.
+- **A failed save restores it.** When the write fails, the object's `revision` goes back to its previous value. A caller that keeps the object (startup does after a failed migration save) therefore never delivers a revision that isn't stored.
+- **Never bridged, never sent to pages.** `REGION_UPDATE` doesn't carry it. `lastUpdated` stays the save's `Date.now()`, and it's what the Safari bridge compares. The revision stays in the content script's isolated world: the event detail, the Firefox bootstrap payload and the worker payloads don't include it.
+
+**The one way it can go backwards.** It takes all three of these:
+
+1. The save's previous revision isn't the latest stored one. Either the stored `settings` value was lost or replaced by one without a valid revision (cleared storage, a corrupt value, or a Safari quota retry whose remove succeeded and whose second write failed), or the settings read inside the save's write failed.
+2. The background restarted after that revision was stored and hasn't read settings successfully since. The read every background spawn makes in `index.ts` counts, so it must also have failed, or have run before storage lost the value.
+3. The clock at that save is at or behind the last revision: it was set back, or more than one save per millisecond was sustained right before the restart.
+
+Pages that applied the old revision then drop deliveries until they reload or navigate (a new content script has applied nothing), or until the clock passes that revision. The caches and the bootstrap aren't affected, because the restart reset them.
+
+**Same-document navigation across an unrelated save.** A History API navigation pushes the new route's Filters and site-location decision, built from settings read at that moment. If a save that doesn't broadcast (favorites, theme, UI language, onboarding, the Safari app's `autoSyncBlocked` or favorites) lands between that read and the read for a `GET_SETTINGS` reply built for the old URL, and the reply arrives first, the route push carries the lower revision and is dropped. The page keeps the previous route's decision until the next push or navigation. This needs path-scoped patterns, an early `replaceState` and an unrelated save in that gap.
 
 ### Per-site locations
 
@@ -933,7 +960,7 @@ A widget or Shortcut action restamps the app's snapshot, so the app's last-writt
 Known limits:
 
 1. **Alarm timing.** Chrome alarms have a 30 s floor and can fire late; alarms missed during sleep fire on wake; a dropped alarm is re-created on the next spawn. Until the rollover runs, every frame keeps the previous point, so a new point arrives at or after its boundary, never before. Where alarms don't fire at all (unverified on iOS Safari), the rollover happens at the first background spawn more than 2 minutes after the boundary.
-2. **Rollover race.** A `GET_SETTINGS` reply or push computed just before the advance and delivered after the rollover push leaves that frame on the previous point until the next push or a reload. Every settings change has the same race today.
+2. **Rollover race.** A rollover saves nothing, so its push carries the same settings revision as the deliveries before it. A `GET_SETTINGS` reply or push computed just before the advance and delivered after the rollover push still applies, and leaves that frame on the previous point until the next push or a reload. Settings changes don't race this way: a page drops a delivery built from older settings than one it has applied (see [Settings revision](#settings-revision)).
 3. **Firefox bootstrap window.** Documents starting during re-registration can get the previous point (or no bootstrap) inline, then the current one from the async path milliseconds later. A registration persisted across a browser restart can carry the previous period's point until startup re-registers. Both are observable only through an early `watchPosition`, and only with Instant timezone protection on.
 4. **Safari `storage.session` lifetime is unverified.** It's expected to survive background unload and clear when Safari quits (on iOS, when iOS terminates Safari). If it behaves differently, that defines what a session is on Safari.
 5. **Tabs open across an extension update, reload, or disable/enable** keep their old point until reloaded: their orphaned content scripts get no more pushes. New pages and frames in those tabs use the new session id or the recomputed bucket.

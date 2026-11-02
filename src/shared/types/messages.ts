@@ -210,6 +210,16 @@ export interface UpdateSettingsPayload {
   locale: SpoofedLocalePayload | null;
 }
 
+/** The UPDATE_SETTINGS message a tab receives. `revision` rides on the envelope, never in the payload. */
+export interface UpdateSettingsMessage {
+  type: "UPDATE_SETTINGS";
+  payload: UpdateSettingsPayload;
+  revision?: number;
+}
+
+/** A content script's GET_SETTINGS reply: its page payload plus the revision it was built from. Isolated world only. */
+export type ContentSettingsReply = UpdateSettingsPayload & { revision?: number };
+
 /**
  * Optional GET_SETTINGS payload. Extension pages send none.
  */

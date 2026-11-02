@@ -33,6 +33,7 @@ import type {
   RemoveSiteLocationPayload,
   SiteLocationResponse,
   GetSettingsPayload,
+  ContentSettingsReply,
 } from "@/shared/types/messages";
 import type {
   LocationName,
@@ -78,6 +79,7 @@ import {
   broadcastSettingsToTabs,
   injectContentScriptIntoExistingTabs,
   checkTabInjection,
+  revisionField,
 } from "./tabs";
 import { buildPagePayload } from "./page-payload";
 import {
@@ -195,7 +197,11 @@ export async function handleMessage(
           applyTabIndicator(senderTabId, settings, _sender.tab.url);
         }
 
-        return payload;
+        // Stamped with the revision of the snapshot the payload was built
+        // from, so the content script can drop a reply built from settings
+        // older than a push it has already applied.
+        const reply: ContentSettingsReply = { ...payload, ...revisionField(settings) };
+        return reply;
       }
 
       case "SET_LOCATION":

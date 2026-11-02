@@ -63,6 +63,7 @@ import { createLogger } from "@/shared/utils/debug-logger";
 import { hostToASCII } from "@/shared/utils/idn";
 import { computeEffectiveSiteLocations, decomposePattern, isValidIpv4 } from "@/shared/utils/scope";
 import { compareSpecificity, siteLocationSpecificity } from "@/shared/utils/site-locations";
+import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 import { buildBootstrapPayload } from "./page-payload";
 import { RESTRICTED_DOMAINS } from "./restricted-url";
 
@@ -366,6 +367,9 @@ let queue: Promise<void> = Promise.resolve();
 /** Counts calls; only the latest one may register. */
 let generation = 0;
 
+/** The newest settings revision a call has been made with since the background started. */
+let newestRevision: number | undefined;
+
 /**
  * Register (or refresh) the document_start bootstrap user scripts to reflect
  * the current settings, or remove them when there's nothing to seed.
@@ -375,11 +379,22 @@ let generation = 0;
  * call wins: without that, two overlapping calls could unregister twice, then
  * register A, then fail to register B on the duplicate ids and leave A's stale
  * code in place. A call that a newer one has overtaken only unregisters, so
- * scripts for settings that are no longer stored are never installed.
+ * scripts for settings that are no longer stored are never installed. A call
+ * whose settings are older (by settings revision) than a call already made is
+ * skipped without cancelling anything, so a caller that loaded settings before
+ * a write can't replace the write's registration with the older settings.
  */
 export function updateBootstrapRegistration(settings: Settings): Promise<void> {
   // Compiled out entirely on Chromium / Safari builds.
   if (!__FIREFOX__) return Promise.resolve();
+
+  const r = readRevision(settings.revision);
+  if (isOlderRevision(r, newestRevision)) {
+    // No generation bump: the newer registration must not be cancelled.
+    logger.debug(`[bootstrap] skipped settings revision ${r}, older than ${newestRevision}`);
+    return Promise.resolve();
+  }
+  if (r !== undefined) newestRevision = r;
 
   // registerNow catches everything, so the queue never wedges.
   const gen = ++generation;

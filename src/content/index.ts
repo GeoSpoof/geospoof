@@ -11,6 +11,7 @@ import type { GetSettingsPayload, UpdateSettingsPayload } from "@/shared/types/m
 import type { SpoofedLocalePayload } from "@/shared/locale/resolver";
 import { createLogger, setDebugEnabled, setVerbosityLevel } from "@/shared/utils/debug-logger";
 import { now } from "@/shared/utils/safe-time";
+import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 
 const logger = createLogger("CS");
 
@@ -230,6 +231,22 @@ interface ReceivedSettings {
   accuracySetting?: AccuracySetting;
   accuracySeed?: number;
   locale?: SpoofedLocalePayload | null;
+  /** The settings revision a GET_SETTINGS reply was built from. Read by `acceptDelivery`; never copied. */
+  revision?: unknown;
+}
+
+/** Highest settings revision this page has applied. Isolated world only; never dispatched. */
+let appliedRevision: number | undefined;
+
+/** Whether to apply a delivery stamped `revision`. Records it when it applies. */
+function acceptDelivery(revision: unknown, what: string): boolean {
+  const r = readRevision(revision);
+  if (isOlderRevision(r, appliedRevision)) {
+    logger.debug(`Dropped ${what} built from older settings (revision ${r} < ${appliedRevision})`);
+    return false;
+  }
+  if (r !== undefined) appliedRevision = r;
+  return true;
 }
 
 /** Copy a received payload into module scope. The caller dispatches it. */
@@ -258,13 +275,14 @@ function applySettings(settings: ReceivedSettings, logLabel: string): void {
 
 // Listen for settings updates from background script
 browser.runtime.onMessage.addListener(
-  (message: { type: string; payload?: UpdateSettingsPayload }) => {
+  (message: { type: string; payload?: UpdateSettingsPayload; revision?: unknown }) => {
     logger.debug("Received message from background:", {
       type: message.type,
       payload: message.payload,
     });
 
     if (message.type === "UPDATE_SETTINGS" && message.payload) {
+      if (!acceptDelivery(message.revision, "an UPDATE_SETTINGS push")) return;
       applySettings(message.payload, "Settings updated:");
       updateInjectedScript();
     } else if (message.type === "PING") {
@@ -297,10 +315,17 @@ let settingsRequestSeq = 0;
  * Ask the background for this page's settings and dispatch the reply.
  *
  * A reply that arrives after a newer request was sent is dropped, so two
- * refreshes resolved out of order can't leave the older values in place. A
- * reply can still overwrite an UPDATE_SETTINGS push computed after it, until
- * the next push or a reload; every settings change has that race (Known
- * Limitation "Rollover race" in docs/API.md).
+ * refreshes resolved out of order can't leave the older values in place. Every
+ * reply and push also carries the revision of the settings it was built from,
+ * and one older than what this page has already applied is dropped, so a reply
+ * built before a change can't overwrite that change's push. An equal revision
+ * applies: a precision rollover, a navigation, or a tab event usually re-sends
+ * the same settings. A rollover changes the point without a save, so a reply
+ * computed just before it can still land after its push (Known Limitation
+ * "Rollover race" in docs/API.md). A push that carries a newer page URL but
+ * older settings, such as a same-document navigation racing a load reply
+ * across an unrelated save, is dropped; the next push or navigation corrects
+ * it.
  */
 function requestSettings(reason: SettingsRequestReason): void {
   const seq = ++settingsRequestSeq;
@@ -322,6 +347,7 @@ function requestSettings(reason: SettingsRequestReason): void {
         logger.debug(`Dropped a GET_SETTINGS reply superseded by a newer request (${reason})`);
         return;
       }
+      if (!acceptDelivery(settings.revision, `a GET_SETTINGS reply (${reason})`)) return;
       applySettings(
         settings,
         reason === "load" ? "Initial settings loaded:" : "Settings refreshed:"
