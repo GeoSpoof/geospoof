@@ -31,65 +31,15 @@ import {
   OFFSET_PROBE_EPOCH_MS,
   decideNativeFractionalOffset,
 } from "@/shared/native-offset-precision";
-
-type StateModule = typeof import("@/content/injected/state");
-type MakeDate = (epochMs: number) => Date;
-type BuildRealm = (fractional: boolean) => MakeDate;
+import {
+  loadInjectedDateRealm,
+  type BuildDateRealm,
+  type InjectedState,
+} from "../../helpers/synthetic-date-realm";
 
 const UA_HEADLESS_156 =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36";
 const UA_155 = UA_HEADLESS_156.replace("HeadlessChrome/156", "Chrome/155");
-
-/** `state.ts` captures navigator.geolocation at import time and jsdom has none. */
-function polyfillGeolocation(): void {
-  if (!("geolocation" in navigator)) {
-    Object.defineProperty(navigator, "geolocation", {
-      value: {
-        getCurrentPosition: () => undefined,
-        watchPosition: () => 0,
-        clearWatch: () => undefined,
-      },
-      configurable: true,
-    });
-  }
-}
-
-/** Import the injected modules (fresh after `vi.resetModules()`) and return a realm factory. */
-async function loadInjected(): Promise<{ state: StateModule; realm: BuildRealm }> {
-  polyfillGeolocation();
-  const state = await import("@/content/injected/state");
-  const { installGetTimezoneOffsetOverrideOn } =
-    await import("@/content/injected/timezone-overrides");
-  const { installDateGetterOverridesOn } = await import("@/content/injected/date-getters");
-  const { installDateFormattingOverridesOn } = await import("@/content/injected/date-formatting");
-  state.setSettingsReceived(true);
-  state.setSpoofingEnabled(true);
-
-  const realm: BuildRealm = (fractional) => {
-    const proto = Object.create(Date.prototype) as object;
-    installGetTimezoneOffsetOverrideOn(proto, state.originalGetTimezoneOffset, fractional);
-    installDateGetterOverridesOn(proto, {
-      getHours: state.originalGetHours,
-      getMinutes: state.originalGetMinutes,
-      getSeconds: state.originalGetSeconds,
-      getMilliseconds: state.originalGetMilliseconds,
-      getDate: state.originalGetDate,
-      getDay: state.originalGetDay,
-      getMonth: state.originalGetMonth,
-      getFullYear: state.originalGetFullYear,
-    });
-    installDateFormattingOverridesOn(proto, {
-      toString: state.originalToString,
-      toDateString: state.originalToDateString,
-      toTimeString: state.originalToTimeString,
-      toLocaleString: state.originalToLocaleString,
-      toLocaleDateString: state.originalToLocaleDateString,
-      toLocaleTimeString: state.originalToLocaleTimeString,
-    });
-    return (t) => Object.setPrototypeOf(new Date(t), proto) as Date;
-  };
-  return { state, realm };
-}
 
 function label(t: number): string {
   return new Date(t).toISOString().slice(0, 10);
@@ -103,7 +53,7 @@ function zeroAsPositive(n: number): number {
  * The agreement checks for every case. Registered twice: once on the V8 /
  * JavaScriptCore component path, once on the SpiderMonkey one.
  */
-function describeAgreement(get: () => { state: StateModule; realm: BuildRealm }): void {
+function describeAgreement(get: () => { state: InjectedState; realm: BuildDateRealm }): void {
   for (const fractional of [true, false]) {
     describe(fractional ? "native keeps the fraction" : "native truncates", () => {
       for (const zone of LMT_CASES) {
@@ -135,10 +85,10 @@ function describeAgreement(get: () => { state: StateModule; realm: BuildRealm })
   }
 }
 
-const shared: { state?: StateModule; realm?: BuildRealm } = {};
+const shared: { state?: InjectedState; realm?: BuildDateRealm } = {};
 
 beforeAll(async () => {
-  Object.assign(shared, await loadInjected());
+  Object.assign(shared, await loadInjectedDateRealm());
 });
 
 describe("getTimezoneOffset agrees with the getters (V8 / JavaScriptCore component path)", () => {
@@ -234,13 +184,13 @@ describe("real zone with no seconds: the decision falls back to the user agent",
 });
 
 describe("getTimezoneOffset agrees with the getters (SpiderMonkey component path)", () => {
-  const sm: { state?: StateModule; realm?: BuildRealm } = {};
+  const sm: { state?: InjectedState; realm?: BuildDateRealm } = {};
   const g = globalThis as { InternalError?: unknown };
 
   beforeAll(async () => {
     vi.resetModules();
     g.InternalError = function InternalError(): void {};
-    Object.assign(sm, await loadInjected());
+    Object.assign(sm, await loadInjectedDateRealm());
   });
 
   afterAll(() => {
