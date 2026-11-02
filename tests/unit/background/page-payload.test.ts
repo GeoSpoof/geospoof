@@ -139,6 +139,7 @@ async function collectPayloads(url: string): Promise<UpdateSettingsPayload[]> {
   const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
     ((tab: { id?: number; url?: string }) => void) | undefined;
   expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+  browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url });
   vi.useFakeTimers();
   try {
     onCreated!({ id: 42, url });
@@ -205,8 +206,12 @@ describe("Site locations: all consumers agree", () => {
       expect(group).toBeUndefined();
     }
 
-    // Worker payload embeds the same zone.
-    expect(workerPayloadFor(SETTINGS, row.url)).toContain(JSON.stringify(zone));
+    // Worker payload embeds the same zone, or is empty (script unmodified) out of scope.
+    if (payload.enabled) {
+      expect(workerPayloadFor(SETTINGS, row.url)).toContain(JSON.stringify(zone));
+    } else {
+      expect(workerPayloadFor(SETTINGS, row.url)).toBe("");
+    }
 
     // CDP overrides (debugger mode on) apply the same zone, or none out of scope.
     const overrides = buildOverridesForTab({ ...SETTINGS, debuggerModeEnabled: true }, row.url);

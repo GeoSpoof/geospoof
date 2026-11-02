@@ -140,8 +140,11 @@ function padCoordinate(raw: number): number {
   // Math.random, which native geolocation never makes. See safe-random.ts.
   const jitter = (randomUnit() - 0.5) * 1e-7;
   // Round to 8 decimals so the stringified form has a stable,
-  // realistic-looking length (7-8 digits is the native range).
-  return Math.round((raw + jitter) * 1e8) / 1e8;
+  // realistic-looking length (7-8 digits is the native range). A jitter under
+  // half a step (|jitter| < 5e-9, about 1 draw in 10) would round back to the
+  // raw value, so take one step instead.
+  const steps = Math.round(jitter * 1e8) || (jitter < 0 ? -1 : 1);
+  return Math.round(raw * 1e8 + steps) / 1e8;
 }
 
 /**

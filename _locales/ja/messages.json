@@ -770,7 +770,7 @@
     "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
   },
   "siteLocation_reloadHint": {
-    "message": "変更をすべてに反映するには、このサイトのページを再読み込みしてください。",
+    "message": "変更を反映するには、該当するページを再読み込みしてください。",
     "description": "Hint shown right after a site location change made from the popup, because already-open pages keep their old values until reloaded."
   },
   "siteLocation_sitesLabel": {
@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "$SITES$ のページと、そこに埋め込まれたすべてのものには $PLACE$ が見えます。その他のサイトはメインの位置のままです。",
+    "message": "$SITES$ のページには $PLACE$ が見えます。",
     "placeholders": {
       "sites": {
         "content": "$1",

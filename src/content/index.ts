@@ -7,7 +7,7 @@
  */
 
 import type { Location, Timezone, AccuracySetting } from "@/shared/types/settings";
-import type { UpdateSettingsPayload } from "@/shared/types/messages";
+import type { GetSettingsPayload, UpdateSettingsPayload } from "@/shared/types/messages";
 import type { SpoofedLocalePayload } from "@/shared/locale/resolver";
 import { createLogger, setDebugEnabled, setVerbosityLevel } from "@/shared/utils/debug-logger";
 import { now } from "@/shared/utils/safe-time";
@@ -215,6 +215,47 @@ logger.info("Injected script loaded via manifest world:MAIN");
 // arrive during this short window by deferring them until settings
 // land, so nothing leaks.
 
+/**
+ * The page payload as it arrives, from a GET_SETTINGS reply or an
+ * UPDATE_SETTINGS push. `applySettings` defaults the optional fields.
+ */
+interface ReceivedSettings {
+  enabled: boolean;
+  location: Location | null;
+  timezone: Timezone | null;
+  debugLogging: boolean;
+  verbosityLevel: string;
+  webrtcProtection?: boolean;
+  preserveGeolocationPrompt?: boolean;
+  accuracySetting?: AccuracySetting;
+  accuracySeed?: number;
+  locale?: SpoofedLocalePayload | null;
+}
+
+/** Copy a received payload into module scope. The caller dispatches it. */
+function applySettings(settings: ReceivedSettings, logLabel: string): void {
+  spoofingEnabled = settings.enabled;
+  spoofedLocation = settings.location;
+  timezoneOverride = settings.timezone;
+  accuracySetting = settings.accuracySetting;
+  accuracySeed = settings.accuracySeed;
+  debugLogging = settings.debugLogging;
+  verbosityLevel = settings.verbosityLevel ?? "INFO";
+  webrtcProtection = settings.webrtcProtection ?? false;
+  preserveGeolocationPrompt = settings.preserveGeolocationPrompt ?? false;
+  spoofedLocale = settings.locale ?? null;
+  setDebugEnabled(debugLogging);
+  setVerbosityLevel(verbosityLevel);
+  logger.debug(logLabel, {
+    enabled: spoofingEnabled,
+    location: spoofedLocation,
+    timezone: timezoneOverride,
+    debugLogging,
+    verbosityLevel,
+    webrtcProtection,
+  });
+}
+
 // Listen for settings updates from background script
 browser.runtime.onMessage.addListener(
   (message: { type: string; payload?: UpdateSettingsPayload }) => {
@@ -224,26 +265,7 @@ browser.runtime.onMessage.addListener(
     });
 
     if (message.type === "UPDATE_SETTINGS" && message.payload) {
-      spoofingEnabled = message.payload.enabled;
-      spoofedLocation = message.payload.location;
-      timezoneOverride = message.payload.timezone;
-      accuracySetting = message.payload.accuracySetting;
-      accuracySeed = message.payload.accuracySeed;
-      debugLogging = message.payload.debugLogging;
-      verbosityLevel = message.payload.verbosityLevel ?? "INFO";
-      webrtcProtection = message.payload.webrtcProtection ?? false;
-      preserveGeolocationPrompt = message.payload.preserveGeolocationPrompt ?? false;
-      spoofedLocale = message.payload.locale ?? null;
-      setDebugEnabled(debugLogging);
-      setVerbosityLevel(verbosityLevel);
-      logger.debug("Settings updated:", {
-        enabled: spoofingEnabled,
-        location: spoofedLocation,
-        timezone: timezoneOverride,
-        debugLogging,
-        verbosityLevel,
-        webrtcProtection,
-      });
+      applySettings(message.payload, "Settings updated:");
       updateInjectedScript();
     } else if (message.type === "PING") {
       // Respond to ping to confirm content script is injected
@@ -252,54 +274,94 @@ browser.runtime.onMessage.addListener(
   }
 );
 
+/**
+ * Whether this document is its tab's top frame. Sent with GET_SETTINGS so the
+ * background can judge a page Chrome is prerendering by its own URL (its
+ * `frameId` isn't 0 yet). Read in the isolated world, so the page sees nothing.
+ */
+function isTopFrame(): boolean {
+  try {
+    return window.top === window;
+  } catch {
+    return false;
+  }
+}
+
+/** Why settings are being requested: first load, a bfcache restore, or prerender activation. */
+type SettingsRequestReason = "load" | "pageshow" | "prerenderingchange";
+
+/** Incremented per request, so only the newest reply is applied. */
+let settingsRequestSeq = 0;
+
+/**
+ * Ask the background for this page's settings and dispatch the reply.
+ *
+ * A reply that arrives after a newer request was sent is dropped, so two
+ * refreshes resolved out of order can't leave the older values in place. A
+ * reply can still overwrite an UPDATE_SETTINGS push computed after it, until
+ * the next push or a reload; every settings change has that race (Known
+ * Limitation "Rollover race" in docs/API.md).
+ */
+function requestSettings(reason: SettingsRequestReason): void {
+  const seq = ++settingsRequestSeq;
+  // Timing probes for cold-start diagnosis. Routed through logger.debug
+  // so they're silent by default and surface when debug logging is on.
+  const sentAt = now();
+  logger.debug(
+    `Sending GET_SETTINGS to background (reason=${reason}, page-start=${sentAt.toFixed(1)}ms)`
+  );
+  const payload: GetSettingsPayload = { topFrame: isTopFrame() };
+  browser.runtime
+    .sendMessage({ type: "GET_SETTINGS", payload })
+    .then((settings: ReceivedSettings) => {
+      const roundTrip = now() - sentAt;
+      logger.debug(
+        `GET_SETTINGS resolved (reason=${reason}, round-trip=${roundTrip.toFixed(1)}ms, enabled=${String(settings.enabled)}, hasLocation=${String(!!settings.location)})`
+      );
+      if (seq !== settingsRequestSeq) {
+        logger.debug(`Dropped a GET_SETTINGS reply superseded by a newer request (${reason})`);
+        return;
+      }
+      applySettings(
+        settings,
+        reason === "load" ? "Initial settings loaded:" : "Settings refreshed:"
+      );
+      updateInjectedScript();
+    })
+    .catch((error: unknown) => {
+      logger.error(
+        `GET_SETTINGS (${reason}) rejected after ${(now() - sentAt).toFixed(1)}ms:`,
+        error
+      );
+    });
+}
+
+// A page restored from the back/forward cache keeps this content script, but
+// it was cached while pushes couldn't reach it, so it asks again when shown.
+// A refresh dispatches once on the same per-build event (the document_start
+// retries ran on the first dispatch), and unchanged settings re-apply
+// identical state. Registered with addEventListener in the isolated world:
+// never `window.onpageshow`, which the page could read.
+window.addEventListener("pageshow", (event: Event) => {
+  if ((event as PageTransitionEvent).persisted === true) {
+    requestSettings("pageshow");
+  }
+});
+
+// A page Chrome prerenders gets its settings while hidden, and its subframes
+// are judged by the page being left (Known Limitation 14). Ask again when it's
+// shown. `document.prerendering` is Chrome-only and undefined elsewhere, so
+// nothing is registered there.
+if ((document as Document & { prerendering?: boolean }).prerendering === true) {
+  document.addEventListener(
+    "prerenderingchange",
+    () => {
+      requestSettings("prerenderingchange");
+    },
+    { once: true }
+  );
+}
+
 // Request initial settings on load
 logger.info("Content script loaded, requesting initial settings");
-// Timing probes for cold-start diagnosis. Routed through logger.debug
-// so they're silent by default and surface when debug logging is on.
-const CS_SEND_AT = now();
-logger.debug(`Sending GET_SETTINGS to background (page-start=${CS_SEND_AT.toFixed(1)}ms)`);
-browser.runtime
-  .sendMessage({ type: "GET_SETTINGS" })
-  .then(
-    (settings: {
-      enabled: boolean;
-      location: Location | null;
-      timezone: Timezone | null;
-      debugLogging: boolean;
-      verbosityLevel: string;
-      webrtcProtection?: boolean;
-      preserveGeolocationPrompt?: boolean;
-      accuracySetting?: AccuracySetting;
-      accuracySeed?: number;
-      locale?: SpoofedLocalePayload | null;
-    }) => {
-      const roundTrip = now() - CS_SEND_AT;
-      logger.debug(
-        `GET_SETTINGS resolved (round-trip=${roundTrip.toFixed(1)}ms, enabled=${String(settings.enabled)}, hasLocation=${String(!!settings.location)})`
-      );
-      spoofingEnabled = settings.enabled;
-      spoofedLocation = settings.location;
-      timezoneOverride = settings.timezone;
-      accuracySetting = settings.accuracySetting;
-      accuracySeed = settings.accuracySeed;
-      debugLogging = settings.debugLogging;
-      verbosityLevel = settings.verbosityLevel ?? "INFO";
-      webrtcProtection = settings.webrtcProtection ?? false;
-      preserveGeolocationPrompt = settings.preserveGeolocationPrompt ?? false;
-      spoofedLocale = settings.locale ?? null;
-      setDebugEnabled(debugLogging);
-      setVerbosityLevel(verbosityLevel);
-      logger.debug("Initial settings loaded:", {
-        enabled: spoofingEnabled,
-        location: spoofedLocation,
-        timezone: timezoneOverride,
-        debugLogging,
-        verbosityLevel,
-        webrtcProtection,
-      });
-      updateInjectedScript();
-    }
-  )
-  .catch((error: unknown) => {
-    logger.error(`GET_SETTINGS rejected after ${(now() - CS_SEND_AT).toFixed(1)}ms:`, error);
-  });
+requestSettings("load");

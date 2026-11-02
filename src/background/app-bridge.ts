@@ -27,6 +27,7 @@ import {
   validateSiteLocations,
 } from "./settings";
 import { computeOffsets } from "./timezone";
+import { localSiteLocationEdits, runSiteLocationJob } from "./site-location-queue";
 import {
   applyPrecisionCadence,
   handleSetLocation,
@@ -132,6 +133,15 @@ function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
 }
 
+/**
+ * The newest app snapshot (Unix ms) that carried a site-location list and
+ * passed its newer-than check. Adoptions overlap (boot, tab switch,
+ * navigation, every Safari GET_SETTINGS), and an older one waiting on a
+ * lookup can reach step 9 after a newer one; step 9 skips it, so the newer
+ * list stays. In memory: a background restart also ends any in-flight adoption.
+ */
+let newestSiteLocationSnapshotMs = -Infinity;
+
 /** `{ identifier, ...computeOffsets(identifier) }`, or null when the lookup throws. */
 function bridgedTimezone(identifier: string): Timezone | null {
   try {
@@ -144,25 +154,30 @@ function bridgedTimezone(identifier: string): Timezone | null {
 /**
  * Give bridged site locations full timezones before validation. The app may
  * store just the IANA id, or an object whose offsets didn't survive the trip;
- * both are recomputed here. Anything else passes through unchanged, and an
- * unrepairable zone is left as-is so validateSiteLocations drops the entry.
+ * both are recomputed here. Every id is also checked against this engine's
+ * time-zone data, offsets or not, because validateSiteLocations checks only
+ * its format: an id the engine can't resolve drops the entry. A zone marked
+ * `fallback`, or one this function can't read, is left as-is so
+ * validateSiteLocations drops the entry.
  */
 function repairBridgedSiteLocationTimezones(entries: unknown[]): unknown[] {
   return entries.map((entry) => {
     if (!entry || typeof entry !== "object") return entry;
     const tz = (entry as Record<string, unknown>).timezone;
-    let identifier: string | null = null;
+    let identifier: unknown = null;
+    let hasOffsets = false;
     if (typeof tz === "string") {
       identifier = tz;
     } else if (tz && typeof tz === "object") {
-      const { identifier: id, offset, dstOffset } = tz as Record<string, unknown>;
-      if (typeof id === "string" && !(Number.isFinite(offset) && Number.isFinite(dstOffset))) {
-        identifier = id;
-      }
+      const { identifier: id, offset, dstOffset, fallback } = tz as Record<string, unknown>;
+      if (fallback === true) return entry;
+      identifier = id;
+      hasOffsets = Number.isFinite(offset) && Number.isFinite(dstOffset);
     }
-    if (identifier === null || !isValidIANATimezone(identifier)) return entry;
+    if (typeof identifier !== "string" || !isValidIANATimezone(identifier)) return entry;
     const repaired = bridgedTimezone(identifier);
-    return repaired ? { ...entry, timezone: repaired } : entry;
+    if (repaired === null) return { ...entry, timezone: null };
+    return hasOffsets ? entry : { ...entry, timezone: repaired };
   });
 }
 
@@ -269,6 +284,9 @@ function pushRegionOnce(settings: Settings): void {
  * adoptPendingResponse. Never throws.
  */
 export async function adoptPendingSnapshot(pending: PendingSettings): Promise<void> {
+  // Read before the newer-than check below, so step 9 can tell whether a
+  // site-location save or remove landed after it.
+  const siteLocationEditsAtCheck = localSiteLocationEdits();
   const settings = await loadSettings();
 
   // The app writes updatedAt as Unix seconds; settings.lastUpdated is Unix ms.
@@ -277,6 +295,12 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
   // Only adopt if the app's action is newer than the last extension change.
   if (pendingAtMs <= settings.lastUpdated) {
     return;
+  }
+
+  // Recorded before this snapshot's first step, so any older snapshot still
+  // in flight sees it when it reaches step 9.
+  if (typeof pending.siteLocations === "string") {
+    newestSiteLocationSnapshotMs = Math.max(newestSiteLocationSnapshotMs, pendingAtMs);
   }
 
   logger.info("Adopting pending settings from app:", pending);
@@ -308,12 +332,17 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
       }
     }
 
-    // 1c. Pro-only config gate (per-site filtering, custom accuracy). Same
-    // app-as-authority rationale as 1b.
+    // 1c. Pro-only config gate (per-site filtering, per-site locations, custom
+    // accuracy). Same app-as-authority rationale as 1b. The gate applies when
+    // a page payload is built, so a change is broadcast (which also refreshes
+    // Accept-Language) and re-badged: open pages drop or regain their per-site
+    // values now, even when no later step changes anything.
     if (typeof pending.proFeaturesBlocked === "boolean") {
       const latest = await loadSettings();
       if (latest.proFeaturesBlocked !== pending.proFeaturesBlocked) {
-        await updateSettings({ proFeaturesBlocked: pending.proFeaturesBlocked });
+        const updated = await updateSettings({ proFeaturesBlocked: pending.proFeaturesBlocked });
+        await broadcastSettingsToTabs(updated);
+        await updateBadge();
       }
     }
 
@@ -580,19 +609,27 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
     // as a JSON string like favorites. A non-array or invalid JSON is a no-op,
     // never a wipe; `[]` is a real "the app cleared the list". Bare IANA zone
     // ids are repaired with offsets, then every entry is re-validated, so the
-    // extension stays the source of truth for list hygiene. Its own try/catch
-    // so a failure here never undoes the steps above.
+    // extension stays the source of truth for list hygiene. The load and write
+    // run in the site-location queue. A save or remove written after the
+    // newer-than check wins over this older snapshot, and so does a newer app
+    // snapshot that passed its own check meanwhile (strictly newer, so the same
+    // snapshot adopted twice still applies). Its own try/catch so a failure
+    // here never undoes the steps above.
     if (typeof pending.siteLocations === "string") {
       try {
         const parsed: unknown = JSON.parse(pending.siteLocations);
         if (!Array.isArray(parsed)) throw new Error("siteLocations is not an array");
         const next = validateSiteLocations(repairBridgedSiteLocationTimezones(parsed));
-        const latestForSites = await loadSettings();
-        if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
-          const updated = await updateSettings({ siteLocations: next });
-          await broadcastSettingsToTabs(updated);
-          await updateBadge();
-        }
+        await runSiteLocationJob(async () => {
+          if (localSiteLocationEdits() !== siteLocationEditsAtCheck) return;
+          if (pendingAtMs < newestSiteLocationSnapshotMs) return;
+          const latestForSites = await loadSettings();
+          if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
+            const updated = await updateSettings({ siteLocations: next });
+            await broadcastSettingsToTabs(updated);
+            await updateBadge();
+          }
+        });
       } catch (error) {
         logger.debug("adoptPendingSettingsFromApp: siteLocations adoption failed:", error);
       }

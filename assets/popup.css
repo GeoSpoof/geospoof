@@ -82,14 +82,17 @@
     --surface: #23222b;
     --surface-alt: #2b2a33;
     --surface-hover: #3b3a41;
-    --badge-bg: #23222b;
+    /* A visible chip fill (the secondary-button grey), not --surface. */
+    --badge-bg: #3b3a41;
 
     --btn-secondary: #3b3a41;
     --btn-secondary-hover: #45444c;
     --btn-secondary-text: #fbfbfe;
 
     --text: #fbfbfe;
-    --text-muted: #fbfbfe;
+    /* Secondary text, a tier below --text as #666 is in light mode: 7.31:1 on
+       --surface, 6.58:1 on --bg, 5.22:1 on chips and hover fills (#3b3a41). */
+    --text-muted: #b0b0b9;
     --text-strong: #fbfbfe;
 
     --border: #393941;
@@ -143,12 +146,12 @@ body.theme-dark {
   --surface: #23222b;
   --surface-alt: #2b2a33;
   --surface-hover: #3b3a41;
-  --badge-bg: #23222b;
+  --badge-bg: #3b3a41;
   --btn-secondary: #3b3a41;
   --btn-secondary-hover: #45444c;
   --btn-secondary-text: #fbfbfe;
   --text: #fbfbfe;
-  --text-muted: #fbfbfe;
+  --text-muted: #b0b0b9;
   --text-strong: #fbfbfe;
   --border: #393941;
   --border-input: #393941;
@@ -204,6 +207,21 @@ body.loaded {
 input {
   background-color: var(--surface);
   color: var(--text);
+}
+
+/* Read by screen readers, never shown. Not `display: none` or `hidden`, which
+   would also hide it from assistive technology. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -2537,8 +2555,8 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   transform: rotate(90deg);
 }
 
-/* --badge-bg equals --surface in dark mode, which would leave a bare number
-   on the summary card; the secondary-button fill reads as a chip in both. */
+/* Light mode only, in effect (dark --badge-bg is already this grey): #666 on
+   #e8e8e8 is 4.69:1, where --badge-bg #e0e0e0 would be 4.35:1. */
 .site-locations-summary .scope-list-count {
   background: var(--btn-secondary);
 }

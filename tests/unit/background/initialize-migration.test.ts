@@ -135,6 +135,36 @@ describe("initialize() one-time migration persistence", () => {
   });
 
   /**
+   * The startup load, migration check, and save run as one settings write, so
+   * a write that lands during startup isn't erased by saving the object
+   * loaded before it.
+   */
+  test("a settings write during startup survives the migration save", async () => {
+    storageData.settings = {
+      enabled: true,
+      version: "1.0",
+      vpnSyncEnabled: false,
+      verbosityLevel: "ERROR",
+      theme: "system",
+    };
+    // Every write lands 5 ms late, so two overlapping writes both load the old object.
+    browser.storage.local.set.mockImplementation(
+      (obj: Record<string, unknown>) =>
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            if (obj.settings) storageData.settings = obj.settings;
+            resolve();
+          }, 5)
+        )
+    );
+    const { initialize, updateSettings, loadSettings } = await importBackground();
+    await Promise.all([initialize(), updateSettings({ theme: "dark" })]);
+    const persisted = await loadSettings();
+    expect(persisted.theme).toBe("dark");
+    expect(persisted.version).toBe("1.2");
+    expect((storageData.settings as { version?: string }).version).toBe("1.2");
+  });
+  /**
    * Adding precisionCadence needs no migration: a stored 1.2 object without the
    * field loads as "never" and initialize() writes nothing (AC4).
    */
