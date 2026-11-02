@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import vm from "node:vm";
 import { buildStandaloneWorkerPayload } from "@/shared/worker-payload";
+import {
+  LMT_CASES,
+  TZP_INSTANTS,
+  eastSecondsAt,
+  expectedGto,
+  gettersWestMinutes,
+  gmtTokenEastMinutes,
+} from "../../helpers/lmt-offsets";
 
 /**
  * Executes the standalone worker payload (the string prepended to worker
@@ -23,10 +31,10 @@ interface PayloadRealm {
   evalInRealm: <T>(expr: string) => T;
 }
 
-function spoofedDateInRealm(timezone: string): PayloadRealm {
+function spoofedDateInRealm(timezone: string, fractionalOffset = false): PayloadRealm {
   const sandbox: Record<string, unknown> = { self: {} };
   vm.createContext(sandbox);
-  vm.runInContext(buildStandaloneWorkerPayload(timezone), sandbox);
+  vm.runInContext(buildStandaloneWorkerPayload(timezone, null, fractionalOffset), sandbox);
   const self = sandbox.self as { Date?: DateConstructor };
   if (typeof self.Date !== "function") {
     throw new Error("payload did not install a spoofed Date on self");
@@ -114,6 +122,62 @@ describe("worker payload SPOOF_CORE — Date getter spoofing", () => {
     expect(d.getDate()).toBe(2);
     expect(d.getHours()).toBe(1);
     expect(d.getMinutes()).toBe(30);
+  });
+});
+
+describe("worker payload SPOOF_CORE — sub-minute historical offsets", () => {
+  // Same cases and oracle as tests/unit/content/timezone-fractional-offset.test.ts,
+  // so the worker and the main realm are checked against identical values.
+  const realms = new Map<string, PayloadRealm>();
+  function realmFor(zone: string, fractional: boolean): PayloadRealm {
+    const key = `${zone}|${fractional}`;
+    let realm = realms.get(key);
+    if (!realm) {
+      realm = spoofedDateInRealm(zone, fractional);
+      realms.set(key, realm);
+    }
+    return realm;
+  }
+
+  for (const fractional of [true, false]) {
+    describe(fractional ? "native keeps the fraction" : "native truncates", () => {
+      for (const zone of LMT_CASES) {
+        for (const t of TZP_INSTANTS) {
+          it(`${zone.identifier} ${new Date(t).toISOString().slice(0, 10)}`, () => {
+            const { Date: D } = realmFor(zone.identifier, fractional);
+            const d = new D(t);
+            const eastSec = eastSecondsAt(zone.identifier, t);
+            const gto = d.getTimezoneOffset();
+
+            expect(gto).toBe(expectedGto(eastSec, fractional));
+            expect(gettersWestMinutes(d)).toBe(expectedGto(eastSec, true));
+
+            // toString / toTimeString print whole minutes truncated toward zero,
+            // like every engine; never "GMT+0918.98…".
+            for (const str of [d.toString(), d.toTimeString()]) {
+              expect(str).toMatch(/ GMT[+-]\d{4} \(/);
+              expect(gmtTokenEastMinutes(str)).toBe(Math.trunc(eastSec / 60));
+            }
+          });
+        }
+      }
+    });
+  }
+
+  it("prints 1879 Tokyo as GMT+0918 under both decisions", () => {
+    for (const fractional of [true, false]) {
+      const { Date: D } = realmFor("Asia/Tokyo", fractional);
+      expect(new D(Date.UTC(1879, 0, 15, 13)).toString()).toContain(" GMT+0918 ");
+    }
+  });
+
+  it("substitutes the decision as a literal and leaves no placeholder", () => {
+    for (const fractional of [true, false]) {
+      const payload = buildStandaloneWorkerPayload("Asia/Tokyo", null, fractional);
+      expect(payload).toContain(`var __fractionalOffset = ${String(fractional)};`);
+      expect(payload).not.toContain("__NATIVE_FRACTIONAL_OFFSET__");
+      expect(payload).not.toContain("__SPOOF_TZ_ID__");
+    }
   });
 });
 

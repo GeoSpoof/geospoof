@@ -206,11 +206,18 @@ function __applyReportedLocale(instance, resolved) {
 `;
 
 /**
- * The timezone-spoofing body. Requires `__SPOOF_TZ_ID__` to be substituted and
+ * The timezone-spoofing body. Requires `__SPOOF_TZ_ID__` (JSON IANA id) and
+ * `__NATIVE_FRACTIONAL_OFFSET__` (`true` / `false`) to be substituted, and
  * assumes the masking helpers are already in scope.
  */
 const SPOOF_TZ_BODY = `
 var __tz_id = __SPOOF_TZ_ID__;
+// Whether this engine's native getTimezoneOffset keeps the seconds of a
+// pre-standard-time offset (SpiderMonkey, V8 from Chrome 156) or truncates them
+// (V8 before 156, JavaScriptCore). Decided once by the page realm's probe (or
+// the Firefox background's, for workers patched at the network layer) and baked
+// in, so the worker can't disagree with the page. See native-offset-precision.ts.
+var __fractionalOffset = __NATIVE_FRACTIONAL_OFFSET__;
 
 // --- Intl.DateTimeFormat override ---
 var OrigDTF = Intl.DateTimeFormat;
@@ -280,9 +287,9 @@ var spoofedGTZO = __nativeMethod(function getTimezoneOffset() {
     var sec = m[4] ? parseInt(m[4], 10) : 0;
     var east = (m[1] === "-" ? -1 : 1) * (h * 60 + min + sec / 60);
     var west = -east;
-    // V8 truncates sub-minute offsets to a whole minute here; SpiderMonkey keeps
-    // the fraction. Match the host engine (see __engineTruncatesOffset below).
-    return __engineTruncatesOffset ? Math.trunc(west) : west;
+    // Keep or truncate the seconds of a pre-standard-time offset exactly as the
+    // host engine's native method does (see __fractionalOffset above).
+    return __fractionalOffset ? west : Math.trunc(west);
   } catch(e) {
     return origGTZO.call(this);
   }
@@ -392,10 +399,13 @@ function getLongTzName(d) {
   return __tz_id;
 }
 
+// Every engine prints this offset as whole minutes truncated toward zero, even
+// when getTimezoneOffset keeps the seconds (V8 date.cc, SpiderMonkey jsdate.cpp,
+// JavaScriptCore DateConversion.cpp): 1879 Tokyo, +9:18:59, prints "GMT+0918".
 function getGmtOffset(d) {
-  var off = -d.getTimezoneOffset();
-  var sign = off >= 0 ? "+" : "-";
-  var abs = Math.abs(off);
+  var whole = Math.trunc(-d.getTimezoneOffset());
+  var sign = whole < 0 ? "-" : "+";
+  var abs = Math.abs(whole);
   var h = String(Math.floor(abs / 60)).padStart(2, "0");
   var m = String(abs % 60).padStart(2, "0");
   return "GMT" + sign + h + m;
@@ -454,21 +464,6 @@ Date.prototype.toDateString = __nativeMethod(function toDateString() {
 // adjustment needs.
 var OrigDate = Date;
 var OrigDateParse = Date.parse;
-
-// Engine truncation of sub-minute historical offsets: V8 (Chrome/Chromium/Edge)
-// truncates getTimezoneOffset to whole minutes; SpiderMonkey (Firefox) keeps the
-// fraction. Keyed off engine identity to match state.ts. The old approach probed
-// the Intl shortOffset string for a ":SS" component, but modern V8 now emits
-// seconds there while still truncating getTimezoneOffset, so that probe
-// misclassified current Chrome. InternalError is a SpiderMonkey-only global; its
-// absence means a V8-like (truncating) engine.
-var __engineTruncatesOffset = (function () {
-  try {
-    return typeof InternalError === "undefined";
-  } catch (e) {
-    return true;
-  }
-})();
 
 // Parse "GMT±HH:MM:SS" / "GMT±HH:MM" / "GMT±HHMM" / "GMT" into minutes east of
 // UTC (fractional for sub-minute LMT offsets), or null. The :SS group keeps
@@ -1133,11 +1128,10 @@ if (__locale && __locale.tag) {
 `;
 
 /**
- * The core timezone spoofing payload (masking helpers + timezone body).
- *
- * Preserved as a single export with its original contents so existing
- * consumers -- the Firefox worker request filter and the injected worker
- * patcher -- keep working unchanged.
+ * The core timezone spoofing payload (masking helpers + timezone body), with
+ * the `__SPOOF_TZ_ID__` and `__NATIVE_FRACTIONAL_OFFSET__` placeholders still
+ * in place. Callers build through {@link buildWorkerSpoofCore}, which
+ * substitutes both.
  */
 export const SPOOF_CORE = `${SPOOF_MASK_HELPERS}\n${SPOOF_TZ_BODY}`;
 
@@ -1146,14 +1140,18 @@ export const SPOOF_CORE = `${SPOOF_MASK_HELPERS}\n${SPOOF_TZ_BODY}`;
  * script response. Wraps the spoofing core in an IIFE so it doesn't leak
  * its `var` declarations into the worker's global scope.
  *
- * Returns an empty string when `identifier` is falsy — callers should
- * treat that as "don't modify the response."
+ * Returns an empty string when neither `identifier` nor `locale` is set —
+ * callers should treat that as "don't modify the response."
+ *
+ * `fractionalOffset` is the page engine's `getTimezoneOffset` precision (see
+ * {@link buildWorkerSpoofCore}).
  */
 export function buildStandaloneWorkerPayload(
   identifier: string | null | undefined,
-  locale?: SpoofedLocalePayload | null
+  locale: SpoofedLocalePayload | null | undefined,
+  fractionalOffset: boolean
 ): string {
-  const core = buildWorkerSpoofCore(identifier, locale);
+  const core = buildWorkerSpoofCore(identifier, locale, fractionalOffset);
   if (!core) return "";
   return `(function(){\n"use strict";\n${core}\n})();\n`;
 }
@@ -1169,10 +1167,16 @@ export function buildStandaloneWorkerPayload(
  * filter) go through here so a worker caught by either sees an identical core.
  * Either axis alone is sufficient: a user can spoof a locale with no location
  * (hence no timezone), or a timezone with no locale.
+ *
+ * `fractionalOffset` is baked into the timezone body as a literal: true when the
+ * engine's native `getTimezoneOffset` keeps the seconds of a pre-standard-time
+ * offset, false when it truncates them. It is required, not defaulted, so a
+ * caller can't silently pick an answer that disagrees with the page realm.
  */
 export function buildWorkerSpoofCore(
   identifier: string | null | undefined,
-  locale?: SpoofedLocalePayload | null
+  locale: SpoofedLocalePayload | null | undefined,
+  fractionalOffset: boolean
 ): string {
   if (!identifier && !locale) return "";
 
@@ -1185,7 +1189,15 @@ export function buildWorkerSpoofCore(
   // user input) are passed through literally.
   if (identifier) {
     const idJson = JSON.stringify(identifier);
-    parts.push(SPOOF_TZ_BODY.replace("__SPOOF_TZ_ID__", () => idJson));
+    // The fixed literal goes in first, so nothing inside the identifier can be
+    // mistaken for its placeholder.
+    const fractionalLiteral = fractionalOffset === true ? "true" : "false";
+    parts.push(
+      SPOOF_TZ_BODY.replace("__NATIVE_FRACTIONAL_OFFSET__", () => fractionalLiteral).replace(
+        "__SPOOF_TZ_ID__",
+        () => idJson
+      )
+    );
   }
   if (locale) {
     const localeJson = JSON.stringify(locale);

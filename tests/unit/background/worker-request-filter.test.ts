@@ -22,6 +22,11 @@ import {
 } from "@/background/worker-request-filter";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 import {
+  decideNativeFractionalOffset,
+  engineFamilyFromBuild,
+  nativeDateSurfaceOf,
+} from "@/shared/native-offset-precision";
+import {
   ENTRY_DUBLIN,
   MEXICO_CITY,
   MEXICO_CITY_TZ,
@@ -309,6 +314,18 @@ describe("site locations", () => {
     const s = { ...SITE_SETTINGS, scopeMode: "denylist" as const, denylist: ["chatgpt.com"] };
     expect(workerPayloadFor(s, "https://chatgpt.com/")).toBe("");
     expect(workerPayloadFor({ ...SITE_SETTINGS, enabled: false }, "https://example.com/")).toBe("");
+  });
+
+  test("workerPayloadFor bakes in this realm's getTimezoneOffset precision", () => {
+    // The background has no page decision to forward, so it runs the shared
+    // probe on its own Date; same engine and zone as the page.
+    const expected = decideNativeFractionalOffset(
+      nativeDateSurfaceOf(Date),
+      engineFamilyFromBuild(),
+      () => navigator.userAgent
+    );
+    const payload = workerPayloadFor(SITE_SETTINGS, "https://example.com/");
+    expect(payload).toContain(`var __fractionalOffset = ${String(expected)};`);
   });
 
   test("workerPayloadFor is empty with no zone and no locale", () => {
