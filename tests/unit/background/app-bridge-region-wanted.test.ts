@@ -14,7 +14,11 @@
  * therefore comes from the handshake, never from a save.
  *
  * Tests 1–5 are the cases in the design's list, in its order. Test 6 covers a
- * settings read that throws, which must not push the defaults.
+ * settings read that throws, which must not push the defaults. Tests 7–9 cover
+ * GeoSpoof/geospoof#202: a bfcache restore re-sends GET_SETTINGS, and on Safari
+ * each one starts an adoption, so the same response can arrive several times
+ * at once; and step 9 now runs in the site-location queue, which skips a list
+ * older than one a concurrent pass is adopting.
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
@@ -214,5 +218,68 @@ describe("regionWanted handshake (design §3.3.1)", () => {
     const pushes = regionPushes();
     expect(pushes).toHaveLength(1);
     expect(JSON.parse(pushes[0].siteLocations as string)).toEqual([ENTRY_DUBLIN]);
+  });
+
+  test("7. repeated responses whose list saves nothing push once", async () => {
+    await boot(base({ siteLocations: [ENTRY_DUBLIN] }));
+    const landed = deferred<void>();
+    sendNativeMessage.mockImplementation(() => landed.promise);
+    // Newer than lastUpdated, so every pass runs step 9 in the site-location
+    // queue, and the list is the one Safari has, so no pass saves.
+    const response = asking({
+      updatedAt: T0 / 1000 + 1,
+      siteLocations: JSON.stringify([ENTRY_DUBLIN]),
+    });
+
+    await Promise.all([1, 2, 3].map(() => bridge.adoptPendingResponse(response)));
+
+    expect(mocks.localSet()).not.toHaveBeenCalled();
+    const pushes = regionPushes();
+    expect(pushes).toHaveLength(1);
+    expect(JSON.parse(pushes[0].siteLocations as string)).toEqual([ENTRY_DUBLIN]);
+    landed.resolve();
+    await flush();
+  });
+
+  test("8. repeated responses whose list saves: adopted once, no push", async () => {
+    await boot(base({ siteLocations: [ENTRY_DUBLIN] }));
+    const response = asking({
+      updatedAt: T0 / 1000 + 1,
+      siteLocations: JSON.stringify([ENTRY_MEXICO_CITY]),
+    });
+
+    await Promise.all([1, 2, 3].map(() => bridge.adoptPendingResponse(response)));
+    await flush();
+
+    // The first pass through the queue saves, and the others find the list
+    // already adopted. On Safari that save is the push, so the handshake adds none.
+    expect(stored().siteLocations).toEqual([ENTRY_MEXICO_CITY]);
+    expect(mocks.localSet()).toHaveBeenCalledTimes(1);
+    expect(regionPushes()).toHaveLength(0);
+  });
+
+  test("9. an older snapshot that defers to a newer one never pushes its own list", async () => {
+    await boot(base());
+    const older = asking({
+      updatedAt: T0 / 1000 + 1,
+      siteLocations: JSON.stringify([ENTRY_DUBLIN]),
+    });
+    const newer = asking({
+      updatedAt: T0 / 1000 + 2,
+      siteLocations: JSON.stringify([ENTRY_MEXICO_CITY]),
+    });
+
+    await Promise.all([bridge.adoptPendingResponse(older), bridge.adoptPendingResponse(newer)]);
+    await flush();
+
+    // Step 9 skips the older list, so the newer one is stored. The older pass
+    // saved nothing, so it may push the list Safari had before either snapshot,
+    // ahead of the newer pass's save. It never pushes the list it skipped.
+    expect(stored().siteLocations).toEqual([ENTRY_MEXICO_CITY]);
+    const pushes = regionPushes();
+    expect(pushes.length).toBeLessThanOrEqual(1);
+    for (const push of pushes) {
+      expect(JSON.parse(push.siteLocations as string)).not.toEqual([ENTRY_DUBLIN]);
+    }
   });
 });
