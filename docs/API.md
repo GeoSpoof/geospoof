@@ -1071,8 +1071,6 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 
 15. **Per-site locations: Engine-level Spoofing right after a cross-site navigation (Chrome).** The debugger override is per tab, and it's switched to the new page's zone when the navigation starts. Both calls are asynchronous, so when the new page arrives first, its earliest scripts can see the **previous** page's zone: after moving from a site with a per-site location (Tokyo) to one without (Los Angeles) in the same tab, the second site's first `<head>` script read `Asia/Tokyo`. Later reads, and the next load, are correct. Measured in Chrome 156 against a local server that answers in about a millisecond, with and without the `webNavigation` permission; slower real sites hit it less often. Reloading the page avoids it.
 
-16. **Historical sub-minute offsets in Chrome.** Before standard time (for example 1879), most zones had offsets with seconds, such as Tokyo's +9:18:59. GeoSpoof's `getTimezoneOffset` truncates those to whole minutes on Chrome, because V8 used to. Chrome 156 itself now returns the fraction, while GeoSpoof's other Date, Intl and Temporal values keep it, so a page comparing them for an 1879 date sees `getTimezoneOffset` disagree by under a minute (TZP reports its offsets as "mixed"). This applies to every spoofed page in Chrome, with or without per-site locations, and doesn't affect present-day dates. Firefox is unaffected.
-
 ## Performance Targets
 
 | Operation                | Target                    |
