@@ -131,7 +131,7 @@ Before a zone adopted standard time its offset was local mean time, which has se
 | SpiderMonkey (Firefox)     | −558.98333… (exact)               | `js/src/jsdate.cpp`; measured on Firefox 159                                                                                                                                                   |
 | V8, Chrome 156 and later   | −558.98333… (exact)               | [v8/v8@646e0b7](https://github.com/v8/v8/commit/646e0b706cd01876093bdfb2b6708e853ee30e94), fixing [crbug 40814804](https://issues.chromium.org/issues/40814804); first shipped in 156.0.8078.0 |
 | V8, Chrome 155 and earlier | −558 (truncated toward zero)      | Same commit                                                                                                                                                                                    |
-| JavaScriptCore (Safari)    | −558 (truncated toward zero)      | WebKit `DatePrototype.cpp` (an `int32` minute offset); read in source, not yet measured in Safari                                                                                              |
+| JavaScriptCore (Safari)    | −558 (truncated toward zero)      | WebKit `DatePrototype.cpp` (an `int32` minute offset); measured with macOS's system JavaScriptCore (`jsc`), not yet in Safari itself                                                           |
 
 In all of them the local getters (`getHours` … `getSeconds`) keep the seconds, and `toString` / `toTimeString` print whole minutes truncated toward zero (`GMT+0918`). The override has to return what the browser itself returns. Otherwise `getTimezoneOffset` disagrees with every other method for those dates, and arkenfox TZP's `[offsets] timezone` row reads "mixed".
 
