@@ -361,28 +361,150 @@ export function planBootstrapScripts(settings: Settings): BootstrapPlanItem[] {
 
 // ─────────────────────────────── Registration ───────────────────────────────
 
-/** Serializes registrations so two calls can't interleave their unregister/register pairs. */
+/** How long a settings write waits for the old early scripts to be removed. */
+export const BOOTSTRAP_INVALIDATION_TIMEOUT_MS = 1000;
+
+/**
+ * Serializes registrations and write-window removals so two jobs can't
+ * interleave their unregister/register pairs.
+ */
 let queue: Promise<void> = Promise.resolve();
 
-/** Counts calls; only the latest one may register. */
+/** Counts calls and write windows; only the latest call may register. */
 let generation = 0;
 
 /** The newest settings revision a call has been made with since the background started. */
 let newestRevision: number | undefined;
+
+/** Settings write windows open now. Writes are serialized, so it's 0 or 1 in practice. */
+let openWrites = 0;
+
+/** An earlier window's removal timed out and hasn't settled yet. */
+let removalStalled = false;
+
+/** The bootstrap side of one settings write; see {@link openBootstrapWriteWindow}. */
+export interface BootstrapWriteWindow {
+  /**
+   * Settles once the scripts registered before this write are gone, or after
+   * the timeout. Null when there's nothing to wait for (no userScripts, or an
+   * earlier wait is still stuck). Never rejects.
+   */
+  readonly removed: Promise<void> | null;
+  /** The write stored `settings`: close the window and register them. Synchronous; the registration runs queued. */
+  stored(settings: Settings): void;
+  /** The write failed: close the window and re-register what's still stored, read with `load`. Never rejects. */
+  failed(load: () => Promise<Settings>): Promise<void>;
+}
+
+/**
+ * Open a write window. Firefox-only; call once per `saveSettings`, before the
+ * storage write.
+ *
+ * Until the window closes, no registration built from older settings is
+ * installed, and the window queues an unfiltered `unregister` so the scripts
+ * built from the previous settings are gone before the write. A page that
+ * loads in between gets no seed rather than an old one. The loader for
+ * `failed` is passed in, so this module never imports `./settings`: the
+ * bootstrap queue must never wait on the settings-write queue.
+ */
+export function openBootstrapWriteWindow(): BootstrapWriteWindow {
+  // From here no queued or building older registerNow registers. Counted
+  // whether or not userScripts exists, so a permission grant during the write
+  // can't register the pre-write settings early.
+  openWrites += 1;
+  generation += 1;
+
+  let removed: Promise<void> | null = null;
+  const api = getUserScriptsApi();
+  if (api) {
+    // Queued, so it runs after any in-flight register has settled. Never rejects.
+    const job = queue.then(async () => {
+      try {
+        // Unfiltered, as in registerNow.
+        await api.unregister();
+      } catch (error) {
+        logger.warn(
+          "[bootstrap] couldn't remove the early scripts before a settings write (continuing):",
+          error
+        );
+      }
+    });
+    queue = job;
+    if (removalStalled) {
+      logger.debug("[bootstrap] an earlier removal is still stuck; storing without waiting");
+    } else {
+      removed = boundedWait(job);
+    }
+  }
+
+  let closed = false;
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    openWrites -= 1;
+  };
+  const stored = (settings: Settings): void => {
+    if (closed) return;
+    close();
+    void updateBootstrapRegistration(settings);
+  };
+
+  return {
+    removed,
+    stored,
+    async failed(load: () => Promise<Settings>): Promise<void> {
+      if (closed) return;
+      try {
+        if (!getUserScriptsApi()) return;
+        const s = await load();
+        logger.debug("[bootstrap] settings write failed; re-registering the stored settings");
+        stored(s); // closes, then registers
+      } finally {
+        close(); // no-op when stored() already closed
+      }
+    },
+  };
+}
+
+/**
+ * Resolve when `job` settles or after BOOTSTRAP_INVALIDATION_TIMEOUT_MS,
+ * whichever comes first. On timeout, later windows skip their wait until `job`
+ * settles, so a hung userScripts delays at most one save by the timeout.
+ */
+function boundedWait(job: Promise<void>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      removalStalled = true;
+      logger.warn(
+        `[bootstrap] userScripts didn't answer within ${BOOTSTRAP_INVALIDATION_TIMEOUT_MS} ms; storing the settings without waiting`
+      );
+      void job.finally(() => {
+        removalStalled = false;
+      });
+      resolve();
+    }, BOOTSTRAP_INVALIDATION_TIMEOUT_MS);
+    void job.finally(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
 
 /**
  * Register (or refresh) the document_start bootstrap user scripts to reflect
  * the current settings, or remove them when there's nothing to seed.
  *
  * Firefox-only and best-effort; safe to call on any settings change and on
- * startup. Idempotent. Calls run one after another in call order, so the last
+ * startup. Idempotent. Calls run one after another in call order, and the last
  * call wins: without that, two overlapping calls could unregister twice, then
  * register A, then fail to register B on the duplicate ids and leave A's stale
- * code in place. A call that a newer one has overtaken only unregisters, so
- * scripts for settings that are no longer stored are never installed. A call
- * whose settings are older (by settings revision) than a call already made is
- * skipped without cancelling anything, so a caller that loaded settings before
- * a write can't replace the write's registration with the older settings.
+ * code in place. A call whose settings are older (by settings revision) than a
+ * call already made is skipped without cancelling anything, so a caller that
+ * loaded settings before a write can't replace the write's registration with
+ * the older settings. While a settings write is open, nothing registers. A
+ * call overtaken by a newer call or a write stops before registering, or
+ * removes what it registered, so scripts for settings that are no longer
+ * stored don't stay installed.
  */
 export function updateBootstrapRegistration(settings: Settings): Promise<void> {
   // Compiled out entirely on Chromium / Safari builds.
@@ -435,13 +557,16 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
     // and locale match what the async path delivers moments later.
     const registrations: Array<Record<string, unknown>> = [];
     for (const item of plan) {
+      const payload = await buildBootstrapPayload(item.settings);
+      // Overtaken while building: stop early, which shortens a write's wait.
+      if (gen !== generation) return;
       const registration: Record<string, unknown> = {
         id: item.id,
         matches: item.matches,
         allFrames: item.allFrames,
         runAt: "document_start",
         world: "MAIN",
-        js: [{ code: buildBootstrapCode(await buildBootstrapPayload(item.settings)) }],
+        js: [{ code: buildBootstrapCode(payload) }],
       };
       if (item.excludeMatches.length > 0) {
         registration.excludeMatches = item.excludeMatches;
@@ -449,8 +574,9 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
       registrations.push(registration);
     }
 
-    // Settings changed again while the payloads were built.
-    if (gen !== generation) return;
+    // Settings changed again, or a settings write opened, while the payloads
+    // were built. The write's window registers the stored settings itself.
+    if (gen !== generation || openWrites > 0) return;
 
     if (registrations.length === 0) {
       logger.debug("[bootstrap] nothing to seed — removed bootstrap scripts");
@@ -458,6 +584,14 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
     }
     // One batch, main script first.
     await api.register(registrations);
+    if (gen !== generation || openWrites > 0) {
+      // Overtaken while registering. The window's removal job is queued behind
+      // this one anyway; removing here keeps the overtaken batch from staying
+      // live until the next job starts.
+      await api.unregister();
+      logger.debug("[bootstrap] overtaken while registering; removed its scripts");
+      return;
+    }
     logger.debug("[bootstrap] registered document_start bootstrap scripts", {
       ids: plan.map((item) => item.id),
     });

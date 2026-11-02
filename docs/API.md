@@ -1085,7 +1085,7 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
     - In Allowlist mode, entries with a path or port seed nothing, and a site location only gets a seed where a path-free, port-free allowlist entry covers all of it.
     - A `*.example.com` site location leaves the apex `example.com` unseeded unless another pattern covers it, and where two site locations' hosts overlap, the broader one doesn't seed the narrower one's host.
     - With no main location, only site-location pages are seeded.
-    - After a settings change, the previous early scripts are removed before their replacements are built, so a page that loads in that moment gets no early value rather than one from the old settings. If building fails, no early scripts remain until the next settings change or browser restart.
+    - Before a settings change is stored, the early scripts built from the previous settings are removed, and the new ones are registered once it's stored, so a page that loads in between gets no early value rather than one from the old settings. If storing fails, the scripts for the settings still stored are registered again. If building fails, no early scripts remain until the next settings change or browser restart. GeoSpoof waits at most a second for Firefox to remove the old scripts; if `userScripts` doesn't answer by then, the change is stored anyway and the old scripts can stay until Firefox's call returns.
 
     Chromium and Safari have no bootstrap.
 

@@ -25,7 +25,7 @@ import { parsePattern } from "@/shared/utils/scope";
 import { validateSiteLocations } from "@/shared/utils/site-locations";
 import { MAX_SETTINGS_REVISION, readRevision } from "@/shared/settings-revision";
 import { getLastSyncedIp } from "./vpn-sync";
-import { updateBootstrapRegistration } from "./bootstrap-register";
+import { openBootstrapWriteWindow } from "./bootstrap-register";
 
 /**
  * Re-exported so the settings module remains the one import site for settings
@@ -510,10 +510,23 @@ export function validateSettings(settings: Partial<Settings>): Settings {
  * Call only inside a settings write job (`runSettingsWrite`). On failure the
  * object's `revision` is restored, so a caller that keeps it never holds a
  * revision that wasn't stored.
+ *
+ * Firefox: the document_start bootstrap scripts built from the previous
+ * settings are removed before the write (waiting at most
+ * BOOTSTRAP_INVALIDATION_TIMEOUT_MS), and the scripts for the stored settings
+ * are registered after it, so the next page load can apply the timezone
+ * synchronously and a page loading in between gets no early value rather
+ * than an old one. Compiled out on Chromium / Safari.
  */
 export async function saveSettings(settings: Settings): Promise<void> {
-  // Two assignments and a call that can't throw, so nothing between here and
-  // the try can leave the object holding an unstored revision.
+  // No statement between opening the window and the try can throw (an await
+  // that never rejects, two assignments and a call that can't throw), so the
+  // window is always closed by stored() or failed(), and nothing can leave the
+  // object holding an unstored revision.
+  const bootstrapWrite = __FIREFOX__ ? openBootstrapWriteWindow() : null;
+  if (bootstrapWrite?.removed) await bootstrapWrite.removed; // bounded, never rejects
+  // Stamped after the wait, so a slow userScripts can't make lastUpdated
+  // older than the actual write.
   const previousRevision = settings.revision;
   settings.lastUpdated = Date.now();
   settings.revision = nextSettingsRevision(previousRevision);
@@ -524,8 +537,14 @@ export async function saveSettings(settings: Settings): Promise<void> {
     // save). It must never carry a revision that isn't stored, or pages that
     // applied it would drop every later delivery.
     settings.revision = previousRevision;
+    // Re-register what's still stored. loadSettings never rejects.
+    if (bootstrapWrite) await bootstrapWrite.failed(loadSettings);
     throw error;
   }
+
+  // Close the window and register the stored settings; fire-and-forget, so
+  // the save never waits on a registration.
+  bootstrapWrite?.stored(settings);
 
   // Push the current region to the native host (Safari only) so the
   // containing app can display the active spoofed location without needing
@@ -533,14 +552,6 @@ export async function saveSettings(settings: Settings): Promise<void> {
   // here must never block saving the actual settings.
   if (__SAFARI__) {
     void pushRegionToNativeHost(settings);
-  }
-
-  // Refresh the Firefox document_start bootstrap user script so the next page
-  // load can apply the timezone synchronously (closing the cold-start race for
-  // Date/Intl). Firefox-only and fully guarded; fire-and-forget so it never
-  // blocks or fails the save. Compiled out on Chromium / Safari.
-  if (__FIREFOX__) {
-    void updateBootstrapRegistration(settings);
   }
 }
 
