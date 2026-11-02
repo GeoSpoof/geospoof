@@ -11,7 +11,7 @@
  * path can't reach (no `webRequest.filterResponseData` on Chromium MV3). A
  * cross-site iframe runs in its own process, so it gets its own child session
  * (`Target.setAutoAttach`, see `debugger-sessions.ts`) that sets the zone
- * before its first script. Applied on `webNavigation.onBeforeNavigate` (or the
+ * there once it has started (its first scripts can run before that). Applied on `webNavigation.onBeforeNavigate` (or the
  * `tabs.onUpdated` fallback), which narrows the cold-start race but doesn't
  * close it: the calls are asynchronous (Known Limitations 3 and 15 in
  * docs/API.md).

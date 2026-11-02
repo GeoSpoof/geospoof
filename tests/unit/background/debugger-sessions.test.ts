@@ -381,6 +381,16 @@ describe("onTopFrame", () => {
   });
 });
 
+describe("CHILD_AUTO_ATTACH", () => {
+  // With pausing, Chrome 156 also paused new dedicated workers, and nothing
+  // resumed them when another extension's frame made Chrome end the session.
+  test("doesn't pause new targets, and attaches iframes only", () => {
+    expect(CHILD_AUTO_ATTACH.waitForDebuggerOnStart).toBe(false);
+    expect(CHILD_AUTO_ATTACH.flatten).toBe(true);
+    expect(CHILD_AUTO_ATTACH.filter).toEqual([{ type: "iframe", exclude: false }]);
+  });
+});
+
 describe("createDebuggerEventHandler", () => {
   test("routes attachedToTarget and detachedFromTarget, ignores the rest", async () => {
     const { dbg, calls } = fakeDebugger();

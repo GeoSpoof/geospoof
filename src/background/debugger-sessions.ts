@@ -6,12 +6,13 @@
  * Chrome's timezone override is per renderer process. A cross-site iframe runs
  * in its own process under site isolation and is its own CDP target, so the
  * tab's root session doesn't reach it. `Target.setAutoAttach` (flat sessions,
- * Chrome 125+) attaches each such iframe as a child of the root session,
- * paused before its first script, so the zone is set there first; the workers
- * it starts share its process and follow it. A frame the child session can't
- * reach still reports the page's zone through the injected fallback (see
- * `engineTimezone` in `page-payload.ts`); this adds its earliest scripts and
- * its workers.
+ * Chrome 125+) attaches each such iframe as a child of the root session, and
+ * the zone is set there as soon as it attaches; the workers it starts share its
+ * process and follow it. It isn't paused for that (see {@link
+ * CHILD_AUTO_ATTACH}), so its first scripts can run with the real zone. Its
+ * Date/Intl report the page's zone either way through the injected fallback
+ * (see `engineTimezone` in `page-payload.ts`); this adds its workers and the
+ * engine-level surfaces once it's running.
  *
  * No `chrome` or `__CHROMIUM__` here: every function takes a {@link
  * DebuggerLike}, so the logic runs under Vitest with a fake. `debugger-spoof.ts`
@@ -46,26 +47,24 @@ export interface DetachedFromTargetParams {
 }
 
 /**
- * Auto-attach every cross-site iframe as a flat child session, paused before
- * its first script until `Runtime.runIfWaitingForDebugger`.
+ * Auto-attach every cross-site iframe as a flat child session.
  *
- * Dedicated workers are listed too, though nothing is set on them (they share
- * their frame's process and follow its zone): Chrome 156 pauses a session's new
- * dedicated workers whenever `waitForDebuggerOnStart` is set, whatever the
- * filter says, and without an attach event nothing would resume them. Measured
- * in the harness: with iframes alone, every dedicated worker hung.
+ * New targets are NOT paused (`waitForDebuggerOnStart: false`), so a frame's
+ * first scripts can run before its zone is set; its later reads and the
+ * workers it starts get it. Pausing was measured and dropped: Chrome 156 then
+ * also pauses the session's new dedicated workers, whatever the filter says,
+ * and when another extension's frame on the page makes Chrome end the session,
+ * nothing resumes them. In the harness about one page load in five on such a
+ * page left every dedicated worker hung.
  */
 export const CHILD_AUTO_ATTACH = {
   autoAttach: true,
-  waitForDebuggerOnStart: true,
+  waitForDebuggerOnStart: false,
   flatten: true,
-  filter: [
-    { type: "iframe", exclude: false },
-    { type: "worker", exclude: false },
-  ],
+  filter: [{ type: "iframe", exclude: false }],
 } as const;
 
-/** How long an attached child may stay paused while its zone is set. */
+/** The bound on each step of setting up an attached child, before any resume. */
 export const CHILD_RESUME_TIMEOUT_MS = 1000;
 
 interface ChildSession {
