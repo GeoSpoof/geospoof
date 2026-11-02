@@ -37,7 +37,7 @@ import {
   ensurePrecisionRollover,
   reschedulePrecisionRollover,
 } from "./precision-cadence";
-import { installDebuggerWatchers, syncDebuggerSpoofing, ensureTabSpoofed } from "./debugger-spoof";
+import { installDebuggerWatchers, syncDebuggerSpoofing, claimTab } from "./debugger-spoof";
 import {
   installWorkerRequestFilter,
   updateWorkerFilterSettings,
@@ -693,6 +693,9 @@ if (browser.tabs && browser.tabs.onUpdated) {
       // the fresh content script re-requests settings on load. No new
       // permission is used — this rides tabs.onUpdated (Req 8.6).
       if (changeInfo.url && changeInfo.status !== "loading") {
+        // Claimed now, in event order, so a navigation that starts while the
+        // settings are read supersedes this one (Chromium debugger mode).
+        const reconcileEngineLevel = __CHROMIUM__ ? claimTab(tabId) : null;
         void (async () => {
           const settings = await loadSettings();
           await sendSettingsToTab(tab, settings);
@@ -710,8 +713,8 @@ if (browser.tabs && browser.tabs.onUpdated) {
           // if now in scope, detach (clearing the override) if not — so path
           // scoping is consistent whether or not debugger mode is on (Req 11).
           // Compiled out on Firefox/Safari.
-          if (__CHROMIUM__ && settings.debuggerModeEnabled) {
-            await ensureTabSpoofed(tabId, tab.url);
+          if (reconcileEngineLevel && settings.debuggerModeEnabled) {
+            await reconcileEngineLevel(tab.url);
           }
         })();
         return;

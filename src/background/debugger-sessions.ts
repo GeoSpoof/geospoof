@@ -72,19 +72,63 @@ interface TabSessions {
   held: boolean;
   /** Auto-attach was requested on the root session. */
   autoAttach: boolean;
+  /**
+   * The zone the tab's newest reconcile set on the root, which a child that
+   * attaches now gets; null while the tab is being reverted. Absent until a
+   * reconcile in this worker's lifetime sets one.
+   */
+  zone?: string | null;
   /** Child session ids. Nothing else about a frame (its URL) is kept. */
   children: Set<string>;
 }
 
 /**
- * In-memory, per tab: whether GeoSpoof holds the tab's session, and its child
- * sessions. An active debugger session keeps the extension's service worker
- * alive (Chrome 118+), so this lives as long as anything is attached. After a
- * forced worker restart it starts empty; {@link ensureChildAutoAttach}
- * rediscovers a held tab's children.
+ * In-memory, per tab: whether GeoSpoof holds the tab's session, the zone it
+ * set, and its child sessions. An active debugger session keeps the
+ * extension's service worker alive (Chrome 118+), so this lives as long as
+ * anything is attached. After a forced worker restart it starts empty; {@link
+ * ensureChildAutoAttach} rediscovers a held tab's children.
+ *
+ * It also numbers each tab's reconciles (see {@link TabSessionTracker.begin})
+ * so the newest one is always the last to write.
  */
 export class TabSessionTracker {
   private readonly tabs = new Map<number, TabSessions>();
+  /** Per tab, its newest reconcile. Kept apart from `tabs`, which `clearTab` drops. */
+  private readonly generations = new Map<number, number>();
+  private lastGeneration = 0;
+
+  /**
+   * Start a reconcile of the tab (a navigation, a settings change, a
+   * teardown) and return its generation. Call it when the event arrives,
+   * before any await. Every reconcile of the tab started before it is stale
+   * from then on and sends nothing more, so the one started last is the last
+   * to write, whichever lookup finishes first.
+   */
+  begin(tabId: number): number {
+    const generation = ++this.lastGeneration;
+    this.generations.set(tabId, generation);
+    return generation;
+  }
+
+  /** The tab's newest reconcile, if one has started. */
+  generation(tabId: number): number | undefined {
+    return this.generations.get(tabId);
+  }
+
+  /** Whether `generation` is still the tab's newest reconcile. */
+  isCurrent(tabId: number, generation: number): boolean {
+    return this.generations.get(tabId) === generation;
+  }
+
+  setZone(tabId: number, zone: string | null): void {
+    this.entry(tabId).zone = zone;
+  }
+
+  /** See {@link TabSessions.zone}; undefined when no reconcile has set one. */
+  zone(tabId: number): string | null | undefined {
+    return this.tabs.get(tabId)?.zone;
+  }
 
   private entry(tabId: number): TabSessions {
     let e = this.tabs.get(tabId);
@@ -124,6 +168,10 @@ export class TabSessionTracker {
     this.tabs.get(tabId)?.children.delete(sessionId);
   }
 
+  hasChild(tabId: number, sessionId: string): boolean {
+    return this.tabs.get(tabId)?.children.has(sessionId) === true;
+  }
+
   /** The tab's child session ids. */
   children(tabId: number): string[] {
     return [...(this.tabs.get(tabId)?.children ?? [])];
@@ -148,7 +196,15 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
  * it, set the tab's zone on it, and ask it to auto-attach its own cross-site
  * iframes (auto-attach isn't recursive). Then resume it if it's paused. Each
  * step before the resume is bounded by `timeoutMs`, and the resume runs in a
- * `finally`, so no failure or hang leaves a frame paused. Never throws.
+ * `finally`, so no failure or hang before it keeps a frame paused. Never
+ * throws.
+ *
+ * The zone is the one the tab's newest reconcile set on the root, sent at
+ * once, so the child matches its page and a later reconcile's own pass over
+ * the children overwrites it in order. Only when no reconcile in this
+ * worker's lifetime has set one (just after a restart) is it looked up with
+ * `zoneForTab`, and that answer is dropped if the child detached or a newer
+ * reconcile started meanwhile: that reconcile reaches this child itself.
  *
  * The child is addressed as `{ tabId, sessionId }` with the ROOT tab id, which
  * holds for a nested child too: its `source` carries its parent's session id.
@@ -162,16 +218,24 @@ export async function handleChildAttached(
   { timeoutMs = CHILD_RESUME_TIMEOUT_MS }: { timeoutMs?: number } = {}
 ): Promise<void> {
   const tabId = source.tabId;
-  if (tabId == null || !params?.sessionId) return;
-  const child: ChromeDebugger.DebuggerSession = { tabId, sessionId: params.sessionId };
+  const sessionId = params?.sessionId;
+  if (tabId == null || !sessionId) return;
+  const child: ChromeDebugger.DebuggerSession = { tabId, sessionId };
   try {
     if (params.targetInfo?.type === "iframe") {
-      tracker.addChild(tabId, params.sessionId);
-      const zone = await withTimeout(
-        zoneForTab(tabId).catch(() => null),
-        timeoutMs,
-        null
-      );
+      tracker.addChild(tabId, sessionId);
+      let zone = tracker.zone(tabId);
+      if (zone === undefined) {
+        const generation = tracker.generation(tabId);
+        zone = await withTimeout(
+          zoneForTab(tabId).catch(() => null),
+          timeoutMs,
+          null
+        );
+        if (!tracker.hasChild(tabId, sessionId) || tracker.generation(tabId) !== generation) {
+          zone = null;
+        }
+      }
       if (zone) {
         await withTimeout(
           dbg
@@ -216,16 +280,22 @@ export function handleChildDetached(
 }
 
 /**
- * Set `timezoneId` on the tab's root session, then on every tracked child
- * (`""` reverts). Returns whether the root command succeeded, which is what
- * makes a tab count as held. Never throws.
+ * Set `timezoneId` on the tab's root session, then on every tracked child, as
+ * reconcile `generation` of the tab. Nothing is sent from the first step at
+ * which a newer reconcile has started: that one writes after this one.
+ * Returns whether the root command succeeded, which is what makes a tab count
+ * as held. Never throws.
  */
 export async function setTabZone(
   dbg: DebuggerLike,
   tracker: TabSessionTracker,
   tabId: number,
-  timezoneId: string
+  timezoneId: string,
+  generation: number
 ): Promise<boolean> {
+  if (!tracker.isCurrent(tabId, generation)) return false;
+  // A child that attaches from now on gets this zone (handleChildAttached).
+  tracker.setZone(tabId, timezoneId);
   let rootOk = false;
   try {
     await dbg.sendCommand({ tabId }, "Emulation.setTimezoneOverride", { timezoneId });
@@ -233,6 +303,7 @@ export async function setTabZone(
   } catch (error) {
     logger.debug(`setTimezoneOverride failed for tab ${tabId}:`, error);
   }
+  if (!tracker.isCurrent(tabId, generation)) return rootOk;
   await Promise.allSettled(
     tracker
       .children(tabId)
@@ -243,25 +314,36 @@ export async function setTabZone(
   return rootOk;
 }
 
+/** What {@link holdTab} needs besides the tab. */
+export interface HoldOptions {
+  protocolVersion: string;
+  /** Flat child sessions are supported (Chrome 125+). */
+  childSessions: boolean;
+}
+
 /**
  * Attach to `tabId` if it isn't held yet, then set `timezoneId` on it and its
- * children, and on success mark it held and turn on child auto-attach.
+ * children, and on success mark it held and turn on child auto-attach, all as
+ * reconcile `generation` of the tab (see {@link TabSessionTracker.begin}).
  *
  * A held tab skips the `attach`: it would only be rejected after an IPC round
  * trip, and that delay is spent before the zone is set. If the zone can't be
  * set on a tab we thought we held (the session ended without us noticing), the
  * tab is forgotten and attached again once. A failed `attach` is tolerated: a
  * rejection can't tell "already ours" from "someone else's", which is why only
- * a root command that succeeds marks a tab held. Returns whether the zone is
- * set on the root. Never throws.
+ * a root command that succeeds marks a tab held. Once a newer reconcile of the
+ * tab has started, nothing more is sent or recorded. Returns whether this
+ * reconcile set the zone on the root and still owns the tab. Never throws.
  */
 export async function holdTab(
   dbg: DebuggerLike,
   tracker: TabSessionTracker,
   tabId: number,
   timezoneId: string,
-  { protocolVersion, childSessions }: { protocolVersion: string; childSessions: boolean }
+  generation: number,
+  { protocolVersion, childSessions }: HoldOptions
 ): Promise<boolean> {
+  const current = (): boolean => tracker.isCurrent(tabId, generation);
   const attach = async (): Promise<void> => {
     try {
       await dbg.attach({ tabId }, protocolVersion);
@@ -271,17 +353,47 @@ export async function holdTab(
     }
   };
   const held = tracker.isHeld(tabId);
-  if (!held) await attach();
-  let ok = await setTabZone(dbg, tracker, tabId, timezoneId);
-  if (!ok && held) {
+  if (!held) {
+    if (!current()) return false;
+    await attach();
+  }
+  let ok = await setTabZone(dbg, tracker, tabId, timezoneId, generation);
+  if (!ok && held && current()) {
     tracker.clearTab(tabId);
     await attach();
-    ok = await setTabZone(dbg, tracker, tabId, timezoneId);
+    ok = await setTabZone(dbg, tracker, tabId, timezoneId, generation);
   }
-  if (!ok) return false;
+  if (!ok || !current()) return false;
   tracker.markHeld(tabId);
   await ensureChildAutoAttach(dbg, tracker, tabId, childSessions);
   return true;
+}
+
+/**
+ * Reconcile one tab as its reconcile `generation`, taken with {@link
+ * TabSessionTracker.begin} when the event arrived: hold it with the zone
+ * `lookup` resolves to, or revert and detach it when that's null (out of
+ * scope, spoofing off). If a newer reconcile of the tab started while
+ * `lookup` ran, nothing is sent: that one decides. Never throws.
+ */
+export async function reconcileTab(
+  dbg: DebuggerLike,
+  tracker: TabSessionTracker,
+  tabId: number,
+  generation: number,
+  lookup: () => Promise<string | null>,
+  options: HoldOptions
+): Promise<void> {
+  let zone: string | null;
+  try {
+    zone = await lookup();
+  } catch (error) {
+    logger.debug(`zone lookup for tab ${tabId} failed:`, error);
+    return;
+  }
+  if (!tracker.isCurrent(tabId, generation)) return;
+  if (zone) await holdTab(dbg, tracker, tabId, zone, generation, options);
+  else await revertAndDetachTab(dbg, tracker, tabId, generation);
 }
 
 /**
@@ -325,14 +437,22 @@ export async function ensureChildAutoAttach(
 
 /**
  * Revert the zone on the tab's children, then its root, then detach and forget
- * the tab. Reverting explicitly matters: detaching alone doesn't reliably
- * revert the override on an already-loaded document. Never throws.
+ * the tab, as reconcile `generation` of the tab. Reverting explicitly matters:
+ * detaching alone doesn't reliably revert the override on an already-loaded
+ * document. If a newer reconcile starts partway, the remaining steps are
+ * skipped, so a teardown can't detach a session that reconcile is using.
+ * Never throws.
  */
 export async function revertAndDetachTab(
   dbg: DebuggerLike,
   tracker: TabSessionTracker,
-  tabId: number
+  tabId: number,
+  generation: number
 ): Promise<void> {
+  const current = (): boolean => tracker.isCurrent(tabId, generation);
+  if (!current()) return;
+  // A child that attaches from now on gets no zone.
+  tracker.setZone(tabId, null);
   await Promise.allSettled(
     tracker
       .children(tabId)
@@ -340,17 +460,19 @@ export async function revertAndDetachTab(
         dbg.sendCommand({ tabId, sessionId }, "Emulation.setTimezoneOverride", { timezoneId: "" })
       )
   );
+  if (!current()) return;
   try {
     await dbg.sendCommand({ tabId }, "Emulation.setTimezoneOverride", { timezoneId: "" });
   } catch {
     /* not attached / no override — fine */
   }
+  if (!current()) return;
   try {
     await dbg.detach({ tabId });
   } catch {
     // Wasn't attached (the common case) — nothing to do.
   }
-  tracker.clearTab(tabId);
+  if (current()) tracker.clearTab(tabId);
 }
 
 /** What {@link createDebuggerEventHandler}'s listener needs. */

@@ -33,9 +33,13 @@
  *   - Settings are read fresh from storage in every event handler, and
  *     `chrome.debugger.getTargets()` is the source of truth for which tabs are
  *     attached. The only memory is the {@link TabSessionTracker}: which tabs we
- *     hold and their child sessions. An attached debugger session keeps the
- *     service worker alive (Chrome 118+), and after a forced restart a held
- *     tab's children are rediscovered (`ensureChildAutoAttach`).
+ *     hold, the zone each was set to, their child sessions, and each tab's
+ *     newest reconcile. Every navigation, settings change and teardown starts
+ *     a reconcile when its event arrives, and an older one sends nothing once
+ *     a newer one has started, so the newest is the last to write. An attached
+ *     debugger session keeps the service worker alive (Chrome 118+), and after
+ *     a forced restart a held tab's children are rediscovered
+ *     (`ensureChildAutoAttach`).
  *   - Listeners are registered at the top level (see `installDebuggerWatchers`,
  *     called from `index.ts` alongside `installResyncWatchers`) so they
  *     re-bind on every SW respawn.
@@ -57,7 +61,9 @@ import {
   createDebuggerEventHandler,
   holdTab,
   onTopFrame,
+  reconcileTab,
   revertAndDetachTab,
+  type HoldOptions,
 } from "./debugger-sessions";
 import { createLogger } from "@/shared/utils/debug-logger";
 
@@ -75,6 +81,10 @@ const tracker = /* @__PURE__ */ new TabSessionTracker();
 /** Flat child sessions (`sendCommand` with a `sessionId`) need Chrome 125+. */
 function childSessionsSupported(): boolean {
   return (chromiumMajorFromUserAgent(navigator.userAgent) ?? 0) >= 125;
+}
+
+function holdOptions(): HoldOptions {
+  return { protocolVersion: PROTOCOL_VERSION, childSessions: childSessionsSupported() };
 }
 
 /** Resolved override values for one tab. */
@@ -134,19 +144,17 @@ export function buildOverridesForTab(
 
 /**
  * Ensure we hold `tabId`, then apply the override to its root session and its
- * child sessions (`holdTab`). A tab we already hold isn't attached again. If the
- * tab can't be attached (it shows another extension's frame, a restricted
- * target) the apply fails harmlessly and the page falls back to the injected
- * timezone. A successful root apply marks the tab held and turns on child
- * auto-attach for its cross-site iframes. Never throws.
+ * child sessions (`holdTab`), as a new reconcile of the tab. A tab we already
+ * hold isn't attached again. If the tab can't be attached (it shows another
+ * extension's frame, a restricted target) the apply fails harmlessly and the
+ * page falls back to the injected timezone. A successful root apply marks the
+ * tab held and turns on child auto-attach for its cross-site iframes. Never
+ * throws.
  */
 async function attachAndApplyTab(tabId: number, overrides: Overrides): Promise<void> {
   const dbg = chrome.debugger;
   if (!dbg) return;
-  await holdTab(dbg, tracker, tabId, overrides.timezoneId, {
-    protocolVersion: PROTOCOL_VERSION,
-    childSessions: childSessionsSupported(),
-  });
+  await holdTab(dbg, tracker, tabId, overrides.timezoneId, tracker.begin(tabId), holdOptions());
 }
 
 /**
@@ -162,36 +170,55 @@ async function zoneForTab(tabId: number): Promise<string | null> {
 }
 
 /**
- * Read settings fresh and reconcile a single tab: attach+apply if in scope,
- * else detach. Exported so the navigation handler can reconcile a tab on a
- * same-document (History API) navigation — which fires no network request and
- * therefore no `onBeforeNavigate`, so a CDP-spoofed tab would otherwise go
- * stale when an in-page route crosses a scope boundary (Req 11).
+ * Start reconciling one tab now, in event order, and return the step that
+ * finishes it for `url`: read settings fresh, then attach+apply if in scope,
+ * else detach (out of scope, spoofing off, no zone here, so no stale session
+ * is left on a tab that navigated from an allowlisted page away). Call it
+ * synchronously in the event listener, before any await: a reconcile claimed
+ * later supersedes this one even if this one's lookups finish last.
+ *
+ * Exported so the navigation handler can reconcile a tab on a same-document
+ * (History API) navigation, which fires no network request and therefore no
+ * `onBeforeNavigate`, so a CDP-spoofed tab would otherwise go stale when an
+ * in-page route crosses a scope boundary (Req 11).
  */
-export async function ensureTabSpoofed(tabId: number, url: string | undefined): Promise<void> {
-  const settings = await loadSettings();
-  const overrides = shouldSpoof(settings) ? buildOverridesForTab(settings, url) : null;
-  if (overrides === null) {
-    // Out of scope (or spoofing off, or no zone here) — make sure we're not
-    // holding a stale session on this tab (e.g. it navigated from an
-    // allowlisted page away).
-    await detachTab(tabId);
-    return;
-  }
-  await attachAndApplyTab(tabId, overrides);
+export function claimTab(tabId: number): (url: string | undefined) => Promise<void> {
+  const generation = tracker.begin(tabId);
+  return async (url) => {
+    const dbg = chrome.debugger;
+    if (!dbg) return;
+    await reconcileTab(
+      dbg,
+      tracker,
+      tabId,
+      generation,
+      async () => {
+        const settings = await loadSettings();
+        if (!shouldSpoof(settings)) return null;
+        return buildOverridesForTab(settings, url)?.timezoneId ?? null;
+      },
+      holdOptions()
+    );
+  };
+}
+
+/** Reconcile one tab for `url` (see {@link claimTab}). */
+function ensureTabSpoofed(tabId: number, url: string | undefined): Promise<void> {
+  return claimTab(tabId)(url);
 }
 
 /**
  * Revert our timezone override on one tab (its child sessions first) so it
- * reads the real zone live, then detach. We clear explicitly (empty timezoneId
- * disables the override) rather than relying on detach's implicit teardown,
- * which doesn't reliably revert `Emulation.setTimezoneOverride` on the
- * already-loaded document. Best-effort; never throws.
+ * reads the real zone live, then detach, as a new reconcile of the tab. We
+ * clear explicitly (empty timezoneId disables the override) rather than
+ * relying on detach's implicit teardown, which doesn't reliably revert
+ * `Emulation.setTimezoneOverride` on the already-loaded document. Best-effort;
+ * never throws.
  */
 async function detachTab(tabId: number): Promise<void> {
   const dbg = chrome.debugger;
   if (!dbg) return;
-  await revertAndDetachTab(dbg, tracker, tabId);
+  await revertAndDetachTab(dbg, tracker, tabId, tracker.begin(tabId));
 }
 
 /** Clear the timezone override on, and detach from, every page target we hold. */
@@ -337,8 +364,10 @@ function onCommitted(details: ChromeWebNavigation.OnCommittedDetails): void {
  * abandoned URL's zone; switch it back to the page's.
  */
 function onErrorOccurred(details: ChromeWebNavigation.OnErrorOccurredDetails): void {
+  // Claimed before the tab lookup, so a navigation that starts meanwhile wins.
+  const reconcile = claimTab(details.tabId);
   void browser.tabs.get(details.tabId).then(
-    (tab) => ensureTabSpoofed(details.tabId, tab.url),
+    (tab) => reconcile(tab.url),
     () => undefined // the tab closed
   );
 }
