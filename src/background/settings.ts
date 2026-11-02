@@ -219,26 +219,42 @@ export function ensureValidPrecisionSeed(v: unknown): number {
 export async function loadSettings(): Promise<Settings> {
   try {
     const result = await browser.storage.local.get("settings");
-    const settings: unknown = result.settings;
-
-    if (!settings || typeof settings !== "object") {
-      logger.warn("Settings not found or invalid, using defaults");
-      return { ...DEFAULT_SETTINGS };
-    }
-
-    const validated = validateSettings(settings);
-
-    // NOTE: a freshly assigned per-install accuracy seed (Req 5.5) is returned
-    // in-memory here but intentionally NOT written from this read path —
-    // loadSettings does not persist (see initialize() in index.ts, which owns
-    // the one-time startup persistence for migrated settings). The assigned
-    // seed is durably written on the next save (startup migration persistence
-    // for upgraded installs, or any subsequent settings update).
-    return validated;
+    return settingsFromStorage(result.settings);
   } catch (error) {
     logger.error("Failed to load settings:", error);
     return { ...DEFAULT_SETTINGS };
   }
+}
+
+/**
+ * loadSettings without the read-failure fallback: a storage read that throws
+ * propagates instead of becoming DEFAULT_SETTINGS. Nothing stored, or a stored
+ * value that isn't an object, still returns the defaults, because then the
+ * defaults are what the extension has. Only the app bridge's region request
+ * (adoptPendingResponse) calls it, so a failed read can't send the app the
+ * defaults' empty site list as the extension's own.
+ */
+export async function loadSettingsOrThrow(): Promise<Settings> {
+  const result = await browser.storage.local.get("settings");
+  return settingsFromStorage(result.settings);
+}
+
+/** The stored `settings` value, validated, or the defaults when it's absent or not an object. */
+function settingsFromStorage(settings: unknown): Settings {
+  if (!settings || typeof settings !== "object") {
+    logger.warn("Settings not found or invalid, using defaults");
+    return { ...DEFAULT_SETTINGS };
+  }
+
+  const validated = validateSettings(settings);
+
+  // NOTE: a freshly assigned per-install accuracy seed (Req 5.5) is returned
+  // in-memory here but intentionally NOT written from this read path —
+  // loadSettings does not persist (see initialize() in index.ts, which owns
+  // the one-time startup persistence for migrated settings). The assigned
+  // seed is durably written on the next save (startup migration persistence
+  // for upgraded installs, or any subsequent settings update).
+  return validated;
 }
 
 /**
@@ -523,7 +539,8 @@ export async function saveSettings(settings: Settings): Promise<void> {
  * browser.runtime.sendNativeMessage → SafariWebExtensionHandler →
  * UserDefaults(suiteName: "group.com.moonloaf.geospoof").
  *
- * Called after every successful settings save. Non-throwing.
+ * Called after every successful settings save, and without a save through
+ * pushRegionNow when the app asks for the region. Non-throwing.
  */
 async function pushRegionToNativeHost(settings: Settings): Promise<void> {
   try {
@@ -585,6 +602,12 @@ async function pushRegionToNativeHost(settings: Settings): Promise<void> {
     logger.debug("pushRegionToNativeHost: native message failed (expected on non-Safari):", error);
   }
 }
+
+/**
+ * The same push without a save, for the app bridge's one-time region request
+ * (`regionWanted`, see adoptPendingResponse in app-bridge.ts). Non-throwing.
+ */
+export const pushRegionNow = pushRegionToNativeHost;
 
 /**
  * Get current settings (alias for loadSettings for consistency)
