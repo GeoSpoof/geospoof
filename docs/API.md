@@ -634,6 +634,8 @@ Response depends on the sender:
 - **Extension pages** (the popup, including the popup opened as a tab on Android) get the complete `Settings` object.
 - **Content scripts** get the `UpdateSettingsPayload` for their top-level page, with no list keys. The top-level URL is `topLevelUrlForSender` in `src/background/sender-page-url.ts`: a top-level document is judged by its own URL (`sender.url`), and a subframe by its tab's (`sender.tab.url`). A document counts as top-level when `sender.frameId === 0`, or when it's prerendering (`documentLifecycle: "prerender"`, Chrome) and sent `topFrame: true`, because a prerendered page's outermost frame has a non-zero `frameId`. For the active top frame, a same-origin `tab.url` wins, since Firefox fixes `sender.url` when the content script starts and a History API navigation can't leave the origin. A missing `sender.url` falls back to `tab.url`. The toolbar badge and title always follow `tab.url`, the page the user sees.
 
+Content scripts send it at `document_start`, again when a page is restored from the back/forward cache (`pageshow` with `persisted`), and once when a prerendered page is shown (`prerenderingchange`, Chrome). Only the newest reply is applied.
+
 #### COMPLETE_ONBOARDING
 
 ```typescript
