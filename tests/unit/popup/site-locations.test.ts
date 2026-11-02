@@ -7,7 +7,7 @@
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import type { Favorite, Settings } from "@/shared/types/settings";
+import type { Favorite, Settings, SiteLocation } from "@/shared/types/settings";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 import {
   ENTRY_DUBLIN,
@@ -270,6 +270,64 @@ describe("Main tab: the line when a site location applies", () => {
     expect(isShown("siteLocationLineUseMain")).toBe(false);
     expect(document.activeElement).toBe(byId("siteLocationLineReloadHint"));
     expect(byId("siteLocationLineReloadHint").getAttribute("tabindex")).toBe("-1");
+  });
+
+  // "Use main location" removes only the winning pattern, so it shows only
+  // when that leaves exactly this site on the main location. Edit always shows.
+  describe("'Use main location' shows only when it gives just this site the main location", () => {
+    const rule = (id: string, patterns: string[], place = ENTRY_MEXICO_CITY): SiteLocation => ({
+      ...place,
+      id,
+      patterns,
+    });
+
+    test.each<[string, SiteLocation[], string, boolean]>([
+      ["an exact-host rule", [ENTRY_MEXICO_CITY], "https://twitch.tv/x", true],
+      ["the suggested rule on www.", [ENTRY_MEXICO_CITY], "https://www.twitch.tv/x", true],
+      ["one site of a multi-site entry", [ENTRY_DUBLIN], "https://openai.com/", true],
+      ["a Unicode spelling of this host", [rule("a", ["münchen.de"])], "https://münchen.de/", true],
+      [
+        "a broader rule in another entry left matching",
+        [rule("a", ["foo.example.com"], ENTRY_DUBLIN), rule("b", ["example.com"])],
+        "https://foo.example.com/",
+        false,
+      ],
+      [
+        "a broader rule in the same entry left matching",
+        [rule("a", ["foo.example.com", "example.com"])],
+        "https://foo.example.com/",
+        false,
+      ],
+      ["a wildcard rule like *.ru", [rule("a", ["*.ru"])], "https://yandex.ru/", false],
+      ["a parent-domain rule", [rule("a", ["example.com"])], "https://a.b.example.com/", false],
+      ["a subdomain wildcard", [rule("a", ["*.example.com"])], "https://www.example.com/", false],
+    ])("%s", (_name, siteLocations, url, shown) => {
+      renderSiteLocationLine(makeSettings({ siteLocations }), url, false);
+      expect(isShown("siteLocationLineMain")).toBe(true);
+      expect(isShown("siteLocationLineEdit")).toBe(true);
+      expect(isShown("siteLocationLineUseMain")).toBe(shown);
+    });
+
+    test("where it's hidden, it sends nothing", async () => {
+      renderSiteLocationLine(
+        makeSettings({ siteLocations: [rule("a", ["*.ru"])] }),
+        "https://yandex.ru/",
+        false
+      );
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
+    });
+
+    test("a later render shows it again where it applies", () => {
+      renderSiteLocationLine(
+        makeSettings({ siteLocations: [rule("a", ["*.ru"])] }),
+        "https://yandex.ru/",
+        false
+      );
+      renderSiteLocationLine(makeSettings(), "https://twitch.tv/", false);
+      expect(isShown("siteLocationLineUseMain")).toBe(true);
+    });
   });
 
   test("a failed 'Use main location' shows an alert and doesn't reload", async () => {

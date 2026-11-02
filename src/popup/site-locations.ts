@@ -5,7 +5,8 @@
  * Three surfaces onto `settings.siteLocations`:
  *   - the Main tab's one-line note (`#siteLocationLine`), rendered only when a
  *     site location applies to the active tab: "On twitch.tv: Mexico City",
- *     with Edit and Use main location. Nothing renders anywhere else;
+ *     with Edit, and Use main location when removing this site's own rule
+ *     leaves it on the main location. Nothing renders anywhere else;
  *   - the Filters tab's collapsed "Per-site locations" disclosure at the
  *     bottom: every entry, with edit and remove (optimistic, reverted on failure
  *     like the scope list), and the one editor;
@@ -52,8 +53,12 @@ const SEARCH_DEBOUNCE_MS = 300;
 /** What the Main-tab line shows for the active tab. */
 export type SiteLocationLineState =
   | { kind: "none" }
-  /** In scope, and a site location applies. `site` is the host without `www.`. */
-  | { kind: "applied"; site: string; entry: SiteLocation; pattern: string };
+  /**
+   * In scope, and a site location applies. `site` is the host without `www.`.
+   * `canUseMain`: "Use main location" would do exactly that here (see
+   * {@link useMainDeliversMain}); otherwise the line offers only Edit.
+   */
+  | { kind: "applied"; site: string; entry: SiteLocation; pattern: string; canUseMain: boolean };
 
 /** A location picked in the editor. `undefined` fields mean "keep the stored value". */
 interface ChosenLocation {
@@ -211,9 +216,50 @@ export function computeSiteLocationLineState(
       site: suggestSiteLocationPattern(tabUrl) ?? host,
       entry: resolution.siteLocation,
       pattern: resolution.matchedPattern,
+      canUseMain: useMainDeliversMain(
+        effective,
+        tabUrl,
+        host,
+        resolution.siteLocation,
+        resolution.matchedPattern
+      ),
     };
   }
   return { kind: "none" };
+}
+
+/**
+ * Whether "Use main location", which removes only the winning `pattern`,
+ * gives exactly this site the main location. Both must hold:
+ *   - the pattern is this site's own: its identity is the host's or the
+ *     suggested pattern's, so `twitch.tv` on www.twitch.tv qualifies, while a
+ *     wildcard like `*.ru` or a parent domain covering other sites doesn't;
+ *   - with it removed, no other pattern gives this page a site location.
+ */
+function useMainDeliversMain(
+  effective: Settings,
+  tabUrl: string,
+  host: string,
+  entry: SiteLocation,
+  pattern: string
+): boolean {
+  const key = siteLocationPatternKey(pattern);
+  const ownKeys = [parseSiteLocationPattern(host), suggestSiteLocationPattern(tabUrl)].map((own) =>
+    own === null ? null : siteLocationPatternKey(own)
+  );
+  if (key === null || !ownKeys.includes(key)) return false;
+
+  const remaining = storedList(effective).flatMap((e) => {
+    if (e.id !== entry.id) return [e];
+    const patterns = e.patterns.filter((p) => p !== pattern);
+    return patterns.length > 0 ? [{ ...e, patterns }] : [];
+  });
+  const after = resolveSiteSettings(
+    { ...effective, enabled: true, siteLocations: remaining },
+    tabUrl,
+    isRestrictedUrl
+  );
+  return after.siteLocation === null;
 }
 
 /**
@@ -238,6 +284,7 @@ export function renderSiteLocationLine(
   setHidden("siteLocationLineError", true);
   setHidden("siteLocationLine", !applied && reloadHintHost !== "line");
   setHidden("siteLocationLineMain", !applied);
+  setHidden("siteLocationLineUseMain", !(lineState.kind === "applied" && lineState.canUseMain));
 
   const status = el("siteLocationLineStatus");
   const editBtn = el("siteLocationLineEdit");
@@ -307,9 +354,12 @@ function openEditorFromLine(): void {
   openEditor({ entry, opener: opener ?? el("siteLocationsAddButton") });
 }
 
-/** Drop the matched pattern only, so a multi-site entry keeps its other sites. */
+/**
+ * Drop the matched pattern only, so a multi-site entry keeps its other sites.
+ * Offered only when that leaves this site on the main location.
+ */
 async function handleUseMain(): Promise<void> {
-  if (lineState.kind !== "applied" || current?.proLocked) return;
+  if (lineState.kind !== "applied" || !lineState.canUseMain || current?.proLocked) return;
   const { entry, pattern } = lineState;
   setHidden("siteLocationLineError", true);
   const payload: RemoveSiteLocationPayload = { id: entry.id, pattern };
