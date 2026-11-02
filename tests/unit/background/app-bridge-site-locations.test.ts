@@ -147,6 +147,26 @@ describe("adopting site locations from the app", () => {
     ]);
   });
 
+  // Zones the format check used to refuse, so step 9 dropped these entries.
+  // Each arrives once bare (repaired with offsets) and once as a full object
+  // (passed through).
+  test.each([
+    "America/Port-au-Prince",
+    "Africa/Porto-Novo",
+    "America/Blanc-Sablon",
+    "Asia/Ust-Nera",
+    "GMT",
+  ])("a %s zone is adopted, bare or as an object", async (identifier) => {
+    await boot(base());
+    const timezone = { identifier, ...computeOffsets(identifier) };
+    const bare = makeSiteLocation({ id: "bare", patterns: ["a.com"] });
+    const full = makeSiteLocation({ id: "full", patterns: ["b.com"], timezone });
+
+    await adopt({ siteLocations: JSON.stringify([{ ...bare, timezone: identifier }, full]) });
+
+    expect(stored().siteLocations).toEqual([{ ...bare, timezone }, full]);
+  });
+
   test("a zone object with non-finite offsets is recomputed", async () => {
     await boot(base());
     const partial = { ...ENTRY_DUBLIN, timezone: { identifier: "Europe/Dublin" } };

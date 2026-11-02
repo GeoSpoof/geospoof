@@ -142,6 +142,11 @@ describe("Known-city lookups", () => {
     { name: "São Paulo", lat: -23.5505, lng: -46.6333, expectedTz: "America/Sao_Paulo" },
     { name: "Dubai", lat: 25.2048, lng: 55.2708, expectedTz: "Asia/Dubai" },
     { name: "Singapore", lat: 1.3521, lng: 103.8198, expectedTz: "Asia/Singapore" },
+    // Hyphenated zones, which used to fail the format check and fall back to Etc/GMT±N.
+    { name: "Port-au-Prince", lat: 18.5944, lng: -72.3074, expectedTz: "America/Port-au-Prince" },
+    { name: "Cotonou", lat: 6.3703, lng: 2.3912, expectedTz: "Africa/Porto-Novo" },
+    { name: "Blanc-Sablon", lat: 51.4264, lng: -57.1314, expectedTz: "America/Blanc-Sablon" },
+    { name: "Ust-Nera", lat: 64.565, lng: 143.237, expectedTz: "Asia/Ust-Nera" },
   ];
 
   test.each(knownCities)("$name resolves to $expectedTz", async ({ lat, lng, expectedTz }) => {

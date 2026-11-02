@@ -203,6 +203,32 @@ describe("SAVE_SITE_LOCATION", () => {
     expect(stored.siteLocations).toEqual([]);
   });
 
+  // These zones used to fail the format check, so the popup refused Haiti,
+  // Benin and the rest with a "check your connection" error.
+  test.each([
+    ["America/Port-au-Prince", 18.5944, -72.3074],
+    ["Africa/Porto-Novo", 6.3703, 2.3912],
+    ["America/Blanc-Sablon", 51.4264, -57.1314],
+    ["Asia/Ust-Nera", 64.565, 143.237],
+    ["GMT", 51.4769, 0],
+  ])("a %s timezone is saved", async (identifier, latitude, longitude) => {
+    const bg = await boot(makeSettings());
+    const { computeOffsets } = await import("@/background/timezone");
+    const timezone: Timezone = { identifier, ...computeOffsets(identifier) };
+    lookups.timezone.mockResolvedValue(timezone);
+    const res = await bg.handleSaveSiteLocation({
+      patterns: ["chatgpt.com"],
+      latitude,
+      longitude,
+    });
+    expect(res).toEqual({ success: true, id: expect.any(String) as string });
+    expect(stored.siteLocations).toHaveLength(1);
+    expect(stored.siteLocations[0].timezone).toEqual(timezone);
+    // ...and survives the load-time validator.
+    const { validateSiteLocations } = await import("@/background/settings");
+    expect(validateSiteLocations(stored.siteLocations)).toEqual(stored.siteLocations);
+  });
+
   test("a failing timezone lookup gives TIMEZONE_UNAVAILABLE", async () => {
     const bg = await boot(makeSettings());
     lookups.timezone.mockRejectedValue(new Error("offline"));

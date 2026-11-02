@@ -28,6 +28,18 @@ describe("isValidIANATimezone", () => {
     expect(isValidIANATimezone("Etc/GMT+12")).toBe(true);
   });
 
+  // The five real zones the check used to refuse: all of Haiti and Benin,
+  // Blanc-Sablon (Quebec), Ust-Nera (Russia), and Apple's bare "GMT".
+  it.each([
+    "America/Port-au-Prince",
+    "Africa/Porto-Novo",
+    "America/Blanc-Sablon",
+    "Asia/Ust-Nera",
+    "GMT",
+  ])("accepts %s", (identifier) => {
+    expect(isValidIANATimezone(identifier)).toBe(true);
+  });
+
   it("rejects invalid values", () => {
     expect(isValidIANATimezone("")).toBe(false);
     expect(isValidIANATimezone(null)).toBe(false);
@@ -35,6 +47,42 @@ describe("isValidIANATimezone", () => {
     expect(isValidIANATimezone(42)).toBe(false);
     expect(isValidIANATimezone("invalid")).toBe(false);
     expect(isValidIANATimezone("lowercase/timezone")).toBe(false);
+  });
+
+  it.each([
+    "123/456",
+    "America/",
+    "/Los_Angeles",
+    "America/Los Angeles",
+    "../../etc/passwd",
+    "America/../Europe/London",
+    "America/Port-au-Prince/",
+    "America/-Port",
+    "America/Port-",
+    "America/Port--au-Prince",
+    "Port-au-Prince",
+    "Africa/Porto-Novo\n",
+    "America/Port-au-Prince; rm -rf /",
+    "gmt",
+    "GMT+5",
+    "Etc/GMT+123",
+  ])("still rejects %j", (identifier) => {
+    expect(isValidIANATimezone(identifier)).toBe(false);
+  });
+
+  // Every zone this runtime knows must pass, so the next tzdata name the pattern
+  // misses fails here and not in a customer's save. No exclusions today. If a
+  // runtime lists an id the extension rejects on purpose, name it in a
+  // commented exclusion list here rather than widening the pattern.
+  it("accepts every zone in Intl.supportedValuesOf", (ctx) => {
+    ctx.skip(
+      typeof Intl.supportedValuesOf !== "function",
+      "Intl.supportedValuesOf is unavailable in this runtime, so there is no list to sweep"
+    );
+    const zones = Intl.supportedValuesOf("timeZone");
+
+    expect(zones.length).toBeGreaterThan(0);
+    expect(zones.filter((id) => !isValidIANATimezone(id))).toEqual([]);
   });
 });
 
