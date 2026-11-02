@@ -156,6 +156,16 @@ export interface UpdateSettingsPayload {
   enabled: boolean;
   location: Location | null;
   timezone: Timezone | null;
+  /**
+   * Engine-level Spoofing (Chromium's `chrome.debugger` mode) sets the zone in
+   * the engine for this page. `timezone` is still this page's zone: each frame
+   * keeps its native Date/Intl only where the engine already reports that zone,
+   * and installs the injected overrides for it where it doesn't (a cross-site
+   * iframe in its own process, a refused or cancelled session, an override that
+   * hasn't landed yet). False on Firefox and Safari, and for a document Chrome
+   * is prerendering. The page world gets only this boolean, never the real zone.
+   */
+  engineTimezone: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   /**

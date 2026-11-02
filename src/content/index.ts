@@ -58,6 +58,14 @@ let preserveGeolocationPrompt = false;
  */
 let spoofedLocale: SpoofedLocalePayload | null = null;
 
+/**
+ * Mirrors the payload's `engineTimezone`: Engine-level Spoofing sets the zone
+ * in the engine for this page. Forwarded so the injected script keeps native
+ * Date/Intl where the engine already reports `timezoneOverride`. Defaults to
+ * false.
+ */
+let engineTimezone = false;
+
 // Event name for settings updates (configurable for stealth)
 const EVENT_NAME: string = process.env.EVENT_NAME || "__x_evt";
 
@@ -98,6 +106,8 @@ interface SettingsEventDetail {
    */
   location: (Location & { accuracySetting?: AccuracySetting; accuracySeed?: number }) | null;
   timezone: Timezone | null;
+  /** Engine-level Spoofing sets the zone in the engine for this page. */
+  engineTimezone: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   webrtcProtection: boolean;
@@ -140,6 +150,7 @@ function buildSettingsEventDetail(): SettingsEventDetail {
     enabled: spoofingEnabled,
     location: spoofedLocation ? { ...spoofedLocation, accuracySetting, accuracySeed } : null,
     timezone: timezoneOverride,
+    engineTimezone,
     debugLogging,
     verbosityLevel,
     webrtcProtection,
@@ -224,6 +235,7 @@ interface ReceivedSettings {
   enabled: boolean;
   location: Location | null;
   timezone: Timezone | null;
+  engineTimezone?: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   webrtcProtection?: boolean;
@@ -254,6 +266,7 @@ function applySettings(settings: ReceivedSettings, logLabel: string): void {
   spoofingEnabled = settings.enabled;
   spoofedLocation = settings.location;
   timezoneOverride = settings.timezone;
+  engineTimezone = settings.engineTimezone ?? false;
   accuracySetting = settings.accuracySetting;
   accuracySeed = settings.accuracySeed;
   debugLogging = settings.debugLogging;
@@ -267,6 +280,7 @@ function applySettings(settings: ReceivedSettings, logLabel: string): void {
     enabled: spoofingEnabled,
     location: spoofedLocation,
     timezone: timezoneOverride,
+    engineTimezone,
     debugLogging,
     verbosityLevel,
     webrtcProtection,

@@ -265,6 +265,17 @@ export let preserveGeolocationPrompt = false;
  */
 export let localeData: LocaleData | null = null;
 
+/**
+ * The payload's `engineTimezone`: Engine-level Spoofing (Chromium) sets the
+ * page's zone in the engine. Whether this realm's engine actually reports it is
+ * decided per realm in `settings-listener.ts` (`timezoneData` is null where it
+ * does). While true, the engine's own zone can change under the realm (an
+ * override that lands or changes later), so the cached real zone is re-checked
+ * (`computeEpochAdjustment`) and `lastModified` recovers the OS offset itself.
+ * Always false on Firefox and Safari.
+ */
+export let engineTimezoneMode = false;
+
 // Setter functions for state mutation from other modules
 export function setSpoofingEnabled(v: boolean): void {
   spoofingEnabled = v;
@@ -296,4 +307,8 @@ export function setPreserveGeolocationPrompt(v: boolean): void {
 
 export function setLocaleData(v: LocaleData | null): void {
   localeData = v;
+}
+
+export function setEngineTimezoneMode(v: boolean): void {
+  engineTimezoneMode = v;
 }

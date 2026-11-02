@@ -53,6 +53,12 @@ export interface SettingsEventDetail {
   enabled: boolean;
   location: SpoofedLocation | null;
   timezone: TimezoneData | null;
+  /**
+   * Engine-level Spoofing (Chromium) sets `timezone` in the engine for this
+   * page. A realm whose engine already reports it keeps native Date/Intl; one
+   * whose engine doesn't installs the overrides for it. Absent means false.
+   */
+  engineTimezone?: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   /**

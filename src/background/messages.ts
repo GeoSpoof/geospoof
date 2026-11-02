@@ -170,8 +170,8 @@ export async function handleMessage(
 
         // Effective_Enabled resolves to false when the URL is missing,
         // unparseable, restricted, or out of scope (Req 8.7). The shared
-        // builder also withholds the timezone in Chromium debugger mode, as the
-        // broadcast path does, except from a prerendering document, which the
+        // builder also sets `engineTimezone` in Chromium debugger mode, as the
+        // broadcast path does, except for a prerendering document, which the
         // tab's debugger session doesn't reach. A prerendered subframe is
         // judged by the page being left, so it gets that page's Filters
         // decision and the main location, never its per-site location.

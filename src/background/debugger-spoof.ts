@@ -18,9 +18,10 @@
  * call) — so it can't guarantee the prompt-free behaviour users expect. The
  * content-script injection *replaces* `getCurrentPosition`, so it's reliably
  * prompt-free, race-free, and already per-tab scope-aware. Therefore, even in
- * debugger mode, geolocation stays on the injected path and only the injected
- * *timezone* overrides are suppressed (the broadcast withholds `timezone` so
- * the page-world timezone overrides no-op while CDP owns the timezone). The
+ * debugger mode, geolocation stays on the injected path. The payload still
+ * carries each page's zone, flagged `engineTimezone`: a frame keeps native
+ * Date/Intl where its engine already reports that zone and installs the
+ * injected timezone overrides where it doesn't (see `page-payload.ts`). The
  * cost is Chrome's persistent "GeoSpoof started debugging this browser" bar, so
  * the feature is strictly opt-in (`Settings.debuggerModeEnabled`).
  *
@@ -43,7 +44,7 @@ import type { Settings } from "@/shared/types/settings";
 import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { loadSettings } from "./settings";
-import { isRestrictedUrl } from "./tabs";
+import { isRestrictedUrl, sendSettingsToTab } from "./tabs";
 import { createLogger } from "@/shared/utils/debug-logger";
 
 const logger = createLogger("BG");
@@ -260,6 +261,35 @@ export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
   ]);
 }
 
+/**
+ * React to a debug session ending. When the user cancels Chrome's debugging
+ * bar, the tab's engine override may or may not revert on the loaded document,
+ * so the tab's payload is sent again: each frame re-checks whether its engine
+ * still reports the page's zone and falls back to the injected overrides if it
+ * doesn't. It still doesn't re-attach: re-spawning the bar the user just
+ * dismissed would be hostile. Other reasons (the tab closed) need nothing.
+ * Never throws.
+ */
+export async function handleDebuggerDetach(
+  reason: ChromeDebugger.DetachReason,
+  tabId: number | undefined,
+  resend: (tabId: number) => Promise<void>
+): Promise<void> {
+  if (reason !== "canceled_by_user" || tabId == null) return;
+  try {
+    await resend(tabId);
+  } catch (error) {
+    logger.debug(`re-sending tab ${tabId}'s settings after a cancelled session failed:`, error);
+  }
+}
+
+/** Send one tab its current payload. */
+async function resendTabPayload(tabId: number): Promise<void> {
+  const settings = await loadSettings();
+  const tab = await browser.tabs.get(tabId);
+  await sendSettingsToTab(tab, settings);
+}
+
 // --- Top-level listeners (MV3: registered synchronously, re-bind on respawn) ---
 
 /** A debug session ended (tab closed, DevTools opened, user dismissed the bar). */
@@ -267,10 +297,8 @@ function onDebuggerDetach(
   source: ChromeDebugger.Debuggee,
   reason: ChromeDebugger.DetachReason
 ): void {
-  // Stateless: nothing to clean up. We deliberately do NOT re-attach on
-  // "canceled_by_user" — re-spawning the debugging bar the user just dismissed
-  // would be hostile; that tab falls back to no browser-level spoofing.
   logger.debug(`debugger detached from tab ${source.tabId ?? "?"} (${reason})`);
+  void handleDebuggerDetach(reason, source.tabId, resendTabPayload);
 }
 
 /**

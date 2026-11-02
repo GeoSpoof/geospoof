@@ -20,8 +20,9 @@ import {
   setWebRTCProtectionEnabled,
   setPreserveGeolocationPrompt,
   setLocaleData,
+  setEngineTimezoneMode,
 } from "./state";
-import { validateTimezoneData } from "./timezone-helpers";
+import { engineReportsZone, validateTimezoneData } from "./timezone-helpers";
 import { validateLocaleData } from "./locale-helpers";
 import {
   setDebugEnabled as setLoggerDebugEnabled,
@@ -89,10 +90,19 @@ export function installSettingsListener(): void {
       const verbosity = event.detail.verbosityLevel ?? "INFO";
       setLoggerVerbosityLevel(verbosity);
 
+      // Engine-level Spoofing sets the page's zone in the engine. This realm
+      // keeps native Date/Intl only if its engine already reports that zone;
+      // otherwise (a cross-site iframe in its own process, a refused or
+      // cancelled session, an override that hasn't landed) it installs the
+      // overrides for it, so every realm reports its top-level page's zone.
+      // Re-checked on every settings event.
+      const engineMode = event.detail.engineTimezone === true;
+      setEngineTimezoneMode(engineMode);
       if (event.detail.timezone) {
         if (validateTimezoneData(event.detail.timezone)) {
-          setTimezoneData(event.detail.timezone);
-          logger.debug("Timezone data updated:", event.detail.timezone);
+          const engineOwned = engineMode && engineReportsZone(event.detail.timezone.identifier);
+          setTimezoneData(engineOwned ? null : event.detail.timezone);
+          logger.debug("Timezone data updated:", event.detail.timezone, { engineOwned });
         } else {
           logger.error("Invalid timezone data received, timezone spoofing disabled");
           setTimezoneData(null);

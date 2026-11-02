@@ -188,6 +188,22 @@ describe("content script settings refresh", () => {
     captured.stop();
   });
 
+  test("engineTimezone is forwarded to the MAIN world, and defaults to false", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve({ ...reply("Asia/Tokyo"), engineTimezone: true });
+    await settle();
+    const last = captured.details.at(-1) as { engineTimezone?: boolean } | undefined;
+    expect(last?.engineTimezone).toBe(true);
+
+    loaded.pageshow!(pageshowEvent(true));
+    loaded.replies[1].resolve(reply("Asia/Tokyo"));
+    await settle();
+    const refreshed = captured.details.at(-1) as { engineTimezone?: boolean } | undefined;
+    expect(refreshed?.engineTimezone).toBe(false);
+    captured.stop();
+  });
+
   test("a non-persisted pageshow (ordinary load) sends nothing", async () => {
     const loaded = await loadContentScript();
     loaded.pageshow!(pageshowEvent(false));

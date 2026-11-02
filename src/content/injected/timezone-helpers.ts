@@ -10,6 +10,7 @@ import {
   OriginalDateTimeFormat,
   originalGetTimezoneOffset,
   originalResolvedOptions,
+  engineTimezoneMode,
 } from "./state";
 import { createLogger } from "@/shared/utils/debug-logger";
 
@@ -20,6 +21,10 @@ const logger = createLogger("INJ");
  * Intl.DateTimeFormat, cached for the lifetime of the realm. Used to compute the
  * real system offset at full sub-minute precision (see computeEpochAdjustment),
  * independent of the spoofed timezone. Falls back to "UTC" if resolution fails.
+ *
+ * "Real" means the zone the engine itself uses for local time. In Engine-level
+ * Spoofing that can change under the realm (an override that lands or changes
+ * after this was cached), so `computeEpochAdjustment` re-checks it there.
  */
 let _realTimeZoneId: string | undefined;
 function getRealTimeZoneId(): string {
@@ -30,6 +35,27 @@ function getRealTimeZoneId(): string {
     _realTimeZoneId = "UTC";
   }
   return _realTimeZoneId;
+}
+
+/**
+ * Whether this realm's engine already reports `id` as its own zone: the native
+ * default `DateTimeFormat` resolves to the same zone as one built for `id`.
+ * Both sides go through the engine's own canonicalization, so an alias
+ * (`Asia/Calcutta` / `Asia/Kolkata`) compares equal. In Engine-level Spoofing a
+ * realm where this holds keeps native Date/Intl; one where it doesn't (a
+ * cross-site iframe in its own process, an override that hasn't landed)
+ * installs the injected overrides. False on any error.
+ */
+export function engineReportsZone(id: string): boolean {
+  try {
+    const own = originalResolvedOptions.call(new OriginalDateTimeFormat()).timeZone;
+    const wanted = originalResolvedOptions.call(
+      new OriginalDateTimeFormat("en-US", { timeZone: id })
+    ).timeZone;
+    return own === wanted;
+  } catch {
+    return false;
+  }
 }
 
 /** Validate that an unknown value conforms to the TimezoneData interface. */
@@ -395,7 +421,17 @@ export function computeEpochAdjustment(
   //     real offset via Intl (same shortOffset path as the spoofed offset) keeps
   //     both sides at the same precision so the fraction cancels correctly.
   const realEastFallback = -originalGetTimezoneOffset.call(parsedDate);
-  const realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
+  let realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
+  // Engine-level Spoofing can change the engine's zone after the realm cached
+  // it (a CDP override that lands after this realm installed the injected
+  // overrides). Native getTimezoneOffset always follows the engine, and it
+  // differs from the cached zone's offset by under a minute only through
+  // truncation, so a gap of a minute or more means the cache is stale.
+  // (`realOffset` is positive-west, `realEastFallback` positive-east.)
+  if (engineTimezoneMode && Math.abs(realOffset + realEastFallback) >= 1) {
+    _realTimeZoneId = undefined;
+    realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
+  }
 
   // (b) Compute the wall-clock time as a UTC epoch.
   //     parsedDate.getTime() is the UTC instant the browser chose when parsing

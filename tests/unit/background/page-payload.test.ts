@@ -171,6 +171,8 @@ describe("Site locations: all consumers agree", () => {
     const payload = payloads[0];
     expect(payload.enabled).toBe(row.enabled);
     expect(payload.timezone?.identifier).toBe(row.zone);
+    // Not a Chromium build: Engine-level Spoofing never owns the zone here.
+    expect(payload.engineTimezone).toBe(false);
     expect(payload.locale).toEqual(resolvePageLocale({ mode: "match" }, row.zone));
     // Within the 2 km radius of the row's anchor (0.05° is ~5 km): precision
     // applies to a site location's point with the global seed and cadence.

@@ -419,7 +419,9 @@ export function workerPayloadFor(
     effective.proFeaturesBlocked
   );
   return identifier || locale
-    ? buildStandaloneWorkerPayload(identifier, locale, backgroundFractionalOffset())
+    ? // Engine-level Spoofing is Chromium-only, so the zone this Firefox path
+      // sees can't change under the worker.
+      buildStandaloneWorkerPayload(identifier, locale, backgroundFractionalOffset(), false)
     : "";
 }
 
