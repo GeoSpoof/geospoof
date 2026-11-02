@@ -344,11 +344,12 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
       monthlyBudgetUsd: 10,
       customDomain: {
         domainName: "push.geospoof.com",
-        // No certificateArn yet, on purpose: prod is hands-off until the relay ships there, so
-        // prod serves on execute-api only and synth warns. Before prod ships: request a REGIONAL
-        // cert in 682844365870 us-east-1, validate it at Namecheap, add `certificateArn` here,
-        // deploy, then CNAME push to the ApnsRelayDomainTarget output. See cdk/README.md,
-        // "Custom domain".
+        // DNS for geospoof.com is hosted at Namecheap (not Route 53), so the cert
+        // is created + DNS-validated out of band and imported here by ARN.
+        // Regional, in 682844365870 us-east-1. CNAME push to the ApnsRelayDomainTarget output.
+        // With the ARN set, execute-api is disabled: this domain is the only door.
+        certificateArn:
+          "arn:aws:acm:us-east-1:682844365870:certificate/481d5393-68e4-42cf-b15d-e53d8d98b536",
       },
     },
   },

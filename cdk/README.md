@@ -366,7 +366,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$URL/v1/nope"               #
 
 The base is `https://<api-id>.execute-api.us-east-1.amazonaws.com` only while
 the env has no `certificateArn` configured. Once it has one, execute-api is
-closed and answers `403`.
+closed and answers `404 {"message":"Not Found"}` (measured on both envs, 2026-10-19).
 
 ### Custom domain
 
@@ -383,8 +383,8 @@ pointed at execute-api fails at once. Until it is set, the env serves on
 execute-api only and `cdk synth` warns. Both doors reach the same `$default`
 stage, so the throttles and the cost ceiling are the same through either.
 
-**Prod is hostname-only for now, on purpose**: it has no cert, so its synth
-warns about `push.geospoof.com`. That is expected until prod ships.
+Both envs have their cert set, so both serve on their custom domain only
+(prod since 2026-10-19, for Live Activity Phase 4).
 
 CDK never creates the certificate. DNS is at Namecheap, so a CDK-created cert
 would block the deploy on DNS validation. The stack imports it by ARN, so a
