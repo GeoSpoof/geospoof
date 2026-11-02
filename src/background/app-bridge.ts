@@ -18,6 +18,7 @@ import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import {
   loadSettings,
+  loadSettingsOrThrow,
   pushRegionNow,
   updateSettings,
   validateAccuracySetting,
@@ -217,7 +218,7 @@ export async function adoptPendingResponse(response: PendingResponse | undefined
   // 1. Read the flag before the no-snapshot return below: the handler sends it
   // next to `pending: null` too, which is the usual case while the app is unset.
   const regionWanted = response?.[REGION_WANTED_FIELD] === true;
-  const before = regionWanted ? (await loadSettings()).lastUpdated : 0;
+  const before = regionWanted ? await readSettingsForRegionPush() : null;
 
   const pending = response?.pending;
   if (pending && typeof pending.updatedAt === "number") {
@@ -228,10 +229,23 @@ export async function adoptPendingResponse(response: PendingResponse | undefined
 
   // 3. Push only if adoption saved nothing: every save already pushed, through
   // saveSettings. So a push that isn't a save never carries a list older than
-  // an app edit Safari hasn't adopted yet.
-  const settings = await loadSettings();
-  if (settings.lastUpdated !== before) return;
+  // an app edit Safari hasn't adopted yet. A read that failed skips the push:
+  // loadSettings would have answered DEFAULT_SETTINGS, and the app would take
+  // their empty site list as Safari's. A later pass that sees the flag asks again.
+  if (before === null) return;
+  const settings = await readSettingsForRegionPush();
+  if (settings === null || settings.lastUpdated !== before.lastUpdated) return;
   pushRegionOnce(settings);
+}
+
+/** The stored settings, or null when the storage read throws. Never throws. */
+async function readSettingsForRegionPush(): Promise<Settings | null> {
+  try {
+    return await loadSettingsOrThrow();
+  } catch (error) {
+    logger.warn("regionWanted: settings read failed, not pushing the region:", error);
+    return null;
+  }
 }
 
 // 4. Single-flight. Adoption runs on background boot, tab activation, navigation

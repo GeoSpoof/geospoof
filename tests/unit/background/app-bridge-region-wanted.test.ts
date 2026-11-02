@@ -13,7 +13,8 @@
  * the exported adoptPendingResponse directly. Every REGION_UPDATE counted here
  * therefore comes from the handshake, never from a save.
  *
- * One test per case in the design's list, in its order.
+ * Tests 1–5 are the cases in the design's list, in its order. Test 6 covers a
+ * settings read that throws, which must not push the defaults.
  */
 
 import { describe, test, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
@@ -134,24 +135,33 @@ describe("regionWanted handshake (design §3.3.1)", () => {
 
   test("4. two concurrent calls with the flag push once", async () => {
     await boot(base({ siteLocations: [ENTRY_DUBLIN] }));
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
     // Hold the first push open so both calls run while it's in flight.
     const landed = deferred<void>();
     sendNativeMessage.mockImplementation(() => landed.promise);
 
-    await Promise.all([
-      bridge.adoptPendingResponse(asking(null)),
-      bridge.adoptPendingResponse(asking(null)),
-    ]);
+    try {
+      await Promise.all([
+        bridge.adoptPendingResponse(asking(null)),
+        bridge.adoptPendingResponse(asking(null)),
+      ]);
 
-    expect(regionPushes()).toHaveLength(1);
+      expect(regionPushes()).toHaveLength(1);
 
-    // Single-flight, not once ever: once the push settles, a call that still
-    // sees the flag (the app didn't store the first one) pushes again.
-    landed.resolve();
-    await flush();
-    await bridge.adoptPendingResponse(asking(null));
+      // Single-flight, not once ever: once the push settles, a call that still
+      // sees the flag pushes again. Here the native call fails, so the app never
+      // stored the first push; the failure is swallowed, not left unhandled.
+      landed.reject(new Error("no host"));
+      await flush();
+      await bridge.adoptPendingResponse(asking(null));
 
-    expect(regionPushes()).toHaveLength(2);
+      expect(regionPushes()).toHaveLength(2);
+      await flush();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 
   test("5. no flag, no push", async () => {
@@ -176,5 +186,33 @@ describe("regionWanted handshake (design §3.3.1)", () => {
 
     expect(mocks.localSet()).not.toHaveBeenCalled();
     expect(regionPushes()).toHaveLength(0);
+  });
+
+  test("6. the flag with failing settings reads: no push, and a later pass pushes", async () => {
+    await boot(base({ siteLocations: [ENTRY_DUBLIN] }));
+    const get = mocks.localGet();
+    const read = get.getMockImplementation();
+    // Every read throws. loadSettings would answer each with DEFAULT_SETTINGS,
+    // and pushing those would show the app an empty list as Safari's.
+    get.mockRejectedValue(new Error("storage unavailable"));
+
+    try {
+      await bridge.adoptPendingResponse(asking(null));
+      await flush();
+
+      expect(get).toHaveBeenCalled();
+      expect(regionPushes()).toHaveLength(0);
+    } finally {
+      if (read) get.mockImplementation(read);
+    }
+
+    // The skipped push left the single-flight guard clear, so once storage reads
+    // again, the next pass that sees the flag pushes Safari's real list.
+    await bridge.adoptPendingResponse(asking(null));
+    await flush();
+
+    const pushes = regionPushes();
+    expect(pushes).toHaveLength(1);
+    expect(JSON.parse(pushes[0].siteLocations as string)).toEqual([ENTRY_DUBLIN]);
   });
 });
