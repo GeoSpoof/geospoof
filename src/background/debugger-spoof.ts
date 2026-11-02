@@ -296,44 +296,54 @@ export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
 }
 
 /**
- * React to a debug session ending. When the user cancels Chrome's debugging
- * bar, the tab's engine override may or may not revert on the loaded document,
- * so the tab's payload is sent again: each frame re-checks whether its engine
- * still reports the page's zone and falls back to the injected overrides if it
- * doesn't. It still doesn't re-attach: re-spawning the bar the user just
- * dismissed would be hostile. Other reasons (the tab closed) need nothing.
- * Never throws.
+ * React to a debug session ending, whatever the reason. A session can end on
+ * a page that stays open: the user cancelled Chrome's debugging bar
+ * (`canceled_by_user`), or another extension's frame appeared in the page and
+ * Chrome ended the session (`target_closed`, with the tab still open). The
+ * tab's engine override may or may not stay on the loaded document, so
+ * `resend` sends the tab's payload again if the tab still exists: each frame
+ * re-checks whether its engine still reports the page's zone and falls back
+ * to the injected overrides if it doesn't. It doesn't re-attach: re-spawning
+ * the bar the user just dismissed would be hostile, and Chrome refuses while
+ * the other extension's frame is shown. Never throws.
  */
 export async function handleDebuggerDetach(
-  reason: ChromeDebugger.DetachReason,
   tabId: number | undefined,
   resend: (tabId: number) => Promise<void>
 ): Promise<void> {
-  if (reason !== "canceled_by_user" || tabId == null) return;
+  if (tabId == null) return;
   try {
     await resend(tabId);
   } catch (error) {
-    logger.debug(`re-sending tab ${tabId}'s settings after a cancelled session failed:`, error);
+    logger.debug(`re-sending tab ${tabId}'s settings after its session ended failed:`, error);
   }
 }
 
-/** Send one tab its current payload. */
+/** Send one tab its current payload; nothing if the tab has closed. */
 async function resendTabPayload(tabId: number): Promise<void> {
+  let tab: Tabs.Tab;
+  try {
+    tab = await browser.tabs.get(tabId);
+  } catch {
+    return; // the tab closed
+  }
   const settings = await loadSettings();
-  const tab = await browser.tabs.get(tabId);
   await sendSettingsToTab(tab, settings);
 }
 
 // --- Top-level listeners (MV3: registered synchronously, re-bind on respawn) ---
 
-/** A debug session ended (tab closed, DevTools opened, user dismissed the bar). */
+/**
+ * A debug session ended (tab closed, DevTools opened, user dismissed the bar,
+ * another extension's frame appeared in the page).
+ */
 function onDebuggerDetach(
   source: ChromeDebugger.Debuggee,
   reason: ChromeDebugger.DetachReason
 ): void {
   logger.debug(`debugger detached from tab ${source.tabId ?? "?"} (${reason})`);
   if (source.tabId != null) tracker.clearTab(source.tabId);
-  void handleDebuggerDetach(reason, source.tabId, resendTabPayload);
+  void handleDebuggerDetach(source.tabId, resendTabPayload);
 }
 
 /**
