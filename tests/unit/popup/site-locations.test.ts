@@ -439,6 +439,63 @@ describe("Filters tab: the Per-site locations disclosure", () => {
     expect(byId("siteLocationLine").hidden).toBe(true);
   });
 
+  describe("focus after removing an entry", () => {
+    function removeButtonOf(id: string): HTMLButtonElement {
+      const row = Array.from(byId("siteLocationsList").children).find(
+        (node) => (node as HTMLElement).dataset.siteLocationId === id
+      );
+      const button = row?.querySelector<HTMLButtonElement>(".scope-site-remove");
+      if (!button) throw new Error(`no remove button for ${id}`);
+      return button;
+    }
+
+    /** Remove `id` successfully, with loadSettings re-rendering `remaining`. */
+    async function removeWithRerender(id: string, remaining: Settings["siteLocations"]) {
+      sendMessage.mockResolvedValue({ success: true, id });
+      vi.mocked(loadSettings).mockImplementationOnce(() => {
+        renderAll(makeSettings({ siteLocations: remaining }), "https://example.com/");
+        return Promise.resolve();
+      });
+      const remove = removeButtonOf(id);
+      remove.focus();
+      remove.click();
+      await flush();
+    }
+
+    test("removing the first of two focuses the remaining row's Edit, not its ✕", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      await removeWithRerender(ENTRY_DUBLIN.id, [ENTRY_MEXICO_CITY]);
+      expect(document.activeElement).toBe(rowEditButton(ENTRY_MEXICO_CITY.id));
+    });
+
+    test("removing the last row focuses the row before it", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      await removeWithRerender(ENTRY_MEXICO_CITY.id, [ENTRY_DUBLIN]);
+      expect(document.activeElement).toBe(rowEditButton(ENTRY_DUBLIN.id));
+    });
+
+    test("removing the only entry focuses 'Set a location for a site'", async () => {
+      showFiltersView();
+      renderAll(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), "https://example.com/");
+      await removeWithRerender(ENTRY_DUBLIN.id, []);
+      expect(document.activeElement).toBe(byId("siteLocationsAddButton"));
+    });
+
+    test("a failed remove puts focus back on the restored ✕", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      const remove = removeButtonOf(ENTRY_DUBLIN.id);
+      remove.focus();
+      remove.click();
+      await flush();
+      expect(remove.isConnected).toBe(true);
+      expect(document.activeElement).toBe(remove);
+    });
+  });
+
   test("doesn't change Filters' 'Add current site' control", () => {
     renderSiteLocationsSection(makeSettings(), undefined, false);
     expect(byId("scopeAddCurrentButton").closest("#scopeListManager")).not.toBeNull();

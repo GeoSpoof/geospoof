@@ -473,6 +473,25 @@ function wireSectionOnce(): void {
   });
 }
 
+/**
+ * After a remove, the focused ✕ is gone. Focus the Edit button of the row that
+ * took its place, else the row before it, else "Set a location for a site".
+ * Edit rather than the next ✕, so a repeated keypress can't remove a second
+ * entry.
+ */
+function focusAfterRemove(index: number): void {
+  const rows = el("siteLocationsList")?.children;
+  for (const i of [index, index - 1]) {
+    const edit = rows?.[i]?.querySelector<HTMLElement>(".site-location-edit") ?? null;
+    if (isFocusable(edit)) {
+      edit.focus();
+      return;
+    }
+  }
+  const addBtn = el("siteLocationsAddButton");
+  if (isFocusable(addBtn)) addBtn.focus();
+}
+
 /** Optimistic removal with revert on failure, like the scope list's handleRemove. */
 async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise<void> {
   if (current?.proLocked) return;
@@ -480,6 +499,7 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
 
   const parent = row.parentNode;
   const nextSibling = row.nextSibling;
+  const index = parent ? Array.from(parent.children).indexOf(row) : 0;
   row.remove();
   updateSectionCountFromDom();
 
@@ -493,6 +513,7 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
       if (editor?.entry?.id === entry.id) closeEditor(false);
       reloadHintHost = "filters";
       await loadSettings();
+      focusAfterRemove(index);
       announceReloadHint();
       return;
     }
@@ -503,6 +524,9 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
   if (parent) parent.insertBefore(row, nextSibling);
   updateSectionCountFromDom();
   setHidden("siteLocationsError", false);
+  // The row is back; so is focus, on the ✕ that was pressed.
+  const removeBtn = row.querySelector<HTMLElement>(".scope-site-remove");
+  if (isFocusable(removeBtn)) removeBtn.focus();
 }
 
 // ── Details tab ─────────────────────────────────────────────────────────────
