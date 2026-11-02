@@ -754,7 +754,7 @@
     "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
   },
   "siteLocation_hintAllowlist": {
-    "message": "筛选规则不会对此网站进行伪装。要将其添加到允许列表吗？",
+    "message": "筛选规则不会对此网站进行伪造。要将其添加到允许列表吗？",
     "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
   },
   "siteLocation_addToAllowlist": {
@@ -762,7 +762,7 @@
     "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
   },
   "siteLocation_hintDenylist": {
-    "message": "此网站在你的拒绝列表中，因此筛选规则不会对其进行伪装。",
+    "message": "此网站在你的拒绝列表中，因此筛选规则不会对其进行伪造。",
     "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
   },
   "siteLocation_hintVpn": {

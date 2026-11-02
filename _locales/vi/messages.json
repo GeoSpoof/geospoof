@@ -754,7 +754,7 @@
     "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
   },
   "siteLocation_hintAllowlist": {
-    "message": "Bộ lọc không giả mạo trang này. Thêm vào danh sách cho phép?",
+    "message": "Bộ lọc không giả mạo trang web này. Thêm vào danh sách cho phép?",
     "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
   },
   "siteLocation_addToAllowlist": {
@@ -762,7 +762,7 @@
     "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
   },
   "siteLocation_hintDenylist": {
-    "message": "Bộ lọc không giả mạo trang này vì nó nằm trong danh sách chặn của bạn.",
+    "message": "Bộ lọc không giả mạo trang web này vì nó nằm trong danh sách chặn của bạn.",
     "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
   },
   "siteLocation_hintVpn": {
@@ -778,7 +778,7 @@
     "description": "Label of the site location editor's text field listing the sites the location applies to."
   },
   "siteLocation_sitesHint": {
-    "message": "Phân tách các trang bằng dấu phẩy, ví dụ: chatgpt.com, openai.com",
+    "message": "Phân tách các trang web bằng dấu phẩy, ví dụ: chatgpt.com, openai.com",
     "description": "Help text under the Sites field. Keep the example domains unchanged."
   },
   "siteLocation_searchLabel": {
@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "Các trang trên $SITES$, cùng mọi thứ được nhúng trong đó, sẽ thấy $PLACE$. Các trang khác giữ vị trí chính của bạn.",
+    "message": "Các trang trên $SITES$, cùng mọi thứ được nhúng trong đó, sẽ thấy $PLACE$. Các trang web khác giữ vị trí chính của bạn.",
     "placeholders": {
       "sites": {
         "content": "$1",
@@ -820,7 +820,7 @@
     "description": "Button that closes the site location editor without saving."
   },
   "siteLocation_errorPattern": {
-    "message": "Hãy dùng trang như example.com, không có đường dẫn và không chỉ là *.",
+    "message": "Hãy dùng trang web như example.com, không có đường dẫn và không chỉ là *.",
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
   "siteLocation_errorInUse": {
@@ -852,7 +852,7 @@
     "description": "Error when Per-site locations already holds the maximum number of entries. $MAX$ is the limit. 'here' means this list; avoid wording that reads as a limit per site."
   },
   "siteLocation_errorTooManySites": {
-    "message": "Một vị trí có thể áp dụng cho tối đa $MAX$ trang.",
+    "message": "Một vị trí có thể áp dụng cho tối đa $MAX$ trang web.",
     "placeholders": {
       "max": {
         "content": "$1",
@@ -870,15 +870,15 @@
     "description": "Error when saving a site location before picking a location."
   },
   "siteLocation_sectionTitle": {
-    "message": "Vị trí theo trang",
+    "message": "Vị trí theo trang web",
     "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
-    "message": "Dùng vị trí khác trên các trang cụ thể.",
+    "message": "Dùng vị trí khác trên các trang web cụ thể.",
     "description": "One short line under the Per-site locations disclosure label on the Filters tab."
   },
   "siteLocation_add": {
-    "message": "Đặt vị trí cho một trang",
+    "message": "Đặt vị trí cho một trang web",
     "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
   },
   "siteLocation_edit": {
@@ -894,15 +894,15 @@
     "description": "Accessible label prefix on the remove button of an entry in Per-site locations; the location's name follows (e.g. 'Remove location Dublin'), as with filters_removeAriaLabel."
   },
   "siteLocation_listAriaLabel": {
-    "message": "Vị trí theo trang",
+    "message": "Vị trí theo trang web",
     "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
-    "message": "🔒 Vị trí theo trang là tính năng của GeoSpoof Pro. Hãy nâng cấp trong ứng dụng GeoSpoof để đặt vị trí riêng cho các trang web.",
+    "message": "🔒 Vị trí theo trang web là tính năng của GeoSpoof Pro. Hãy nâng cấp trong ứng dụng GeoSpoof để đặt vị trí riêng cho các trang web.",
     "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
   },
   "details_siteLocation": {
-    "message": "Trên trang này",
+    "message": "Trên trang web này",
     "description": "Details tab heading for the location Per-site locations applies to the current tab; the value names the place, the site, and the time zone. Shown only when one applies."
   },
   "badge_titleSiteLocation": {
