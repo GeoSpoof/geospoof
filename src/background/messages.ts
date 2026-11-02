@@ -975,8 +975,8 @@ function newSiteLocationId(list: readonly SiteLocation[]): string {
  * bootstrap). The re-load through delivery runs in the site-location queue
  * (`site-location-queue.ts`), so overlapping list changes can't erase each
  * other. An edit whose entry was written meanwhile by a remove or save that
- * arrived after it writes nothing and returns SUPERSEDED, so the later user
- * action wins.
+ * arrived after it, or changed or removed by an app action newer than it,
+ * writes nothing and returns SUPERSEDED, so the later user action wins.
  */
 export async function handleSaveSiteLocation(
   payload: SaveSiteLocationPayload
@@ -1117,8 +1117,8 @@ export async function handleSaveSiteLocation(
     });
 
     // 9. The entry. An edited entry whose original vanished meanwhile (removed
-    // by a request that arrived before this save, or by an app adoption) keeps
-    // its id (it's unused now) and is appended.
+    // by a request that arrived before this save, or by an app action older
+    // than this save) keeps its id (it's unused now) and is appended.
     const id = existing?.id ?? newSiteLocationId(list);
     const entry: SiteLocation = {
       id,
