@@ -405,7 +405,8 @@ describe("DNR refresh (Chromium, Safari)", () => {
     await refreshDnrRule(makeSettings({ localeSpoofing: { mode: "match" } }));
     await refreshDnrRule(makeSettings());
     expect(dnr().updateSessionRules).toHaveBeenCalledTimes(3);
-    expect(dnr().updateSessionRules.mock.calls[1][0].addRules).toHaveLength(1);
+    const second = dnr().updateSessionRules.mock.calls[1][0] as { addRules: unknown[] };
+    expect(second.addRules).toHaveLength(1);
     expect(dnr().updateSessionRules.mock.calls[2][0]).toEqual({
       removeRuleIds: [...ACCEPT_LANGUAGE_RULE_IDS],
       addRules: [],
