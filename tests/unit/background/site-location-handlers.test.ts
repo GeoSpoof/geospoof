@@ -765,6 +765,32 @@ describe("a later change to the same entry wins over a save still on its lookups
     expect(stored.siteLocations).toEqual([ENTRY_MEXICO_CITY]);
   });
 
+  test("a remove that lands before the save first reads the list stays removed", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN, ENTRY_MEXICO_CITY] }));
+    // Hold the save's first read; answer it with the list as stored by then.
+    let release!: () => void;
+    browser.storage.local.get = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve({ settings: structuredClone(stored) });
+          })
+      )
+      .mockImplementation(() => Promise.resolve({ settings: structuredClone(stored) }));
+    const save = bg.handleSaveSiteLocation(moveDublinToMexicoCity);
+    expect(release, "the save's first read is held").toBeDefined();
+
+    expect(await bg.handleRemoveSiteLocation({ id: ENTRY_DUBLIN.id })).toEqual({
+      success: true,
+      id: ENTRY_DUBLIN.id,
+    });
+    release();
+
+    expect(await save).toEqual({ error: "SUPERSEDED" });
+    expect(stored.siteLocations).toEqual([ENTRY_MEXICO_CITY]);
+  });
+
   test("a one-site remove sent meanwhile ('Use main location') isn't undone", async () => {
     const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN] }));
     const release = holdTimezoneLookup(MEXICO_CITY_TZ);

@@ -1037,8 +1037,11 @@ export async function handleSaveSiteLocation(
   // adoption can write between this re-load and this write.
   return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
     // A remove or save of this entry that arrived after this save has already
-    // written it. Writing this older edit now would undo that.
-    if (existing && isSiteLocationEntrySuperseded(existing.id, stamp)) {
+    // written it. Writing this older edit now would undo that. Checked by the
+    // requested id, not `existing`, because a remove that landed before the
+    // first load above leaves `existing` undefined. An id nothing later wrote
+    // still creates a new entry.
+    if (typeof payload.id === "string" && isSiteLocationEntrySuperseded(payload.id, stamp)) {
       return { error: "SUPERSEDED" };
     }
 
