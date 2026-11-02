@@ -12,6 +12,8 @@ import {
   ensureChildAutoAttach,
   handleChildAttached,
   handleChildDetached,
+  holdTab,
+  onTopFrame,
   revertAndDetachTab,
   setTabZone,
   type AttachedToTargetParams,
@@ -24,7 +26,10 @@ interface Call {
   params?: Record<string, unknown>;
 }
 
-function fakeDebugger(behavior: Record<string, "reject" | "hang"> = {}) {
+function fakeDebugger(
+  behavior: Record<string, "reject" | "hang"> = {},
+  rejectOnce = new Set<string>()
+) {
   const calls: Call[] = [];
   const dbg: DebuggerLike = {
     attach: vi.fn((target: ChromeDebugger.Debuggee) => {
@@ -42,6 +47,7 @@ function fakeDebugger(behavior: Record<string, "reject" | "hang"> = {}) {
         params?: Record<string, unknown>
       ) => {
         calls.push({ target, method, params });
+        if (rejectOnce.delete(method)) return Promise.reject(new Error(`${method} failed once`));
         const b = behavior[method];
         if (b === "reject") return Promise.reject(new Error(`${method} refused`));
         if (b === "hang") return new Promise<undefined>(() => {});
@@ -308,6 +314,70 @@ describe("ensureChildAutoAttach", () => {
     tracker.clearTab(TAB);
     await ensureChildAutoAttach(dbg, tracker, TAB, true);
     expect(calls.filter((c) => c.method === "Target.setAutoAttach")).toHaveLength(4);
+  });
+});
+
+describe("holdTab", () => {
+  const OPTS = { protocolVersion: "1.3", childSessions: true };
+
+  test("a new tab: attach, zone, auto-attach; then marked held", async () => {
+    const { dbg, calls } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    expect(await holdTab(dbg, tracker, TAB, "Asia/Tokyo", OPTS)).toBe(true);
+    expect(calls.map((c) => c.method)).toEqual([
+      "attach",
+      "Emulation.setTimezoneOverride",
+      "Target.setAutoAttach",
+      "Target.setAutoAttach",
+    ]);
+    expect(tracker.isHeld(TAB)).toBe(true);
+  });
+
+  test("a held tab gets no attach", async () => {
+    const { dbg, calls } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    await holdTab(dbg, tracker, TAB, "Asia/Tokyo", OPTS);
+    calls.length = 0;
+    expect(await holdTab(dbg, tracker, TAB, "America/Los_Angeles", OPTS)).toBe(true);
+    expect(calls).toEqual([
+      {
+        target: ROOT,
+        method: "Emulation.setTimezoneOverride",
+        params: { timezoneId: "America/Los_Angeles" },
+      },
+    ]);
+  });
+
+  test("a tab is marked held only after a root command succeeds", async () => {
+    const { dbg } = fakeDebugger({ "Emulation.setTimezoneOverride": "reject" });
+    (dbg.attach as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Another debugger"));
+    const tracker = new TabSessionTracker();
+    expect(await holdTab(dbg, tracker, TAB, "Asia/Tokyo", OPTS)).toBe(false);
+    expect(tracker.isHeld(TAB)).toBe(false);
+  });
+
+  test("a held tab whose session is gone is attached again once", async () => {
+    const { dbg, calls } = fakeDebugger({}, new Set(["Emulation.setTimezoneOverride"]));
+    const tracker = new TabSessionTracker();
+    tracker.markHeld(TAB);
+    expect(await holdTab(dbg, tracker, TAB, "Asia/Tokyo", OPTS)).toBe(true);
+    expect(calls.map((c) => c.method).slice(0, 3)).toEqual([
+      "Emulation.setTimezoneOverride",
+      "attach",
+      "Emulation.setTimezoneOverride",
+    ]);
+    expect(tracker.isHeld(TAB)).toBe(true);
+  });
+});
+
+describe("onTopFrame", () => {
+  test("passes frame 0 through and ignores subframes", () => {
+    const seen: number[] = [];
+    const listener = onTopFrame((d: { frameId: number; tabId: number }) => seen.push(d.tabId));
+    listener({ frameId: 0, tabId: 1 });
+    listener({ frameId: 3, tabId: 2 });
+    listener({ frameId: 0, tabId: 3 });
+    expect(seen).toEqual([1, 3]);
   });
 });
 

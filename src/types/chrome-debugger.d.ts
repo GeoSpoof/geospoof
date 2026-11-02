@@ -101,12 +101,32 @@ declare namespace ChromeWebNavigation {
     frameId: number;
   }
 
+  /** The subset of the onCommitted details object GeoSpoof reads. */
+  interface OnCommittedDetails {
+    tabId: number;
+    /** The URL that committed (after any redirects). */
+    url: string;
+    frameId: number;
+  }
+
+  /** The subset of the onErrorOccurred details object GeoSpoof reads. */
+  interface OnErrorOccurredDetails {
+    tabId: number;
+    url: string;
+    frameId: number;
+    error: string;
+  }
+
+  interface NavigationEvent<T> {
+    addListener(callback: (details: T) => void): void;
+    removeListener(callback: (details: T) => void): void;
+    hasListener(callback: (details: T) => void): boolean;
+  }
+
   interface Static {
-    onBeforeNavigate: {
-      addListener(callback: (details: OnBeforeNavigateDetails) => void): void;
-      removeListener(callback: (details: OnBeforeNavigateDetails) => void): void;
-      hasListener(callback: (details: OnBeforeNavigateDetails) => void): boolean;
-    };
+    onBeforeNavigate: NavigationEvent<OnBeforeNavigateDetails>;
+    onCommitted?: NavigationEvent<OnCommittedDetails>;
+    onErrorOccurred?: NavigationEvent<OnErrorOccurredDetails>;
   }
 }
 

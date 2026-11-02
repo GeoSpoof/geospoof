@@ -55,9 +55,9 @@ import { isRestrictedUrl, sendSettingsToTab } from "./tabs";
 import {
   TabSessionTracker,
   createDebuggerEventHandler,
-  ensureChildAutoAttach,
+  holdTab,
+  onTopFrame,
   revertAndDetachTab,
-  setTabZone,
 } from "./debugger-sessions";
 import { createLogger } from "@/shared/utils/debug-logger";
 
@@ -130,9 +130,8 @@ export function buildOverridesForTab(
 }
 
 /**
- * Ensure we're attached to `tabId`, then apply the override to its root session
- * and its child sessions. We attempt the attach unconditionally and tolerate
- * failure: if we're already attached (by us) the apply still succeeds; if the
+ * Ensure we hold `tabId`, then apply the override to its root session and its
+ * child sessions (`holdTab`). A tab we already hold isn't attached again. If the
  * tab can't be attached (it shows another extension's frame, a restricted
  * target) the apply fails harmlessly and the page falls back to the injected
  * timezone. A successful root apply marks the tab held and turns on child
@@ -141,18 +140,10 @@ export function buildOverridesForTab(
 async function attachAndApplyTab(tabId: number, overrides: Overrides): Promise<void> {
   const dbg = chrome.debugger;
   if (!dbg) return;
-  try {
-    await dbg.attach({ tabId }, PROTOCOL_VERSION);
-  } catch (error) {
-    // Expected when already attached (re-applies are still wanted) or when the
-    // tab can't be attached. Proceed to apply regardless; it only takes effect
-    // if we actually hold a session.
-    logger.debug(`attach tab ${tabId}:`, error);
-  }
-  if (await setTabZone(dbg, tracker, tabId, overrides.timezoneId)) {
-    tracker.markHeld(tabId);
-    await ensureChildAutoAttach(dbg, tracker, tabId, childSessionsSupported());
-  }
+  await holdTab(dbg, tracker, tabId, overrides.timezoneId, {
+    protocolVersion: PROTOCOL_VERSION,
+    childSessions: childSessionsSupported(),
+  });
 }
 
 /**
@@ -316,15 +307,37 @@ function onDebuggerDetach(
 }
 
 /**
- * Fired before a navigation's network request — the earliest hook, so the
- * override is in place before the document's first script. Top-level frames
- * only. Requires the optional `webNavigation` permission (the popup requests it
- * when the mode is enabled); absent that, `onTabUpdated` is the fallback.
+ * Fired before a navigation's network request — the earliest hook, but it
+ * doesn't hold the navigation, so a fast response can still commit first
+ * (Known Limitation 15). Top-level frames only. Requires the optional
+ * `webNavigation` permission (the popup requests it when the mode is enabled);
+ * absent that, `onTabUpdated` is the fallback.
  */
-function onBeforeNavigate(details: ChromeWebNavigation.OnBeforeNavigateDetails): void {
-  if (details.frameId !== 0) return;
+const onBeforeNavigate = onTopFrame((details: ChromeWebNavigation.OnBeforeNavigateDetails) => {
   void ensureTabSpoofed(details.tabId, details.url);
-}
+});
+
+/**
+ * A top-level navigation committed: re-apply for the URL that actually
+ * committed. `onBeforeNavigate` fires once per navigation with the first URL,
+ * so after a cross-site redirect the tab would otherwise keep the pre-redirect
+ * URL's zone.
+ */
+const onCommitted = onTopFrame((details: ChromeWebNavigation.OnCommittedDetails) => {
+  void ensureTabSpoofed(details.tabId, details.url);
+});
+
+/**
+ * A top-level navigation failed or became a download / 204, so the page that
+ * was showing stays. `onBeforeNavigate` already switched the tab to the
+ * abandoned URL's zone; switch it back to the page's.
+ */
+const onErrorOccurred = onTopFrame((details: ChromeWebNavigation.OnErrorOccurredDetails) => {
+  void browser.tabs.get(details.tabId).then(
+    (tab) => ensureTabSpoofed(details.tabId, tab.url),
+    () => undefined // the tab closed
+  );
+});
 
 /**
  * Fallback attach path used only when `onBeforeNavigate` isn't bound (i.e. the
@@ -352,10 +365,13 @@ function onTabUpdated(
  */
 function registerWebNavigationListener(): void {
   if (webNavRegistered) return;
-  if (chrome.webNavigation?.onBeforeNavigate) {
-    chrome.webNavigation.onBeforeNavigate.addListener(onBeforeNavigate);
+  const nav = chrome.webNavigation;
+  if (nav?.onBeforeNavigate) {
+    nav.onBeforeNavigate.addListener(onBeforeNavigate);
+    nav.onCommitted?.addListener(onCommitted);
+    nav.onErrorOccurred?.addListener(onErrorOccurred);
     webNavRegistered = true;
-    logger.debug("[debugger] onBeforeNavigate listener bound");
+    logger.debug("[debugger] webNavigation listeners bound");
   }
 }
 

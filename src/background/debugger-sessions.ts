@@ -252,6 +252,59 @@ export async function setTabZone(
 }
 
 /**
+ * Attach to `tabId` if it isn't held yet, then set `timezoneId` on it and its
+ * children, and on success mark it held and turn on child auto-attach.
+ *
+ * A held tab skips the `attach`: it would only be rejected after an IPC round
+ * trip, and that delay is spent before the zone is set. If the zone can't be
+ * set on a tab we thought we held (the session ended without us noticing), the
+ * tab is forgotten and attached again once. A failed `attach` is tolerated: a
+ * rejection can't tell "already ours" from "someone else's", which is why only
+ * a root command that succeeds marks a tab held. Returns whether the zone is
+ * set on the root. Never throws.
+ */
+export async function holdTab(
+  dbg: DebuggerLike,
+  tracker: TabSessionTracker,
+  tabId: number,
+  timezoneId: string,
+  { protocolVersion, childSessions }: { protocolVersion: string; childSessions: boolean }
+): Promise<boolean> {
+  const attach = async (): Promise<void> => {
+    try {
+      await dbg.attach({ tabId }, protocolVersion);
+    } catch (error) {
+      // Expected when already attached, or when the tab can't be attached.
+      logger.debug(`attach tab ${tabId}:`, error);
+    }
+  };
+  const held = tracker.isHeld(tabId);
+  if (!held) await attach();
+  let ok = await setTabZone(dbg, tracker, tabId, timezoneId);
+  if (!ok && held) {
+    tracker.clearTab(tabId);
+    await attach();
+    ok = await setTabZone(dbg, tracker, tabId, timezoneId);
+  }
+  if (!ok) return false;
+  tracker.markHeld(tabId);
+  await ensureChildAutoAttach(dbg, tracker, tabId, childSessions);
+  return true;
+}
+
+/**
+ * Wrap a `webNavigation` listener so it only sees top-level navigations
+ * (`frameId` 0); the zone follows the tab's top-level page.
+ */
+export function onTopFrame<T extends { frameId: number }>(
+  handler: (details: T) => void
+): (details: T) => void {
+  return (details) => {
+    if (details.frameId === 0) handler(details);
+  };
+}
+
+/**
  * Turn on child auto-attach for a tab, once per tracked tab. It's toggled off
  * first: when the tracker is new but the session isn't (a service-worker
  * restart), that makes Chrome report the tab's existing children again. No-op
