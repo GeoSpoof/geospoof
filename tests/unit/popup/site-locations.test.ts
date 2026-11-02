@@ -985,7 +985,50 @@ describe("Editor", () => {
       expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
     });
 
-    test("a save that lands after its editor closed still reloads the list", async () => {
+    function rowRemoveButton(id: string): HTMLButtonElement {
+      const row = Array.from(byId("siteLocationsList").children).find(
+        (node) => (node as HTMLElement).dataset.siteLocationId === id
+      );
+      const button = row?.querySelector<HTMLButtonElement>(".scope-site-remove");
+      if (!button) throw new Error(`no remove button for ${id}`);
+      return button;
+    }
+
+    // A remove sent now would reach the background before the save, which
+    // would then be refused as superseded.
+    test("the edited entry's ✕ and 'Use main location' wait for it; other rows don't", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://twitch.tv/");
+      rowEditButton(ENTRY_MEXICO_CITY.id).click();
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+
+      const useMain = byId<HTMLButtonElement>("siteLocationLineUseMain");
+      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(true);
+      expect(rowRemoveButton(ENTRY_DUBLIN.id).disabled).toBe(false);
+      expect(isShown("siteLocationLineUseMain")).toBe(true);
+      expect(useMain.disabled).toBe(true);
+
+      // A re-render meanwhile keeps them off.
+      renderAll(makeSettings(), "https://twitch.tv/");
+      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(true);
+      expect(rowRemoveButton(ENTRY_DUBLIN.id).disabled).toBe(false);
+      expect(useMain.disabled).toBe(true);
+
+      rowRemoveButton(ENTRY_MEXICO_CITY.id).click();
+      // A dispatched click reaches the listener even on a disabled button.
+      useMain.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+      expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
+
+      held.save({ success: true, id: ENTRY_MEXICO_CITY.id });
+      await flush();
+      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(false);
+      expect(useMain.disabled).toBe(false);
+    });
+
+    test("a save that lands after the Pro lock closed its editor still reloads and announces", async () => {
       showFiltersView();
       renderAll(makeSettings(), "https://example.com/");
       rowEditButton(ENTRY_DUBLIN.id).click();
@@ -993,19 +1036,29 @@ describe("Editor", () => {
       byId("siteLocationSave").click();
       await flush();
 
-      // Removing the entry being edited closes its editor.
-      Array.from(byId("siteLocationsList").children)
-        .find((row) => (row as HTMLElement).dataset.siteLocationId === ENTRY_DUBLIN.id)!
-        .querySelector<HTMLButtonElement>(".scope-site-remove")!
-        .click();
-      await flush();
+      // The one thing left that can close the frozen editor.
+      renderAll(makeSettings(), "https://example.com/", true);
       expect(isShown("siteLocationEditor")).toBe(false);
-      vi.mocked(loadSettings).mockClear();
 
       held.save({ success: true, id: ENTRY_DUBLIN.id });
       await flush();
       expect(loadSettings).toHaveBeenCalledTimes(1);
       expect(disabledControls()).toEqual([]);
+      expect(await announced()).toBe(RELOAD_EN);
+    });
+
+    test("a save refused as superseded shows 'Change not saved' and stays open", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+
+      held.save({ error: "SUPERSEDED" });
+      await flush();
+      expect(isShown("siteLocationEditor")).toBe(true);
+      expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
+      expect(loadSettings).not.toHaveBeenCalled();
     });
   });
 

@@ -724,6 +724,117 @@ describe("overlapping list changes", () => {
   });
 });
 
+// A save that changes coordinates joins the queue only after its lookups, so a
+// remove or save of the same entry sent meanwhile can write first. The later
+// user action must win.
+describe("a later change to the same entry wins over a save still on its lookups", () => {
+  /** Hold the next time-zone lookup until released with `tz`. */
+  function holdTimezoneLookup(tz: Timezone): () => void {
+    let release!: () => void;
+    lookups.timezone.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(tz);
+        })
+    );
+    return () => release();
+  }
+
+  /** Move ENTRY_DUBLIN to Mexico City, keeping its sites. */
+  const moveDublinToMexicoCity = {
+    id: ENTRY_DUBLIN.id,
+    patterns: ENTRY_DUBLIN.patterns,
+    latitude: MEXICO_CITY.latitude,
+    longitude: MEXICO_CITY.longitude,
+    locationName: MEXICO_CITY_NAME,
+  };
+
+  test("a remove sent meanwhile stays removed", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN, ENTRY_MEXICO_CITY] }));
+    const release = holdTimezoneLookup(MEXICO_CITY_TZ);
+    const save = bg.handleSaveSiteLocation(moveDublinToMexicoCity);
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+
+    expect(await bg.handleRemoveSiteLocation({ id: ENTRY_DUBLIN.id })).toEqual({
+      success: true,
+      id: ENTRY_DUBLIN.id,
+    });
+    release();
+
+    expect(await save).toEqual({ error: "SUPERSEDED" });
+    expect(stored.siteLocations).toEqual([ENTRY_MEXICO_CITY]);
+  });
+
+  test("a one-site remove sent meanwhile ('Use main location') isn't undone", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN] }));
+    const release = holdTimezoneLookup(MEXICO_CITY_TZ);
+    const save = bg.handleSaveSiteLocation(moveDublinToMexicoCity);
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+
+    await bg.handleRemoveSiteLocation({ id: ENTRY_DUBLIN.id, pattern: "openai.com" });
+    release();
+
+    expect(await save).toEqual({ error: "SUPERSEDED" });
+    expect(stored.siteLocations).toEqual([{ ...ENTRY_DUBLIN, patterns: ["chatgpt.com"] }]);
+  });
+
+  test("a second save sent meanwhile is the one stored", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN] }));
+    const release = holdTimezoneLookup(MEXICO_CITY_TZ);
+    lookups.timezone.mockResolvedValueOnce(TOKYO_TZ);
+    const first = bg.handleSaveSiteLocation(moveDublinToMexicoCity);
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+
+    const second = await bg.handleSaveSiteLocation({
+      ...moveDublinToMexicoCity,
+      latitude: TOKYO.latitude,
+      longitude: TOKYO.longitude,
+      locationName: TOKYO_NAME,
+    });
+    expect(second).toEqual({ success: true, id: ENTRY_DUBLIN.id });
+    release();
+
+    expect(await first).toEqual({ error: "SUPERSEDED" });
+    expect(stored.siteLocations).toHaveLength(1);
+    expect(stored.siteLocations[0]).toMatchObject({
+      id: ENTRY_DUBLIN.id,
+      location: { latitude: TOKYO.latitude, longitude: TOKYO.longitude },
+      timezone: TOKYO_TZ,
+      locationName: TOKYO_NAME,
+    });
+  });
+
+  test("a save sent after a remove of its entry still wins", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), slowSet());
+    const [removed, saved] = await Promise.all([
+      bg.handleRemoveSiteLocation({ id: ENTRY_DUBLIN.id }),
+      bg.handleSaveSiteLocation(moveDublinToMexicoCity),
+    ]);
+    expect(removed).toEqual({ success: true, id: ENTRY_DUBLIN.id });
+    expect(saved).toEqual({ success: true, id: ENTRY_DUBLIN.id });
+    expect(stored.siteLocations).toHaveLength(1);
+    expect(stored.siteLocations[0]).toMatchObject({
+      id: ENTRY_DUBLIN.id,
+      location: { latitude: MEXICO_CITY.latitude },
+    });
+  });
+
+  test("a change to another entry sent meanwhile doesn't stop the save", async () => {
+    const bg = await boot(makeSettings({ siteLocations: [ENTRY_DUBLIN, ENTRY_MEXICO_CITY] }));
+    const release = holdTimezoneLookup(MEXICO_CITY_TZ);
+    const save = bg.handleSaveSiteLocation(moveDublinToMexicoCity);
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+
+    await bg.handleRemoveSiteLocation({ id: ENTRY_MEXICO_CITY.id });
+    release();
+
+    expect(await save).toEqual({ success: true, id: ENTRY_DUBLIN.id });
+    expect(stored.siteLocations.map((e) => [e.id, e.timezone.identifier])).toEqual([
+      [ENTRY_DUBLIN.id, MEXICO_CITY_TZ.identifier],
+    ]);
+  });
+});
+
 describe("VPN resync leaves site locations pinned", () => {
   test("handleSetLocation(fromVpnSync) changes only the main location", async () => {
     const bg = await boot(

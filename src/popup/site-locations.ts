@@ -93,6 +93,11 @@ let editor: EditorState | null = null;
  */
 let saving = false;
 /**
+ * The entry that save edits (null for a new one). Its row ✕ and "Use main
+ * location" wait for the save too, so this popup can't remove what it's saving.
+ */
+let savingEntryId: string | null = null;
+/**
  * Where the reload hint shows after a change made from this popup (open pages
  * keep old values until reloaded): under the Main line after "Use main
  * location", or in the Filters disclosure after any change made there.
@@ -310,6 +315,7 @@ export function renderSiteLocationLine(
   // VPN sync moves only the IP-derived main location; say so where one applies.
   setHidden("siteLocationLineVpnHint", !(applied && settings.vpnSyncEnabled === true));
   setHidden("siteLocationLineReloadHint", reloadHintHost !== "line");
+  syncSavingEntryLocks();
   return applied;
 }
 
@@ -365,6 +371,7 @@ function openEditorFromLine(): void {
 async function handleUseMain(): Promise<void> {
   if (lineState.kind !== "applied" || !lineState.canUseMain || current?.proLocked) return;
   const { entry, pattern } = lineState;
+  if (entry.id === savingEntryId) return;
   setHidden("siteLocationLineError", true);
   const payload: RemoveSiteLocationPayload = { id: entry.id, pattern };
   try {
@@ -454,6 +461,7 @@ export function renderSiteLocationsSection(
   for (const entry of entries) {
     listEl.appendChild(buildSiteLocationRow(entry, proLocked));
   }
+  syncSavingEntryLocks();
   updateSectionCountFromDom();
 
   setHidden("siteLocationsError", true);
@@ -1069,7 +1077,7 @@ async function handleSave(): Promise<void> {
   // Results still listed, or a search reply still on its way, would offer a
   // choice the sent payload no longer reflects.
   clearSearchResults();
-  setEditorSaving(true);
+  setEditorSaving(true, state.entry?.id ?? null);
   let result: SiteLocationResponse | null = null;
   try {
     result = (await browser.runtime.sendMessage({
@@ -1084,8 +1092,9 @@ async function handleSave(): Promise<void> {
 
   if (result && "success" in result && result.success) {
     reloadHintHost = "filters";
-    // Nothing in the frozen editor can close it, but removing the edited entry
-    // or the Pro lock still can. The list and the hint show the save anyway.
+    // Nothing in the frozen editor can close it, and the edited entry's ✕
+    // waits too, but the Pro lock still can. The list and the hint show the
+    // save anyway.
     const stillOpen = editor === state;
     if (stillOpen) closeEditor(false);
     await loadSettings();
@@ -1129,16 +1138,37 @@ const EDITOR_CONTROL_IDS = [
  * Freeze or release the editor around SAVE_SITE_LOCATION. Cancel and Escape
  * can't undo a save already sent, and an edit made meanwhile would be
  * discarded when it lands, so every control is disabled and `aria-busy` tells
- * assistive tech the editor is updating.
+ * assistive tech the editor is updating. `entryId` is the edited entry, whose
+ * removal waits for the save too.
  */
-function setEditorSaving(on: boolean): void {
+function setEditorSaving(on: boolean, entryId: string | null = null): void {
   saving = on;
+  savingEntryId = on ? entryId : null;
   const editorEl = el("siteLocationEditor");
   if (on) editorEl?.setAttribute("aria-busy", "true");
   else editorEl?.removeAttribute("aria-busy");
   for (const id of EDITOR_CONTROL_IDS) {
     const control = el<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(id);
     if (control) control.disabled = on;
+  }
+  syncSavingEntryLocks();
+}
+
+/**
+ * Disable the row ✕ and "Use main location" of the entry a save in flight
+ * edits, and only those, so a remove from this popup can't overtake the save.
+ * Every render calls this too, so a re-render during the save keeps them off.
+ */
+function syncSavingEntryLocks(): void {
+  const proLocked = current?.proLocked === true;
+  for (const row of Array.from(el("siteLocationsList")?.children ?? [])) {
+    const remove = row.querySelector<HTMLButtonElement>(".scope-site-remove");
+    const id = (row as HTMLElement).dataset.siteLocationId;
+    if (remove) remove.disabled = proLocked || (id !== undefined && id === savingEntryId);
+  }
+  const useMain = el<HTMLButtonElement>("siteLocationLineUseMain");
+  if (useMain) {
+    useMain.disabled = lineState.kind === "applied" && lineState.entry.id === savingEntryId;
   }
 }
 
@@ -1148,6 +1178,7 @@ export function __resetSiteLocationsForTest(): void {
   lineState = { kind: "none" };
   editor = null;
   saving = false;
+  savingEntryId = null;
   reloadHintHost = null;
   disclosureInitialized = false;
   clearTimeout(searchTimer);

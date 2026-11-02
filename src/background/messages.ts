@@ -90,7 +90,12 @@ import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worke
 import { syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
 import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
-import { noteLocalSiteLocationEdit, runSiteLocationJob } from "./site-location-queue";
+import {
+  isSiteLocationEntrySuperseded,
+  noteLocalSiteLocationEdit,
+  runSiteLocationJob,
+  stampSiteLocationRequest,
+} from "./site-location-queue";
 
 export async function handleMessage(
   message: Message,
@@ -908,7 +913,9 @@ function newSiteLocationId(list: readonly SiteLocation[]): string {
  * a successful save (`saveSettings` already pushes REGION_UPDATE and the
  * bootstrap). The re-load through delivery runs in the site-location queue
  * (`site-location-queue.ts`), so overlapping list changes can't erase each
- * other.
+ * other. An edit whose entry was written meanwhile by a remove or save that
+ * arrived after it writes nothing and returns SUPERSEDED, so the later user
+ * action wins.
  */
 export async function handleSaveSiteLocation(
   payload: SaveSiteLocationPayload
@@ -954,6 +961,11 @@ export async function handleSaveSiteLocation(
   if (patterns.length > MAX_PATTERNS_PER_SITE_LOCATION) {
     return { error: "TOO_MANY_PATTERNS" };
   }
+
+  // Before the first await: a remove or save of this entry that arrives while
+  // the lookups below run is later than this save, even though it reaches the
+  // queue first.
+  const stamp = stampSiteLocationRequest();
 
   // 3. The entry being edited, if any. An unknown id is saved as a new entry.
   const settings = await loadSettings();
@@ -1024,6 +1036,12 @@ export async function handleSaveSiteLocation(
   // 10–11 run in the site-location queue, so no other save, remove, or app
   // adoption can write between this re-load and this write.
   return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+    // A remove or save of this entry that arrived after this save has already
+    // written it. Writing this older edit now would undo that.
+    if (existing && isSiteLocationEntrySuperseded(existing.id, stamp)) {
+      return { error: "SUPERSEDED" };
+    }
+
     // 10. Re-load after the awaits and re-check against the latest list.
     const latest = await loadSettings();
     const list = latest.siteLocations;
@@ -1034,8 +1052,9 @@ export async function handleSaveSiteLocation(
       return { error: "AT_CAPACITY" };
     }
 
-    // 9. The entry. An edited entry whose original vanished meanwhile keeps its
-    // id (it's unused now) and is appended.
+    // 9. The entry. An edited entry whose original vanished meanwhile (removed
+    // by a request that arrived before this save, or by an app adoption) keeps
+    // its id (it's unused now) and is appended.
     const id = existing?.id ?? newSiteLocationId(list);
     const entry: SiteLocation = {
       id,
@@ -1058,7 +1077,7 @@ export async function handleSaveSiteLocation(
     } catch {
       return { error: "STORAGE_ERROR" };
     }
-    noteLocalSiteLocationEdit();
+    noteLocalSiteLocationEdit(id, stamp);
 
     // 11. Deliver, inside the queue so broadcasts go out in write order.
     await deliverSiteLocationChange(updated);
@@ -1094,11 +1113,14 @@ async function deliverSiteLocationChange(updated: Settings): Promise<void> {
  * entry with it when it was the last. Without one, removes the entry. An
  * unknown id or pattern is a no-op success. Broadcasts, re-badges, and
  * re-syncs CDP after a successful save. Runs entirely in the site-location
- * queue, like the final step of a save.
+ * queue, like the final step of a save, and is stamped on arrival, so an
+ * earlier save of the same entry still waiting on its lookups won't write it
+ * back.
  */
 export function handleRemoveSiteLocation(
   payload: RemoveSiteLocationPayload
 ): Promise<SiteLocationResponse> {
+  const stamp = stampSiteLocationRequest();
   return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
     const id = payload?.id;
     const settings = await loadSettings();
@@ -1129,7 +1151,7 @@ export function handleRemoveSiteLocation(
     } catch {
       return { error: "STORAGE_ERROR" };
     }
-    noteLocalSiteLocationEdit();
+    noteLocalSiteLocationEdit(entry.id, stamp);
 
     await deliverSiteLocationChange(updated);
     return { success: true, id };
