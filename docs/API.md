@@ -249,8 +249,9 @@ Wrapped to synchronously scan inserted subtrees for iframes and patch them befor
 ## Engine-level Spoofing (Chromium)
 
 An optional, off-by-default Chromium mode (`Settings.debuggerModeEnabled`,
-implemented in `src/background/debugger-spoof.ts`) that applies the **timezone**
-override through the Chrome DevTools Protocol instead of page-world injection.
+implemented in `src/background/debugger-spoof.ts`) that also sets the **timezone**
+in the browser engine through the Chrome DevTools Protocol, keeping the
+page-world injection as the fallback wherever that doesn't reach.
 It exists to narrow two gaps the content-script path cannot cover on Chromium
 MV3 (which has no `webRequest.filterResponseData`):
 
