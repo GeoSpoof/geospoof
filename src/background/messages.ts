@@ -171,7 +171,8 @@ export async function handleMessage(
         //
         // It deliberately reads `tab.url`, not `pageUrl`: the badge describes
         // the page the user sees, and a prerendered document must not repaint
-        // it for a page that isn't showing.
+        // it for a page that isn't showing. The content script asks again when
+        // a prerendered page is shown, and that request repaints the badge.
         if (senderTabId != null) {
           applyTabIndicator(senderTabId, settings, _sender.tab.url);
         }
