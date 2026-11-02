@@ -395,17 +395,22 @@ describe("ApnsRelayStack: custom domain", () => {
     }
   });
 
-  it("prod, with a hostname but no cert ARN: no domain, execute-api stays open, and synth says why", () => {
-    prod.resourceCountIs("AWS::ApiGatewayV2::DomainName", 0);
-    prod.resourceCountIs("AWS::ApiGatewayV2::ApiMapping", 0);
-    expect(onlyResource(prod, "AWS::ApiGatewayV2::Api").DisableExecuteApiEndpoint).toBe(false);
-    expect(outputsNamed(prod, "ApnsRelayDomainTarget")).toEqual([]);
-    const url = outputsNamed(prod, "ApnsRelayUrl");
-    expect(url).toHaveLength(1);
-    expect(JSON.stringify(url[0].Value)).toContain("execute-api");
-    expect(warningsOf(stackNamed("TestApnsRelay-prod"))).toEqual([
-      expect.stringMatching(/^customDomain\.domainName "push\.geospoof\.com" .*certificateArn/),
+  it("prod as configured: push.geospoof.com with its own cert, execute-api closed, no warnings", () => {
+    const prodCertArn = environments.prod.apnsRelay?.customDomain?.certificateArn;
+    expect(prodCertArn).toMatch(/^arn:aws:acm:us-east-1:682844365870:certificate\//);
+    prod.resourceCountIs("AWS::ApiGatewayV2::DomainName", 1);
+    prod.resourceCountIs("AWS::ApiGatewayV2::ApiMapping", 1);
+    const domain = onlyResource(prod, "AWS::ApiGatewayV2::DomainName");
+    expect(domain.DomainName).toBe("push.geospoof.com");
+    expect(domain.DomainNameConfigurations).toEqual([
+      expect.objectContaining({ CertificateArn: prodCertArn, EndpointType: "REGIONAL" }),
     ]);
+    expect(onlyResource(prod, "AWS::ApiGatewayV2::Api").DisableExecuteApiEndpoint).toBe(true);
+    expect(outputsNamed(prod, "ApnsRelayDomainTarget")).toHaveLength(1);
+    expect(outputsNamed(prod, "ApnsRelayUrl")).toEqual([
+      expect.objectContaining({ Value: "https://push.geospoof.com/" }),
+    ]);
+    expect(warningsOf(stackNamed("TestApnsRelay-prod"))).toEqual([]);
   });
 
   it("dev as configured: on its domain once the cert ARN is set, on execute-api until then", () => {
