@@ -267,12 +267,17 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
       }
     }
 
-    // 1c. Pro-only config gate (per-site filtering, custom accuracy). Same
-    // app-as-authority rationale as 1b.
+    // 1c. Pro-only config gate (per-site filtering, per-site locations, custom
+    // accuracy). Same app-as-authority rationale as 1b. The gate applies when
+    // a page payload is built, so a change is broadcast (which also refreshes
+    // Accept-Language) and re-badged: open pages drop or regain their per-site
+    // values now, even when no later step changes anything.
     if (typeof pending.proFeaturesBlocked === "boolean") {
       const latest = await loadSettings();
       if (latest.proFeaturesBlocked !== pending.proFeaturesBlocked) {
-        await updateSettings({ proFeaturesBlocked: pending.proFeaturesBlocked });
+        const updated = await updateSettings({ proFeaturesBlocked: pending.proFeaturesBlocked });
+        await broadcastSettingsToTabs(updated);
+        await updateBadge();
       }
     }
 
