@@ -159,6 +159,47 @@ describe("adopting site locations from the app", () => {
     });
   });
 
+  test("a zone object with finite offsets the engine can't resolve is dropped", async () => {
+    await boot(base());
+    const unknownZone = {
+      ...makeSiteLocation({ id: "unknown-zone", patterns: ["b.com"] }),
+      timezone: { identifier: "Not/AZone", offset: 0, dstOffset: 0 },
+    };
+
+    await adopt({ siteLocations: JSON.stringify([ENTRY_DUBLIN, unknownZone]) });
+
+    expect(stored().siteLocations).toEqual([ENTRY_DUBLIN]);
+  });
+
+  test("a zone marked fallback is dropped, with or without offsets", async () => {
+    await boot(base());
+    const withOffsets = {
+      ...makeSiteLocation({ id: "fallback-full", patterns: ["a.com"] }),
+      timezone: { identifier: "Etc/GMT+5", offset: 300, dstOffset: 0, fallback: true },
+    };
+    const withoutOffsets = {
+      ...makeSiteLocation({ id: "fallback-bare", patterns: ["b.com"] }),
+      timezone: { identifier: "Etc/GMT+5", fallback: true },
+    };
+
+    await adopt({ siteLocations: JSON.stringify([withOffsets, withoutOffsets, ENTRY_DUBLIN]) });
+
+    expect(stored().siteLocations).toEqual([ENTRY_DUBLIN]);
+  });
+
+  test("an unmarked Etc/GMT zone is kept, as the extension's own save path keeps it", async () => {
+    await boot(base());
+    // geo-tz returns Etc/GMT±N, unmarked, for open ocean.
+    const ocean = {
+      ...makeSiteLocation({ id: "ocean", patterns: ["a.com"] }),
+      timezone: { identifier: "Etc/GMT+5", offset: 300, dstOffset: 0 },
+    };
+
+    await adopt({ siteLocations: JSON.stringify([ocean]) });
+
+    expect(stored().siteLocations).toEqual([ocean]);
+  });
+
   test("invalid entries are dropped and valid ones kept", async () => {
     await boot(base());
     const list = [

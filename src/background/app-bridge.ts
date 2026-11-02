@@ -127,25 +127,30 @@ function bridgedTimezone(identifier: string): Timezone | null {
 /**
  * Give bridged site locations full timezones before validation. The app may
  * store just the IANA id, or an object whose offsets didn't survive the trip;
- * both are recomputed here. Anything else passes through unchanged, and an
- * unrepairable zone is left as-is so validateSiteLocations drops the entry.
+ * both are recomputed here. Every id is also checked against this engine's
+ * time-zone data, offsets or not, because validateSiteLocations checks only
+ * its format: an id the engine can't resolve drops the entry. A zone marked
+ * `fallback`, or one this function can't read, is left as-is so
+ * validateSiteLocations drops the entry.
  */
 function repairBridgedSiteLocationTimezones(entries: unknown[]): unknown[] {
   return entries.map((entry) => {
     if (!entry || typeof entry !== "object") return entry;
     const tz = (entry as Record<string, unknown>).timezone;
-    let identifier: string | null = null;
+    let identifier: unknown = null;
+    let hasOffsets = false;
     if (typeof tz === "string") {
       identifier = tz;
     } else if (tz && typeof tz === "object") {
-      const { identifier: id, offset, dstOffset } = tz as Record<string, unknown>;
-      if (typeof id === "string" && !(Number.isFinite(offset) && Number.isFinite(dstOffset))) {
-        identifier = id;
-      }
+      const { identifier: id, offset, dstOffset, fallback } = tz as Record<string, unknown>;
+      if (fallback === true) return entry;
+      identifier = id;
+      hasOffsets = Number.isFinite(offset) && Number.isFinite(dstOffset);
     }
-    if (identifier === null || !isValidIANATimezone(identifier)) return entry;
+    if (typeof identifier !== "string" || !isValidIANATimezone(identifier)) return entry;
     const repaired = bridgedTimezone(identifier);
-    return repaired ? { ...entry, timezone: repaired } : entry;
+    if (repaired === null) return { ...entry, timezone: null };
+    return hasOffsets ? entry : { ...entry, timezone: repaired };
   });
 }
 
