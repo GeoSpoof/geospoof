@@ -658,7 +658,14 @@ if (browser.tabs && browser.tabs.onCreated) {
             // this path, and a consumer someone forgot to update is the
             // likeliest bug for any per-tab feature, so every page-bound
             // payload goes through `page-payload.ts`.
-            const scopedPayload = await buildPagePayload(settings, tab.url);
+            //
+            // Judged by the tab's URL now, not the `tab` snapshot from the
+            // event: a tab opened straight at a URL (a link opened in a new
+            // tab, `window.open`) is created as about:blank or with no URL,
+            // and its page can already be listening 100ms later. A payload
+            // built from the snapshot would turn spoofing off on that page.
+            const current = await browser.tabs.get(tab.id!);
+            const scopedPayload = await buildPagePayload(settings, current.url);
             await browser.tabs.sendMessage(tab.id!, {
               type: "UPDATE_SETTINGS",
               payload: scopedPayload,

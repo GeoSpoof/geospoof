@@ -139,6 +139,7 @@ async function collectPayloads(url: string): Promise<UpdateSettingsPayload[]> {
   const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
     ((tab: { id?: number; url?: string }) => void) | undefined;
   expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+  browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url });
   vi.useFakeTimers();
   try {
     onCreated!({ id: 42, url });

@@ -244,6 +244,7 @@ describe("rollover handler", () => {
       ((tab: { id?: number; url?: string }) => void) | undefined;
     expect(onCreated).toBeDefined();
 
+    browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url: "https://example.com/new" });
     vi.useFakeTimers({ toFake: ["Date", "setTimeout"] });
     vi.setSystemTime(T0);
     onCreated!({ id: 42, url: "https://example.com/new" });

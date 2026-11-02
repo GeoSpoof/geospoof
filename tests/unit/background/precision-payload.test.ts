@@ -212,6 +212,7 @@ describe("every page-bound builder offsets the location (Req 5.2)", () => {
       ).mock.calls.at(-1)?.[0];
       expect(listener, "tabs.onCreated listener was not registered").toBeDefined();
 
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url: "https://example.com/new" });
       listener!({ id: 42, url: "https://example.com/new" });
       // The handler loads settings asynchronously, then defers the send.
       await vi.waitFor(() => expect(sent.length).toBeGreaterThan(0), { timeout: 2000 });
@@ -328,6 +329,7 @@ describe("location-precision cadence through the page-bound builders", () => {
       const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
         ((tab: { id?: number; url?: string }) => void) | undefined;
       expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url: "https://example.com/new" });
       vi.useFakeTimers();
       try {
         onCreated!({ id: 42, url: "https://example.com/new" });
@@ -412,6 +414,7 @@ describe("location-precision cadence through the page-bound builders", () => {
       const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
         ((tab: { id?: number; url?: string }) => void) | undefined;
       expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url: URL });
       vi.useFakeTimers();
       try {
         onCreated!({ id: 42, url: URL });
