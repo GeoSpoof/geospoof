@@ -69,6 +69,21 @@ describe("isValidIANATimezone", () => {
   ])("still rejects %j", (identifier) => {
     expect(isValidIANATimezone(identifier)).toBe(false);
   });
+
+  // Every zone this runtime knows must pass, so the next tzdata name the pattern
+  // misses fails here and not in a customer's save. No exclusions today. If a
+  // runtime lists an id the extension rejects on purpose, name it in a
+  // commented exclusion list here rather than widening the pattern.
+  it("accepts every zone in Intl.supportedValuesOf", (ctx) => {
+    ctx.skip(
+      typeof Intl.supportedValuesOf !== "function",
+      "Intl.supportedValuesOf is unavailable in this runtime, so there is no list to sweep"
+    );
+    const zones = Intl.supportedValuesOf("timeZone");
+
+    expect(zones.length).toBeGreaterThan(0);
+    expect(zones.filter((id) => !isValidIANATimezone(id))).toEqual([]);
+  });
 });
 
 describe("isValidLocation", () => {
