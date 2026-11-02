@@ -116,6 +116,15 @@ function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
 }
 
+/**
+ * The newest app snapshot (Unix ms) that carried a site-location list and
+ * passed its newer-than check. Adoptions overlap (boot, tab switch,
+ * navigation, every Safari GET_SETTINGS), and an older one waiting on a
+ * lookup can reach step 9 after a newer one; step 9 skips it, so the newer
+ * list stays. In memory: a background restart also ends any in-flight adoption.
+ */
+let newestSiteLocationSnapshotMs = -Infinity;
+
 /** `{ identifier, ...computeOffsets(identifier) }`, or null when the lookup throws. */
 function bridgedTimezone(identifier: string): Timezone | null {
   try {
@@ -221,6 +230,12 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
   // Only adopt if the app's action is newer than the last extension change.
   if (pendingAtMs <= settings.lastUpdated) {
     return;
+  }
+
+  // Recorded before this snapshot's first step, so any older snapshot still
+  // in flight sees it when it reaches step 9.
+  if (typeof pending.siteLocations === "string") {
+    newestSiteLocationSnapshotMs = Math.max(newestSiteLocationSnapshotMs, pendingAtMs);
   }
 
   logger.info("Adopting pending settings from app:", pending);
@@ -525,9 +540,11 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
     // never a wipe; `[]` is a real "the app cleared the list". Bare IANA zone
     // ids are repaired with offsets, then every entry is re-validated, so the
     // extension stays the source of truth for list hygiene. The load and write
-    // run in the site-location queue, and a save or remove written after the
-    // newer-than check wins over this older snapshot. Its own try/catch so a
-    // failure here never undoes the steps above.
+    // run in the site-location queue. A save or remove written after the
+    // newer-than check wins over this older snapshot, and so does a newer app
+    // snapshot that passed its own check meanwhile (strictly newer, so the same
+    // snapshot adopted twice still applies). Its own try/catch so a failure
+    // here never undoes the steps above.
     if (typeof pending.siteLocations === "string") {
       try {
         const parsed: unknown = JSON.parse(pending.siteLocations);
@@ -535,6 +552,7 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
         const next = validateSiteLocations(repairBridgedSiteLocationTimezones(parsed));
         await runSiteLocationJob(async () => {
           if (localSiteLocationEdits() !== siteLocationEditsAtCheck) return;
+          if (pendingAtMs < newestSiteLocationSnapshotMs) return;
           const latestForSites = await loadSettings();
           if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
             const updated = await updateSettings({ siteLocations: next });

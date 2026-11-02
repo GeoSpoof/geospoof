@@ -628,6 +628,70 @@ describe("overlapping list changes", () => {
     // The rest of the snapshot is still adopted.
     expect(stored.location?.latitude).toBe(35);
   });
+
+  /** Hold the next time-zone lookup (an adoption's step 2) until released. */
+  function holdNextTimezoneLookup(): () => void {
+    let release!: () => void;
+    lookups.timezone.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(TOKYO_TZ);
+        })
+    );
+    return () => release();
+  }
+
+  test("an older app snapshot that finishes last doesn't replace a newer one's list", async () => {
+    const releaseOlderLookup = holdNextTimezoneLookup();
+    await boot(makeSettings());
+    const { adoptPendingSnapshot } = await import("@/background/app-bridge");
+    const now = Date.now() / 1000;
+    const APP_ENTRY_2 = makeSiteLocation({ id: "app-2", patterns: ["chatgpt.com"] });
+
+    // The older snapshot waits on its main location's lookup. Meanwhile the
+    // user adds a second entry in the app, and that newer snapshot finishes.
+    const older = adoptPendingSnapshot({
+      updatedAt: now + 60,
+      latitude: 35,
+      longitude: 139,
+      siteLocations: JSON.stringify([APP_ENTRY]),
+    });
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+    await adoptPendingSnapshot({
+      updatedAt: now + 120,
+      latitude: 35,
+      longitude: 139,
+      siteLocations: JSON.stringify([APP_ENTRY, APP_ENTRY_2]),
+    });
+    expect(stored.siteLocations.map((e) => e.id)).toEqual(["app", "app-2"]);
+
+    releaseOlderLookup();
+    await older;
+
+    expect(stored.siteLocations.map((e) => e.id)).toEqual(["app", "app-2"]);
+  });
+
+  test("two overlapping adoptions of one snapshot both apply its list", async () => {
+    const releaseFirstLookup = holdNextTimezoneLookup();
+    await boot(makeSettings());
+    const { adoptPendingSnapshot } = await import("@/background/app-bridge");
+    const snapshot = {
+      updatedAt: Date.now() / 1000 + 60,
+      latitude: 35,
+      longitude: 139,
+      siteLocations: JSON.stringify([APP_ENTRY]),
+    };
+
+    const first = adoptPendingSnapshot(snapshot);
+    await vi.waitFor(() => expect(lookups.timezone).toHaveBeenCalledTimes(1));
+    await adoptPendingSnapshot(snapshot);
+    expect(stored.siteLocations.map((e) => e.id)).toEqual(["app"]);
+
+    releaseFirstLookup();
+    await first;
+
+    expect(stored.siteLocations.map((e) => e.id)).toEqual(["app"]);
+  });
 });
 
 describe("VPN resync leaves site locations pinned", () => {
