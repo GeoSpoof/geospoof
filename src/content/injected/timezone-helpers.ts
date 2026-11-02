@@ -382,10 +382,11 @@ export function computeEpochAdjustment(
   // (a) Real system offset in minutes (positive = west of UTC, getTimezoneOffset
   //     convention), resolved at FULL sub-minute precision.
   //
-  //     We cannot use getTimezoneOffset() here: on V8 it truncates sub-minute
-  //     historical LMT offsets to a whole minute, while the native Date
-  //     constructor (which produced parsedDate.getTime()) uses the full-precision
-  //     offset. Mixing the two leaks the dropped fraction into the adjustment —
+  //     We cannot use getTimezoneOffset() here: V8 before Chrome 156 and
+  //     JavaScriptCore truncate sub-minute historical LMT offsets to a whole
+  //     minute in it, while the native Date constructor (which produced
+  //     parsedDate.getTime()) uses the full-precision offset. Mixing the two
+  //     leaks the dropped fraction into the adjustment —
   //     e.g. spoofing America/Sao_Paulo (LMT -3:06:28) from a machine also in
   //     Sao_Paulo produced 186.9333 instead of the native 186.4667. Resolving the
   //     real offset via Intl (same shortOffset path as the spoofed offset) keeps
@@ -426,9 +427,9 @@ export function computeEpochAdjustment(
       logger.debug("computeEpochAdjustment: DST refinement", originalOffset, spoofedOffset);
     }
 
-    // (f) Both engines' native Date constructors interpret ambiguous local-time
-    //     inputs using the FULL sub-minute offset (only getTimezoneOffset() rounds,
-    //     and it does so on a separate code path). Keeping full precision here makes
+    // (f) Every engine's native Date constructor interprets ambiguous local-time
+    //     inputs using the FULL sub-minute offset (only getTimezoneOffset() may
+    //     truncate, on a separate code path). Keeping full precision here makes
     //     the epoch — and therefore getTime/valueOf/Date.parse/component arithmetic —
     //     match what a real browser in the spoofed zone reports (e.g. Asia/Tokyo 1879
     //     resolves to -558.9833, not -558 or -560). getTimezoneOffset's per-engine
