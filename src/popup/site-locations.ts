@@ -90,6 +90,7 @@ let reloadHintHost: "line" | "filters" | null = null;
 let disclosureInitialized = false;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 let searchSeq = 0;
+let announceTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -307,6 +308,7 @@ async function handleUseMain(): Promise<void> {
       await loadSettings();
       // The re-render hid this button along with the rest of the line.
       focusReloadHint("siteLocationLineReloadHint");
+      announceReloadHint();
       return;
     }
   } catch (error: unknown) {
@@ -317,13 +319,39 @@ async function handleUseMain(): Promise<void> {
 
 /**
  * After an action whose button the re-render hides, focus the reload hint it
- * revealed. A screen reader then reads the confirmation (a live region that's
- * unhidden with its text already in place often isn't announced), and Tab
- * continues from there instead of from the top of the popup.
+ * revealed, so Tab continues from there instead of from the top of the popup.
+ * `announce` speaks the confirmation.
  */
 function focusReloadHint(id: string): void {
   const hint = el(id);
   if (isFocusable(hint)) hint.focus();
+}
+
+/** Long enough for screen readers to register the cleared region first. */
+const ANNOUNCE_DELAY_MS = 100;
+
+/**
+ * Speak a confirmation through #siteLocationAnnouncer, the popup's one polite
+ * live region for these changes. It sits outside every view, so it works from
+ * either tab and with the disclosure closed. The region is cleared first and
+ * the text set a moment later, so the same message repeated is spoken again; a
+ * newer message replaces one still pending.
+ */
+function announce(text: string): void {
+  const region = el("siteLocationAnnouncer");
+  if (!region) return;
+  clearTimeout(announceTimer);
+  region.textContent = "";
+  announceTimer = setTimeout(() => {
+    region.textContent = text;
+  }, ANNOUNCE_DELAY_MS);
+}
+
+/** The confirmation after a change: the same words as the visible reload hint. */
+function announceReloadHint(): void {
+  announce(
+    t("siteLocation_reloadHint") || "Reload pages on this site to apply the change everywhere."
+  );
 }
 
 // ── Filters tab: the "Per-site locations" disclosure ────────────────────────
@@ -465,6 +493,7 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
       if (editor?.entry?.id === entry.id) closeEditor(false);
       reloadHintHost = "filters";
       await loadSettings();
+      announceReloadHint();
       return;
     }
   } catch (error: unknown) {
@@ -640,6 +669,7 @@ async function handleAddToAllowlist(): Promise<void> {
       reloadHintHost = "filters";
       await loadSettings();
       focusReloadHint("siteLocationsReloadHint");
+      announceReloadHint();
       return;
     }
   } catch (error: unknown) {
@@ -966,6 +996,7 @@ async function handleSave(): Promise<void> {
     closeEditor(false);
     await loadSettings();
     restoreFocusAfterEditor(opener);
+    announceReloadHint();
     return;
   }
 
@@ -984,4 +1015,6 @@ export function __resetSiteLocationsForTest(): void {
   disclosureInitialized = false;
   clearTimeout(searchTimer);
   searchSeq = 0;
+  clearTimeout(announceTimer);
+  announceTimer = undefined;
 }

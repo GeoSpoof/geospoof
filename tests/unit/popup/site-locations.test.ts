@@ -259,7 +259,10 @@ describe("Main tab: the line when a site location applies", () => {
     expect(isShown("siteLocationLine")).toBe(true);
     expect(isShown("siteLocationLineMain")).toBe(false);
     expect(isShown("siteLocationLineReloadHint")).toBe(true);
-    expect(byId("siteLocationLineReloadHint").getAttribute("role")).toBe("status");
+    // The announcer is the one live region; the hint itself has no role, so
+    // revealing it can't add a second reading.
+    expect(byId("siteLocationLineReloadHint").hasAttribute("role")).toBe(false);
+    expect(byId("siteLocationAnnouncer").getAttribute("role")).toBe("status");
     expect(byId("siteLocationsReloadHint").hidden).toBe(true);
 
     // The pressed button is gone, so focus moves to the confirmation: it's
@@ -827,5 +830,131 @@ describe("Accessibility", () => {
     renderSiteLocationLine(makeSettings(), "https://twitch.tv/", false);
     const edit = byId("siteLocationLineEdit");
     expect(edit.getAttribute("aria-label")?.startsWith(text("siteLocationLineEdit"))).toBe(true);
+  });
+
+  test("one polite announcer, outside every view, starts empty and never shown", () => {
+    const announcer = byId("siteLocationAnnouncer");
+    expect(announcer.getAttribute("role")).toBe("status");
+    expect(announcer.getAttribute("aria-live")).toBe("polite");
+    expect(announcer.getAttribute("aria-atomic")).toBe("true");
+    expect(announcer.closest("[hidden]")).toBeNull();
+    expect(announcer.closest(".tab-content")).toBeNull();
+    expect(announcer.closest("details")).toBeNull();
+    expect(announcer.classList.contains("visually-hidden")).toBe(true);
+    expect(text("siteLocationAnnouncer")).toBe("");
+    // The reload hints are no longer live regions of their own.
+    expect(byId("siteLocationLineReloadHint").hasAttribute("role")).toBe(false);
+    expect(byId("siteLocationsReloadHint").hasAttribute("role")).toBe(false);
+  });
+
+  test("the visually-hidden utility clips rather than hides", () => {
+    const css = readFileSync("assets/popup.css", "utf8");
+    const rule = /\.visually-hidden\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("position: absolute");
+    expect(rule).toContain("clip-path: inset(50%)");
+    expect(rule).not.toMatch(/display:\s*none|visibility:\s*hidden/);
+  });
+
+  describe("confirmations are announced", () => {
+    const RELOAD = "Reload pages on this site to apply the change everywhere.";
+
+    /** Wait out the announcer's clear-then-set delay, then read it. */
+    async function announced(): Promise<string> {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return text("siteLocationAnnouncer");
+    }
+
+    function openEditorAt(url: string, settings: Settings): void {
+      showFiltersView();
+      renderAll(settings, url);
+      byId("siteLocationsAddButton").click();
+    }
+
+    test("Save", async () => {
+      openEditorAt("https://www.example.com/page", makeSettings());
+      pickFavorite(FAVORITE.id);
+      sendMessage.mockResolvedValue({ success: true, id: "new" });
+      byId("siteLocationSave").click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed Save announces nothing (the alert speaks)", async () => {
+      openEditorAt("https://www.example.com/page", makeSettings());
+      pickFavorite(FAVORITE.id);
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationSave").click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("Remove", async () => {
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed Remove announces nothing", async () => {
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("Use main location", async () => {
+      renderAll(makeSettings(), "https://twitch.tv/");
+      sendMessage.mockResolvedValue({ success: true, id: ENTRY_MEXICO_CITY.id });
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed Use main location announces nothing", async () => {
+      renderAll(makeSettings(), "https://twitch.tv/");
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("the one-tap Add to allowlist", async () => {
+      openEditorAt(
+        "https://chatgpt.com/c/1",
+        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com"] })
+      );
+      sendMessage.mockResolvedValue({ success: true });
+      byId("siteLocationAddToAllowlist").click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed one-tap announces nothing", async () => {
+      openEditorAt(
+        "https://chatgpt.com/c/1",
+        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com"] })
+      );
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationAddToAllowlist").click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("the same confirmation twice is spoken again: cleared, then set", async () => {
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      // Cleared at once, so the repeat registers as a change...
+      expect(text("siteLocationAnnouncer")).toBe("");
+      // ...then set again.
+      expect(await announced()).toBe(RELOAD);
+    });
   });
 });
