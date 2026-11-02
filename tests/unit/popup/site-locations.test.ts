@@ -747,6 +747,189 @@ describe("Editor", () => {
     expect(isShown("siteLocationEditor")).toBe(true);
   });
 
+  // The payload is built when Save is pressed and the message can't be called
+  // back, so nothing in the editor may look like it changes the save.
+  describe("while a save is in flight", () => {
+    const CONTROLS = [
+      "siteLocationPatterns",
+      "siteLocationSearch",
+      "siteLocationFavorite",
+      "siteLocationAddToAllowlist",
+      "siteLocationEditOwner",
+      "siteLocationSave",
+      "siteLocationCancel",
+    ];
+    const BERLIN = {
+      name: "Berlin, Germany",
+      latitude: 52.52,
+      longitude: 13.405,
+      city: "Berlin",
+      country: "DE",
+    };
+
+    /** Hold SAVE_SITE_LOCATION and GEOCODE_QUERY replies until released; anything else succeeds. */
+    function holdReplies(): { save: (reply: unknown) => void; geocode: (reply: unknown) => void } {
+      const pending: Record<string, (reply: unknown) => void> = {};
+      sendMessage.mockImplementation((message: unknown) => {
+        const { type } = message as { type: string };
+        if (type === "SAVE_SITE_LOCATION" || type === "GEOCODE_QUERY") {
+          return new Promise((resolve) => {
+            pending[type] = resolve;
+          });
+        }
+        return Promise.resolve({ success: true, id: "other" });
+      });
+      return {
+        save: (reply) => pending.SAVE_SITE_LOCATION?.(reply),
+        geocode: (reply) => pending.GEOCODE_QUERY?.(reply),
+      };
+    }
+
+    function disabledControls(): string[] {
+      return CONTROLS.filter((id) => byId<HTMLInputElement>(id).disabled);
+    }
+
+    async function announced(): Promise<string> {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return text("siteLocationAnnouncer");
+    }
+
+    const RELOAD_EN = (
+      JSON.parse(readFileSync("_locales/en/messages.json", "utf8")) as Record<
+        string,
+        { message: string }
+      >
+    ).siteLocation_reloadHint.message;
+
+    test.each<[string, () => void]>([
+      ["Cancel", () => byId("siteLocationCancel").click()],
+      [
+        "Escape",
+        () =>
+          byId("siteLocationPatterns").dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+          ),
+      ],
+    ])("%s waits for it, then the save takes its normal path", async (_name, dismiss) => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+      expect(byId("siteLocationEditor").getAttribute("aria-busy")).toBe("true");
+
+      dismiss();
+      expect(isShown("siteLocationEditor")).toBe(true);
+
+      held.save({ success: true, id: "new" });
+      await flush();
+      expect(isShown("siteLocationEditor")).toBe(false);
+      expect(byId("siteLocationEditor").hasAttribute("aria-busy")).toBe(false);
+      expect(loadSettings).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(byId("siteLocationsAddButton"));
+      expect(await announced()).toBe(RELOAD_EN);
+    });
+
+    test("every control is disabled, and nothing chosen meanwhile changes the save", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      const search = byId<HTMLInputElement>("siteLocationSearch");
+      search.value = "Berlin";
+      search.dispatchEvent(new Event("input"));
+      // Past the search debounce: the query is sent, its reply held.
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(messagesOfType("GEOCODE_QUERY")).toEqual([{ query: "Berlin" }]);
+
+      byId("siteLocationSave").click();
+      await flush();
+      expect(disabledControls()).toEqual(CONTROLS);
+
+      // The search reply arrives: no result buttons appear.
+      held.geocode({ results: [BERLIN] });
+      await flush();
+      expect(byId("siteLocationResults").querySelectorAll("button")).toHaveLength(0);
+      // A result or favorite picked anyway, and Edit on another row, change nothing.
+      renderSearchResults([BERLIN]);
+      byId("siteLocationResults").querySelector("button")!.click();
+      pickFavorite(FAVORITE.id);
+      rowEditButton(ENTRY_DUBLIN.id).click();
+      expect(text("siteLocationChosen")).toBe("Work");
+      expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("example.com");
+
+      held.save({ success: true, id: "new" });
+      await flush();
+      expect(disabledControls()).toEqual([]);
+      expect(messagesOfType("SAVE_SITE_LOCATION")).toHaveLength(1);
+      expect(isShown("siteLocationEditor")).toBe(false);
+    });
+
+    test.each<[string, unknown, string]>([
+      ["TIMEZONE_UNAVAILABLE", { error: "TIMEZONE_UNAVAILABLE" }, "siteLocationSave"],
+      [
+        "PATTERN_IN_USE",
+        { error: "PATTERN_IN_USE", pattern: "example.com", ownerId: ENTRY_MEXICO_CITY.id },
+        "siteLocationPatterns",
+      ],
+    ])("a %s failure releases the editor and puts focus back", async (_name, reply, focusId) => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      const save = byId("siteLocationSave");
+      save.focus();
+      save.click();
+      await flush();
+      // A browser drops focus from a control that becomes disabled (jsdom
+      // doesn't), leaving it on the page.
+      const stand = document.body.appendChild(document.createElement("button"));
+      stand.focus();
+      stand.remove();
+      expect(document.activeElement).toBe(document.body);
+
+      held.save(reply);
+      await flush();
+      expect(disabledControls()).toEqual([]);
+      expect(byId("siteLocationEditor").hasAttribute("aria-busy")).toBe(false);
+      expect(isShown("siteLocationEditor")).toBe(true);
+      expect(isShown("siteLocationError")).toBe(true);
+      expect(document.activeElement).toBe(byId(focusId));
+      expect(loadSettings).not.toHaveBeenCalled();
+    });
+
+    test("a failed send releases the editor too", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      sendMessage.mockRejectedValue(new Error("disconnected"));
+      byId("siteLocationSave").click();
+      await flush();
+      expect(disabledControls()).toEqual([]);
+      expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
+    });
+
+    test("a save that lands after its editor closed still reloads the list", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      rowEditButton(ENTRY_DUBLIN.id).click();
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+
+      // Removing the entry being edited closes its editor.
+      Array.from(byId("siteLocationsList").children)
+        .find((row) => (row as HTMLElement).dataset.siteLocationId === ENTRY_DUBLIN.id)!
+        .querySelector<HTMLButtonElement>(".scope-site-remove")!
+        .click();
+      await flush();
+      expect(isShown("siteLocationEditor")).toBe(false);
+      vi.mocked(loadSettings).mockClear();
+
+      held.save({ success: true, id: ENTRY_DUBLIN.id });
+      await flush();
+      expect(loadSettings).toHaveBeenCalledTimes(1);
+      expect(disabledControls()).toEqual([]);
+    });
+  });
+
   test("search results are keyboard-operable buttons that set the location", () => {
     openFromAdd();
     renderSearchResults([

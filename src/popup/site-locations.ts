@@ -82,6 +82,11 @@ let current: { settings: Settings; tabUrl: string | undefined; proLocked: boolea
 let lineState: SiteLocationLineState = { kind: "none" };
 let editor: EditorState | null = null;
 /**
+ * A SAVE_SITE_LOCATION is in flight. Its payload is already built and the
+ * message can't be called back, so the editor is frozen until it settles.
+ */
+let saving = false;
+/**
  * Where the reload hint shows after a change made from this popup (open pages
  * keep old values until reloaded): under the Main line after "Use main
  * location", or in the Filters disclosure after any change made there.
@@ -573,7 +578,7 @@ export function renderSiteLocationDetails(
 // ── The shared editor ───────────────────────────────────────────────────────
 
 function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | null }): void {
-  if (current?.proLocked) return;
+  if (current?.proLocked || saving) return;
   const editorEl = el("siteLocationEditor");
   if (!editorEl) return;
 
@@ -758,7 +763,7 @@ function updateChosen(): void {
 }
 
 function choose(chosen: ChosenLocation): void {
-  if (!editor) return;
+  if (!editor || saving) return;
   editor.chosen = chosen;
   hideEditorError();
   updateChosen();
@@ -843,7 +848,8 @@ function wireEditorOnce(): void {
   editorEl.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      closeEditor(true);
+      // A save in flight can't be called back; the editor closes when it lands.
+      if (!saving) closeEditor(true);
     }
   });
 }
@@ -1008,8 +1014,10 @@ async function handleSave(): Promise<void> {
   if (chosen.locationName !== undefined) payload.locationName = chosen.locationName;
   if (chosen.label !== undefined) payload.label = chosen.label;
 
-  const saveBtn = el<HTMLButtonElement>("siteLocationSave");
-  if (saveBtn) saveBtn.disabled = true;
+  // Results still listed, or a search reply still on its way, would offer a
+  // choice the sent payload no longer reflects.
+  clearSearchResults();
+  setEditorSaving(true);
   let result: SiteLocationResponse | null = null;
   try {
     result = (await browser.runtime.sendMessage({
@@ -1019,25 +1027,67 @@ async function handleSave(): Promise<void> {
   } catch (error: unknown) {
     console.error("Failed to save the site location:", error);
   } finally {
-    if (saveBtn) saveBtn.disabled = false;
+    setEditorSaving(false);
   }
-  // The user cancelled or reopened the editor meanwhile.
-  if (editor !== state) return;
 
   if (result && "success" in result && result.success) {
-    const opener = state.opener;
     reloadHintHost = "filters";
-    closeEditor(false);
+    // Nothing in the frozen editor can close it, but removing the edited entry
+    // or the Pro lock still can. The list and the hint show the save anyway.
+    const stillOpen = editor === state;
+    if (stillOpen) closeEditor(false);
     await loadSettings();
-    restoreFocusAfterEditor(opener);
+    if (stillOpen) restoreFocusAfterEditor(state.opener);
     announceReloadHint();
     return;
   }
+  // The editor closed meanwhile, so there's no error area to show.
+  if (editor !== state) return;
 
-  const { text, ownerId } = result
-    ? saveErrorText(result as Extract<SiteLocationResponse, { error: unknown }>)
+  const failure = result as Extract<SiteLocationResponse, { error: unknown }> | null;
+  const { text, ownerId } = failure
+    ? saveErrorText(failure)
     : { text: t("filters_notSaved") || "⚠ Change not saved", ownerId: null };
   showEditorError(text, ownerId);
+
+  // Disabling the focused Save can drop focus to the page. Put it back on the
+  // Sites field when the error is about a site, else on Save.
+  const active = document.activeElement;
+  if (active === null || active === document.body || active === el("siteLocationSave")) {
+    const aboutSites =
+      failure?.error === "PATTERN_IN_USE" ||
+      failure?.error === "INVALID_PATTERN" ||
+      failure?.error === "TOO_MANY_PATTERNS";
+    el(aboutSites ? "siteLocationPatterns" : "siteLocationSave")?.focus();
+  }
+}
+
+/** The editor's controls, all disabled while a save is in flight. */
+const EDITOR_CONTROL_IDS = [
+  "siteLocationPatterns",
+  "siteLocationSearch",
+  "siteLocationFavorite",
+  "siteLocationAddToAllowlist",
+  "siteLocationEditOwner",
+  "siteLocationSave",
+  "siteLocationCancel",
+] as const;
+
+/**
+ * Freeze or release the editor around SAVE_SITE_LOCATION. Cancel and Escape
+ * can't undo a save already sent, and an edit made meanwhile would be
+ * discarded when it lands, so every control is disabled and `aria-busy` tells
+ * assistive tech the editor is updating.
+ */
+function setEditorSaving(on: boolean): void {
+  saving = on;
+  const editorEl = el("siteLocationEditor");
+  if (on) editorEl?.setAttribute("aria-busy", "true");
+  else editorEl?.removeAttribute("aria-busy");
+  for (const id of EDITOR_CONTROL_IDS) {
+    const control = el<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(id);
+    if (control) control.disabled = on;
+  }
 }
 
 /** Test hook: forget popup-session state between cases. */
@@ -1045,6 +1095,7 @@ export function __resetSiteLocationsForTest(): void {
   current = null;
   lineState = { kind: "none" };
   editor = null;
+  saving = false;
   reloadHintHost = null;
   disclosureInitialized = false;
   clearTimeout(searchTimer);
