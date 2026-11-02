@@ -10,12 +10,14 @@
  * payload" is the property that matters most here.
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Settings } from "@/shared/types/settings";
 import { MAX_SITE_LOCATIONS } from "@/shared/types/settings";
 import {
   ACCEPT_LANGUAGE_RULE_IDS,
+  _resetAcceptLanguageStateForTest,
   planAcceptLanguageRules,
+  refreshDnrRule,
   resolveAcceptLanguageFor,
   usesPerTabRules,
 } from "@/background/accept-language";
@@ -369,5 +371,51 @@ describe("site locations", () => {
 
   test("no locale at all plans no rules", () => {
     expect(planAcceptLanguageRules(makeSettings(), TABS)).toEqual([]);
+  });
+});
+describe("DNR refresh (Chromium, Safari)", () => {
+  // Chrome flushes every tab's back/forward cache on each updateSessionRules
+  // call, even one that changes nothing, so an unchanged plan must not call it.
+  const dnr = (): { updateSessionRules: ReturnType<typeof vi.fn> } =>
+    (
+      browser as unknown as {
+        declarativeNetRequest: { updateSessionRules: ReturnType<typeof vi.fn> };
+      }
+    ).declarativeNetRequest;
+  beforeEach(() => {
+    _resetAcceptLanguageStateForTest();
+    (browser as unknown as { declarativeNetRequest: unknown }).declarativeNetRequest = {
+      updateSessionRules: vi.fn().mockResolvedValue(undefined),
+    };
+    browser.tabs.query = vi.fn().mockResolvedValue([{ id: 1, url: "https://example.com/" }]);
+  });
+  afterEach(() => {
+    delete (browser as unknown as { declarativeNetRequest?: unknown }).declarativeNetRequest;
+  });
+
+  test("an unchanged plan is not re-applied", async () => {
+    await refreshDnrRule(makeSettings());
+    await refreshDnrRule(makeSettings({ siteLocations: [ENTRY_DUBLIN] }));
+    await refreshDnrRule(makeSettings({ scopeMode: "allowlist", allowlist: ["example.org"] }));
+    expect(dnr().updateSessionRules).toHaveBeenCalledTimes(1);
+  });
+
+  test("a changed plan is applied", async () => {
+    await refreshDnrRule(makeSettings());
+    await refreshDnrRule(makeSettings({ localeSpoofing: { mode: "match" } }));
+    await refreshDnrRule(makeSettings());
+    expect(dnr().updateSessionRules).toHaveBeenCalledTimes(3);
+    expect(dnr().updateSessionRules.mock.calls[1][0].addRules).toHaveLength(1);
+    expect(dnr().updateSessionRules.mock.calls[2][0]).toEqual({
+      removeRuleIds: [...ACCEPT_LANGUAGE_RULE_IDS],
+      addRules: [],
+    });
+  });
+
+  test("a failed update is retried by the next refresh", async () => {
+    dnr().updateSessionRules.mockRejectedValueOnce(new Error("quota"));
+    await refreshDnrRule(makeSettings({ localeSpoofing: { mode: "match" } }));
+    await refreshDnrRule(makeSettings({ localeSpoofing: { mode: "match" } }));
+    expect(dnr().updateSessionRules).toHaveBeenCalledTimes(2);
   });
 });

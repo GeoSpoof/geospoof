@@ -353,13 +353,24 @@ export function planAcceptLanguageRules(
 }
 
 /**
+ * The rules the last successful `updateSessionRules` installed, serialized, or
+ * null when unknown (a fresh service worker, or after a failed update).
+ */
+let appliedDnrRules: string | null = null;
+
+/**
  * Rebuild the DNR rules to match the current settings and tabs.
  *
  * One `updateSessionRules` call removes every id this module owns and adds the
  * new plan, so "no locale", "changed locale", and "fewer groups" share one code
  * path and a stale rule can never survive.
+ *
+ * A plan identical to the installed one is skipped. Chrome flushes every tab's
+ * back/forward cache on each `updateSessionRules` call, even one that changes
+ * nothing, and this runs on every settings change and, with per-tab rules, on
+ * every navigation. Exported for tests.
  */
-async function refreshDnrRule(settings: Settings): Promise<void> {
+export async function refreshDnrRule(settings: Settings): Promise<void> {
   const dnr = getDnr();
   if (!dnr?.updateSessionRules) return;
 
@@ -376,7 +387,11 @@ async function refreshDnrRule(settings: Settings): Promise<void> {
       condition: { ...rule.condition, resourceTypes: RESOURCE_TYPES },
     }));
 
+    const serialized = JSON.stringify(addRules);
+    if (serialized === appliedDnrRules) return;
+    appliedDnrRules = null;
     await dnr.updateSessionRules({ removeRuleIds: [...ACCEPT_LANGUAGE_RULE_IDS], addRules });
+    appliedDnrRules = serialized;
   } catch (error) {
     // Never let header alignment break settings flow. The JS overrides still
     // apply; only the header stays unmodified.
@@ -504,6 +519,7 @@ export function uninstallAcceptLanguageRewriter(): void {
 /** Test seam: reset the cached snapshot. */
 export function _resetAcceptLanguageStateForTest(): void {
   cachedSettings = null;
+  appliedDnrRules = null;
   dnrPendingSettings = null;
   dnrChain = Promise.resolve();
   beforeSendHeadersListener = null;
