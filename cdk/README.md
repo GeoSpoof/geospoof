@@ -366,7 +366,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -X POST "$URL/v1/nope"               #
 
 The base is `https://<api-id>.execute-api.us-east-1.amazonaws.com` only while
 the env has no `certificateArn` configured. Once it has one, execute-api is
-closed and answers `403`.
+closed and answers `404 {"message":"Not Found"}` (measured on both envs, 2026-10-19).
 
 ### Custom domain
 
