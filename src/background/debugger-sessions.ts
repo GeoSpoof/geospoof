@@ -37,7 +37,7 @@ export interface DebuggerLike {
 /** The fields of CDP's `Target.attachedToTarget` read here. */
 export interface AttachedToTargetParams {
   sessionId: string;
-  targetInfo: { targetId: string; type: string; url: string };
+  targetInfo: { type: string };
   waitingForDebugger: boolean;
 }
 
@@ -67,17 +67,13 @@ export const CHILD_AUTO_ATTACH = {
 /** The bound on each step of setting up an attached child, before any resume. */
 export const CHILD_RESUME_TIMEOUT_MS = 1000;
 
-interface ChildSession {
-  targetId: string;
-  url: string;
-}
-
 interface TabSessions {
   /** A root command we sent succeeded, so the session is ours. */
   held: boolean;
   /** Auto-attach was requested on the root session. */
   autoAttach: boolean;
-  children: Map<string, ChildSession>;
+  /** Child session ids. Nothing else about a frame (its URL) is kept. */
+  children: Set<string>;
 }
 
 /**
@@ -93,7 +89,7 @@ export class TabSessionTracker {
   private entry(tabId: number): TabSessions {
     let e = this.tabs.get(tabId);
     if (!e) {
-      e = { held: false, autoAttach: false, children: new Map() };
+      e = { held: false, autoAttach: false, children: new Set() };
       this.tabs.set(tabId, e);
     }
     return e;
@@ -120,8 +116,8 @@ export class TabSessionTracker {
     if (e) e.autoAttach = false;
   }
 
-  addChild(tabId: number, sessionId: string, child: ChildSession): void {
-    this.entry(tabId).children.set(sessionId, child);
+  addChild(tabId: number, sessionId: string): void {
+    this.entry(tabId).children.add(sessionId);
   }
 
   removeChild(tabId: number, sessionId: string): void {
@@ -130,7 +126,7 @@ export class TabSessionTracker {
 
   /** The tab's child session ids. */
   children(tabId: number): string[] {
-    return [...(this.tabs.get(tabId)?.children.keys() ?? [])];
+    return [...(this.tabs.get(tabId)?.children ?? [])];
   }
 
   clearTab(tabId: number): void {
@@ -170,10 +166,7 @@ export async function handleChildAttached(
   const child: ChromeDebugger.DebuggerSession = { tabId, sessionId: params.sessionId };
   try {
     if (params.targetInfo?.type === "iframe") {
-      tracker.addChild(tabId, params.sessionId, {
-        targetId: params.targetInfo.targetId,
-        url: params.targetInfo.url,
-      });
+      tracker.addChild(tabId, params.sessionId);
       const zone = await withTimeout(
         zoneForTab(tabId).catch(() => null),
         timeoutMs,

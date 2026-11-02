@@ -64,7 +64,7 @@ const ROOT = { tabId: TAB };
 function iframeAttached(sessionId = "S1", waitingForDebugger = true): AttachedToTargetParams {
   return {
     sessionId,
-    targetInfo: { targetId: `T-${sessionId}`, type: "iframe", url: "https://embed.example/" },
+    targetInfo: { type: "iframe" },
     waitingForDebugger,
   };
 }
@@ -185,7 +185,7 @@ describe("handleChildAttached", () => {
     const tracker = new TabSessionTracker();
     await handleChildAttached(dbg, tokyo, tracker, ROOT, {
       sessionId: "W1",
-      targetInfo: { targetId: "TW", type, url: "https://a.example/w.js" },
+      targetInfo: { type },
       waitingForDebugger: true,
     });
     expect(calls).toEqual([
@@ -233,8 +233,8 @@ describe("TabSessionTracker and the tab-wide commands", () => {
   test("setTabZone reaches the root, then each child, and reports the root's outcome", async () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
-    tracker.addChild(TAB, "S1", { targetId: "T1", url: "" });
-    tracker.addChild(TAB, "S2", { targetId: "T2", url: "" });
+    tracker.addChild(TAB, "S1");
+    tracker.addChild(TAB, "S2");
     expect(await setTabZone(dbg, tracker, TAB, "Europe/Paris")).toBe(true);
     expect(calls.map((c) => [c.target, c.params])).toEqual([
       [ROOT, { timezoneId: "Europe/Paris" }],
@@ -252,7 +252,7 @@ describe("TabSessionTracker and the tab-wide commands", () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
     tracker.markHeld(TAB);
-    tracker.addChild(TAB, "S1", { targetId: "T1", url: "" });
+    tracker.addChild(TAB, "S1");
     await revertAndDetachTab(dbg, tracker, TAB);
     expect(calls).toEqual([
       {
@@ -271,7 +271,7 @@ describe("TabSessionTracker and the tab-wide commands", () => {
     const { dbg } = fakeDebugger({ "Emulation.setTimezoneOverride": "reject" });
     (dbg.detach as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("not attached"));
     const tracker = new TabSessionTracker();
-    tracker.addChild(TAB, "S1", { targetId: "T1", url: "" });
+    tracker.addChild(TAB, "S1");
     await expect(revertAndDetachTab(dbg, tracker, TAB)).resolves.toBeUndefined();
     expect(tracker.children(TAB)).toEqual([]);
   });
