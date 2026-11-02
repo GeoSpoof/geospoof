@@ -25,10 +25,12 @@ import {
   MAX_PATTERNS_PER_SITE_LOCATION,
   MAX_SITE_LOCATIONS,
 } from "@/shared/types/settings";
+import { hostToASCII } from "./idn";
 import {
   computeEffectiveEnabled,
   computeEffectiveSiteLocations,
   decomposePattern,
+  isValidIpv4,
   matchesPattern,
   parsePattern,
 } from "./scope";
@@ -58,6 +60,34 @@ export function parseSiteLocationPattern(input: string): string | null {
     return null;
   }
   return canonical;
+}
+
+/** `siteLocationPatternKey` results by pattern. Affects cost only, never the key. */
+const patternKeyCache = new Map<string, string | null>();
+
+/**
+ * The identity of a canonical site-location pattern, for the rule that each
+ * pattern has one owner: the pattern with its literal host converted to its
+ * A-label, the way the compiler converts it (`patternToInit`). So `münchen.de`
+ * and `xn--mnchen-3ya.de`, which match the same pages with the same
+ * specificity, are the same pattern. The stored spelling isn't changed. Null
+ * when the host has no A-label form; such a pattern never matches a page.
+ */
+export function siteLocationPatternKey(pattern: string): string | null {
+  const cached = patternKeyCache.get(pattern);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const { scheme, host, port } = decomposePattern(pattern);
+  const wildcard = host.startsWith("*.") ? "*." : "";
+  const literal = host.slice(wildcard.length);
+  const ascii = wildcard === "" && isValidIpv4(literal) ? literal : hostToASCII(literal);
+  const key =
+    ascii === null
+      ? null
+      : `${scheme === "" ? "" : `${scheme}://`}${wildcard}${ascii}${port === "" ? "" : `:${port}`}`;
+  patternKeyCache.set(pattern, key);
+  return key;
 }
 
 // ─────────────────────────────── Precedence ───────────────────────────────
@@ -342,7 +372,10 @@ export function normalizeSiteLocationLabel(value: unknown): string | null {
  * failing any rule is dropped rather than half-applied. Patterns are
  * re-parsed to canonical form, deduped within the entry, and dropped when an
  * EARLIER entry already claims them (first occurrence wins), so no two
- * entries ever share a pattern. Both caps are enforced; order is preserved.
+ * entries ever share a pattern. Patterns are compared by
+ * `siteLocationPatternKey`, so a Unicode and an A-label spelling of one host
+ * count as one, and a pattern without a key is dropped. Both caps are
+ * enforced; order is preserved.
  */
 export function validateSiteLocations(value: unknown): SiteLocation[] {
   if (!Array.isArray(value)) {
@@ -383,15 +416,18 @@ export function validateSiteLocations(value: unknown): SiteLocation[] {
     }
 
     const patterns: string[] = [];
+    const keys = new Set<string>();
     for (const rawPattern of candidate.patterns as unknown[]) {
       if (typeof rawPattern !== "string") {
         continue;
       }
       const canonical = parseSiteLocationPattern(rawPattern);
-      if (canonical === null || claimed.has(canonical) || patterns.includes(canonical)) {
+      const key = canonical === null ? null : siteLocationPatternKey(canonical);
+      if (canonical === null || key === null || claimed.has(key) || keys.has(key)) {
         continue;
       }
       patterns.push(canonical);
+      keys.add(key);
       if (patterns.length >= MAX_PATTERNS_PER_SITE_LOCATION) {
         break;
       }
@@ -401,8 +437,8 @@ export function validateSiteLocations(value: unknown): SiteLocation[] {
     }
 
     const { updatedAt } = candidate;
-    for (const p of patterns) {
-      claimed.add(p);
+    for (const key of keys) {
+      claimed.add(key);
     }
     seenIds.add(id);
     out.push({

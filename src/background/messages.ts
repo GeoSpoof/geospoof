@@ -32,6 +32,7 @@ import type {
   SaveSiteLocationPayload,
   RemoveSiteLocationPayload,
   SiteLocationResponse,
+  GetSettingsPayload,
 } from "@/shared/types/messages";
 import type {
   LocationName,
@@ -49,6 +50,7 @@ import {
   normalizeSiteLocationLabel,
   normalizeSiteLocationName,
   parseSiteLocationPattern,
+  siteLocationPatternKey,
 } from "@/shared/utils/site-locations";
 import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { resolveAccuracy } from "@/shared/accuracy/resolver";
@@ -77,12 +79,23 @@ import {
   checkTabInjection,
 } from "./tabs";
 import { buildPagePayload } from "./page-payload";
+import {
+  isPrerendering,
+  isUndeterminedPrerenderedFrame,
+  topLevelUrlForSender,
+} from "./sender-page-url";
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
 import { syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
 import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
+import {
+  isSiteLocationEntrySuperseded,
+  noteLocalSiteLocationEdit,
+  runSiteLocationJob,
+  stampSiteLocationRequest,
+} from "./site-location-queue";
 
 export async function handleMessage(
   message: Message,
@@ -145,11 +158,24 @@ export async function handleMessage(
 
         const senderTabId = _sender.tab.id;
 
+        // The page is judged by its top-level URL: the document's own URL for
+        // a top-level document (a page Chrome is prerendering isn't the one
+        // `tab.url` shows yet), the tab's for a subframe. See sender-page-url.
+        const claimsTopFrame =
+          (message.payload as GetSettingsPayload | undefined)?.topFrame === true;
+        const pageUrl = topLevelUrlForSender(_sender, claimsTopFrame);
+
         // Effective_Enabled resolves to false when the URL is missing,
         // unparseable, restricted, or out of scope (Req 8.7). The shared
         // builder also withholds the timezone in Chromium debugger mode, as the
-        // broadcast path does.
-        const payload = await buildPagePayload(settings, _sender.tab.url);
+        // broadcast path does, except from a prerendering document, which the
+        // tab's debugger session doesn't reach. A prerendered subframe is
+        // judged by the page being left, so it gets that page's Filters
+        // decision and the main location, never its per-site location.
+        const payload = await buildPagePayload(settings, pageUrl, {
+          prerendering: isPrerendering(_sender),
+          withoutSiteLocation: isUndeterminedPrerenderedFrame(_sender, claimsTopFrame),
+        });
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
         // alive. Reflect the per-tab decision via the shared three-state badge
@@ -159,6 +185,11 @@ export async function handleMessage(
         // `applyTabIndicator` resolves through the same `resolveSiteSettings`
         // as the payload, so its badge agrees with `payload.enabled`, and it
         // also sets the title that names an applied site location.
+        //
+        // It deliberately reads `tab.url`, not `pageUrl`: the badge describes
+        // the page the user sees, and a prerendered document must not repaint
+        // it for a page that isn't showing. The content script asks again when
+        // a prerendered page is shown, and that request repaints the badge.
         if (senderTabId != null) {
           applyTabIndicator(senderTabId, settings, _sender.tab.url);
         }
@@ -842,7 +873,9 @@ export async function handleSetLocaleSpoofing(
 
 /**
  * The first pattern in `patterns` that an entry other than `selfId` already
- * owns, as a PATTERN_IN_USE response naming that entry, or null.
+ * owns, as a PATTERN_IN_USE response naming that entry, or null. Patterns are
+ * compared by `siteLocationPatternKey`, so `münchen.de` conflicts with a
+ * stored `xn--mnchen-3ya.de`.
  */
 function findPatternConflict(
   list: readonly SiteLocation[],
@@ -850,7 +883,10 @@ function findPatternConflict(
   selfId: string | undefined
 ): SiteLocationResponse | null {
   for (const pattern of patterns) {
-    const owner = list.find((e) => e.id !== selfId && e.patterns.includes(pattern));
+    const key = siteLocationPatternKey(pattern);
+    const owner = list.find(
+      (e) => e.id !== selfId && e.patterns.some((p) => siteLocationPatternKey(p) === key)
+    );
     if (owner) {
       return { error: "PATTERN_IN_USE", pattern, ownerId: owner.id };
     }
@@ -875,7 +911,11 @@ function newSiteLocationId(list: readonly SiteLocation[]): string {
  * before writing, because a concurrent save, VPN resync, or app adoption may
  * have landed during the awaits. Broadcasts, re-badges, and re-syncs CDP after
  * a successful save (`saveSettings` already pushes REGION_UPDATE and the
- * bootstrap).
+ * bootstrap). The re-load through delivery runs in the site-location queue
+ * (`site-location-queue.ts`), so overlapping list changes can't erase each
+ * other. An edit whose entry was written meanwhile by a remove or save that
+ * arrived after it writes nothing and returns SUPERSEDED, so the later user
+ * action wins.
  */
 export async function handleSaveSiteLocation(
   payload: SaveSiteLocationPayload
@@ -900,13 +940,20 @@ export async function handleSaveSiteLocation(
   if (!Array.isArray(payload.patterns)) {
     return { error: "INVALID_PATTERN" };
   }
+  // A host with no A-label form has no key and could never match, so it's
+  // invalid too. Two spellings of one host (Unicode and A-label) keep the first.
   const patterns: string[] = [];
+  const keys = new Set<string>();
   for (const raw of payload.patterns as unknown[]) {
     const canonical = typeof raw === "string" ? parseSiteLocationPattern(raw) : null;
-    if (canonical === null) {
+    const key = canonical === null ? null : siteLocationPatternKey(canonical);
+    if (canonical === null || key === null) {
       return { error: "INVALID_PATTERN", pattern: String(raw) };
     }
-    if (!patterns.includes(canonical)) patterns.push(canonical);
+    if (!keys.has(key)) {
+      keys.add(key);
+      patterns.push(canonical);
+    }
   }
   if (patterns.length === 0) {
     return { error: "INVALID_PATTERN" };
@@ -914,6 +961,11 @@ export async function handleSaveSiteLocation(
   if (patterns.length > MAX_PATTERNS_PER_SITE_LOCATION) {
     return { error: "TOO_MANY_PATTERNS" };
   }
+
+  // Before the first await: a remove or save of this entry that arrives while
+  // the lookups below run is later than this save, even though it reaches the
+  // queue first.
+  const stamp = stampSiteLocationRequest();
 
   // 3. The entry being edited, if any. An unknown id is saved as a new entry.
   const settings = await loadSettings();
@@ -981,46 +1033,81 @@ export async function handleSaveSiteLocation(
     longitude,
   });
 
-  // 10. Re-load after the awaits and re-check against the latest list.
-  const latest = await loadSettings();
-  const list = latest.siteLocations;
-  const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
-  const lateConflict = findPatternConflict(list, patterns, existing?.id);
-  if (lateConflict) return lateConflict;
-  if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
-    return { error: "AT_CAPACITY" };
+  // 10–11 run in the site-location queue, so no other save, remove, or app
+  // adoption can write between this re-load and this write.
+  return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+    // A remove or save of this entry that arrived after this save has already
+    // written it. Writing this older edit now would undo that. Checked by the
+    // requested id, not `existing`, because a remove that landed before the
+    // first load above leaves `existing` undefined. An id nothing later wrote
+    // still creates a new entry.
+    if (typeof payload.id === "string" && isSiteLocationEntrySuperseded(payload.id, stamp)) {
+      return { error: "SUPERSEDED" };
+    }
+
+    // 10. Re-load after the awaits and re-check against the latest list.
+    const latest = await loadSettings();
+    const list = latest.siteLocations;
+    const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
+    const lateConflict = findPatternConflict(list, patterns, existing?.id);
+    if (lateConflict) return lateConflict;
+    if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
+      return { error: "AT_CAPACITY" };
+    }
+
+    // 9. The entry. An edited entry whose original vanished meanwhile (removed
+    // by a request that arrived before this save, or by an app adoption) keeps
+    // its id (it's unused now) and is appended.
+    const id = existing?.id ?? newSiteLocationId(list);
+    const entry: SiteLocation = {
+      id,
+      kind: "location",
+      patterns,
+      location: { latitude, longitude, accuracy },
+      timezone,
+      locationName,
+      label:
+        payload.label !== undefined
+          ? normalizeSiteLocationLabel(payload.label)
+          : (existing?.label ?? null),
+      updatedAt: Date.now(),
+    };
+    const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
+
+    let updated: Settings;
+    try {
+      updated = await updateSettings({ siteLocations: next });
+    } catch {
+      return { error: "STORAGE_ERROR" };
+    }
+    noteLocalSiteLocationEdit(id, stamp);
+
+    // 11. Deliver, inside the queue so broadcasts go out in write order.
+    await deliverSiteLocationChange(updated);
+    return { success: true, id };
+  });
+}
+
+/**
+ * Broadcast, re-badge, and re-sync CDP after a site-location write. The change
+ * is already stored (and pushed to the app), so a failed step is logged, the
+ * rest still run, and the handler still reports success. Reporting "not saved"
+ * for a stored change would have the user retry a create (and meet
+ * PATTERN_IN_USE from it) or see a removed entry come back until the next load.
+ */
+async function deliverSiteLocationChange(updated: Settings): Promise<void> {
+  const steps: Array<[string, () => Promise<void>]> = [
+    ["broadcast", () => broadcastSettingsToTabs(updated)],
+    ["badge", () => updateBadge()],
+    ["engine-level sync", () => syncDebuggerSpoofing(updated)],
+  ];
+  for (const [name, step] of steps) {
+    try {
+      await step();
+    } catch (error) {
+      logger.error(`Site location saved, but its ${name} failed:`, error);
+    }
   }
-
-  // 9. The entry. An edited entry whose original vanished meanwhile keeps its
-  // id (it's unused now) and is appended.
-  const id = existing?.id ?? newSiteLocationId(list);
-  const entry: SiteLocation = {
-    id,
-    kind: "location",
-    patterns,
-    location: { latitude, longitude, accuracy },
-    timezone,
-    locationName,
-    label:
-      payload.label !== undefined
-        ? normalizeSiteLocationLabel(payload.label)
-        : (existing?.label ?? null),
-    updatedAt: Date.now(),
-  };
-  const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
-
-  let updated: Settings;
-  try {
-    updated = await updateSettings({ siteLocations: next });
-  } catch {
-    return { error: "STORAGE_ERROR" };
-  }
-
-  // 11. Deliver.
-  await broadcastSettingsToTabs(updated);
-  await updateBadge();
-  await syncDebuggerSpoofing(updated);
-  return { success: true, id };
 }
 
 /**
@@ -1028,43 +1115,48 @@ export async function handleSaveSiteLocation(
  * (this backs "Use main location" for one site of a multi-site entry) and the
  * entry with it when it was the last. Without one, removes the entry. An
  * unknown id or pattern is a no-op success. Broadcasts, re-badges, and
- * re-syncs CDP after a successful save.
+ * re-syncs CDP after a successful save. Runs entirely in the site-location
+ * queue, like the final step of a save, and is stamped on arrival, so an
+ * earlier save of the same entry still waiting on its lookups won't write it
+ * back.
  */
-export async function handleRemoveSiteLocation(
+export function handleRemoveSiteLocation(
   payload: RemoveSiteLocationPayload
 ): Promise<SiteLocationResponse> {
-  const id = payload?.id;
-  const settings = await loadSettings();
-  const list = settings.siteLocations;
-  const entry = list.find((e) => e.id === id);
-  if (!entry) {
-    return { success: true, id };
-  }
-
-  let next: SiteLocation[];
-  if (typeof payload.pattern === "string") {
-    const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
-    if (!entry.patterns.includes(canonical)) {
+  const stamp = stampSiteLocationRequest();
+  return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+    const id = payload?.id;
+    const settings = await loadSettings();
+    const list = settings.siteLocations;
+    const entry = list.find((e) => e.id === id);
+    if (!entry) {
       return { success: true, id };
     }
-    const remaining = entry.patterns.filter((p) => p !== canonical);
-    next =
-      remaining.length === 0
-        ? list.filter((e) => e.id !== id)
-        : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
-  } else {
-    next = list.filter((e) => e.id !== id);
-  }
 
-  let updated: Settings;
-  try {
-    updated = await updateSettings({ siteLocations: next });
-  } catch {
-    return { error: "STORAGE_ERROR" };
-  }
+    let next: SiteLocation[];
+    if (typeof payload.pattern === "string") {
+      const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
+      if (!entry.patterns.includes(canonical)) {
+        return { success: true, id };
+      }
+      const remaining = entry.patterns.filter((p) => p !== canonical);
+      next =
+        remaining.length === 0
+          ? list.filter((e) => e.id !== id)
+          : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
+    } else {
+      next = list.filter((e) => e.id !== id);
+    }
 
-  await broadcastSettingsToTabs(updated);
-  await updateBadge();
-  await syncDebuggerSpoofing(updated);
-  return { success: true, id };
+    let updated: Settings;
+    try {
+      updated = await updateSettings({ siteLocations: next });
+    } catch {
+      return { error: "STORAGE_ERROR" };
+    }
+    noteLocalSiteLocationEdit(entry.id, stamp);
+
+    await deliverSiteLocationChange(updated);
+    return { success: true, id };
+  });
 }

@@ -10,15 +10,25 @@ import {
   allowlistWorkerUrl,
   _classifyRequestForTest,
   getRegistrableDomain,
+  installWorkerRequestFilter,
   isSameOriginWorker,
   tabPageUrlCache,
+  uninstallWorkerRequestFilter,
+  untiedWorkerKeepsSiteLocation,
   updateWorkerFilterSettings,
   hasWorkerTimezoneSource,
   resolveWorkerPageUrl,
   workerPayloadFor,
 } from "@/background/worker-request-filter";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
-import { ENTRY_DUBLIN, TOKYO, TOKYO_TZ } from "../../helpers/site-locations";
+import {
+  ENTRY_DUBLIN,
+  MEXICO_CITY,
+  MEXICO_CITY_TZ,
+  TOKYO,
+  TOKYO_TZ,
+  makeSiteLocation,
+} from "../../helpers/site-locations";
 
 /** In-scope settings snapshot so the scope gate passes through to the same-origin gate. */
 const IN_SCOPE_SETTINGS = { ...DEFAULT_SETTINGS, enabled: true, scopeMode: "all" as const };
@@ -295,9 +305,10 @@ describe("site locations", () => {
     expect(payload).not.toContain('"Europe/Dublin"');
   });
 
-  test("workerPayloadFor never applies a site zone out of scope", () => {
+  test("workerPayloadFor is empty out of scope", () => {
     const s = { ...SITE_SETTINGS, scopeMode: "denylist" as const, denylist: ["chatgpt.com"] };
-    expect(workerPayloadFor(s, "https://chatgpt.com/")).not.toContain('"Europe/Dublin"');
+    expect(workerPayloadFor(s, "https://chatgpt.com/")).toBe("");
+    expect(workerPayloadFor({ ...SITE_SETTINGS, enabled: false }, "https://example.com/")).toBe("");
   });
 
   test("workerPayloadFor is empty with no zone and no locale", () => {
@@ -330,9 +341,291 @@ describe("site locations", () => {
     tabPageUrlCache.clear();
   });
 
+  // Top-level page A (example.org) embeds frame B (chatgpt.com), which starts
+  // a same-site SharedWorker. Firefox reports it with no tab, `documentUrl` B,
+  // and `frameAncestors` [A]. Filters must judge A, as the payload does.
+  describe("a SharedWorker from an embedded frame gets the top-level page's decision", () => {
+    const fromFrame = {
+      requestId: "sw-2",
+      url: "https://chatgpt.com/shared.js",
+      type: "script",
+      method: "GET",
+      tabId: -1,
+      frameId: 9,
+      documentUrl: "https://chatgpt.com/embed",
+      frameAncestors: [{ url: "https://example.org/", frameId: 0 }],
+      requestHeaders: [{ name: "Sec-Fetch-Dest", value: "sharedworker" }],
+    };
+
+    beforeEach(() => tabPageUrlCache.clear());
+    afterEach(() => updateWorkerFilterSettings(IN_SCOPE_SETTINGS));
+
+    test("Allowlist with only the top-level page allowed patches it with the page's zone", () => {
+      const s = { ...SITE_SETTINGS, scopeMode: "allowlist" as const, allowlist: ["example.org"] };
+      updateWorkerFilterSettings(s);
+      expect(_classifyRequestForTest(fromFrame)).toBe("patch");
+      expect(workerPayloadFor(s, resolveWorkerPageUrl(fromFrame))).toContain('"Asia/Tokyo"');
+    });
+
+    test("Denylist with the top-level page denied leaves it unmodified", () => {
+      const s = { ...SITE_SETTINGS, scopeMode: "denylist" as const, denylist: ["example.org"] };
+      updateWorkerFilterSettings(s);
+      expect(_classifyRequestForTest(fromFrame)).toBe("pass");
+      expect(workerPayloadFor(s, resolveWorkerPageUrl(fromFrame))).toBe("");
+    });
+
+    test("the same-site gate still judges the frame that started the worker", () => {
+      updateWorkerFilterSettings(SITE_SETTINGS);
+      expect(_classifyRequestForTest(fromFrame)).toBe("patch");
+      // Same-site as A but not as B, the frame that started it.
+      expect(_classifyRequestForTest({ ...fromFrame, url: "https://example.org/shared.js" })).toBe(
+        "pass"
+      );
+    });
+  });
+
   test("hasWorkerTimezoneSource is true with only site locations", () => {
     expect(hasWorkerTimezoneSource({ ...SITE_SETTINGS, timezone: null })).toBe(true);
     expect(hasWorkerTimezoneSource({ ...IN_SCOPE_SETTINGS, timezone: TOKYO_TZ })).toBe(true);
     expect(hasWorkerTimezoneSource({ ...IN_SCOPE_SETTINGS })).toBe(false);
+  });
+});
+
+// Firefox 159 reports a URL SharedWorker's script request with no tab
+// (tabId -1, frameId -1) and no frameAncestors, whether the top-level document
+// or an embedded frame started it; thirdParty is true only for a cross-site
+// frame (harness F-SW-signals). Review F18: a frame's site location must not
+// reach a worker whose top-level page doesn't match it.
+describe("a SharedWorker whose top-level page Firefox doesn't report", () => {
+  const SETTINGS = {
+    ...IN_SCOPE_SETTINGS,
+    location: TOKYO,
+    timezone: TOKYO_TZ,
+    localeSpoofing: { mode: "match" as const },
+    // Dublin on chatgpt.com and openai.com; Mexico City on sub.example.com only.
+    siteLocations: [
+      ENTRY_DUBLIN,
+      makeSiteLocation({
+        id: "1700000000003",
+        patterns: ["sub.example.com"],
+        location: MEXICO_CITY,
+        timezone: MEXICO_CITY_TZ,
+      }),
+    ],
+  };
+  const BODY = "/*worker body*/";
+  const MAIN = workerPayloadFor(SETTINGS, "https://example.org/");
+  const DUBLIN_PAYLOAD = workerPayloadFor(SETTINGS, "https://chatgpt.com/");
+
+  describe("untiedWorkerKeepsSiteLocation", () => {
+    test("a cross-site frame, or no thirdParty flag, never keeps it", () => {
+      const tops = ["https://example.org/", "https://chatgpt.com/"];
+      expect(untiedWorkerKeepsSiteLocation(SETTINGS, "https://chatgpt.com/e", true, tops)).toBe(
+        false
+      );
+      expect(
+        untiedWorkerKeepsSiteLocation(SETTINGS, "https://chatgpt.com/e", undefined, tops)
+      ).toBe(false);
+    });
+
+    test("a top-level start keeps it when every same-site tab agrees", () => {
+      const tops = ["https://chatgpt.com/c/1", "https://example.org/"];
+      expect(untiedWorkerKeepsSiteLocation(SETTINGS, "https://chatgpt.com/c/1", false, tops)).toBe(
+        true
+      );
+    });
+
+    test("a same-site tab that resolves differently drops it", () => {
+      const frame = "https://sub.example.com/frame";
+      // The worker may come from a sub.example.com frame on example.com (no entry).
+      expect(untiedWorkerKeepsSiteLocation(SETTINGS, frame, false, ["https://example.com/"])).toBe(
+        false
+      );
+      expect(
+        untiedWorkerKeepsSiteLocation(SETTINGS, frame, false, [
+          "https://sub.example.com/",
+          "https://example.com/",
+        ])
+      ).toBe(false);
+      expect(
+        untiedWorkerKeepsSiteLocation(SETTINGS, frame, false, ["https://sub.example.com/"])
+      ).toBe(true);
+    });
+
+    test("no open same-site tab drops it", () => {
+      expect(
+        untiedWorkerKeepsSiteLocation(SETTINGS, "https://chatgpt.com/", false, [
+          "https://example.org/",
+        ])
+      ).toBe(false);
+      expect(untiedWorkerKeepsSiteLocation(SETTINGS, "https://chatgpt.com/", false, [])).toBe(
+        false
+      );
+    });
+  });
+
+  describe("through the response filter", () => {
+    interface FakeFilter {
+      ondata: ((event: { data: ArrayBuffer }) => void) | null;
+      onstop: (() => void) | null;
+      onerror: (() => void) | null;
+      written: string[];
+      write: (data: ArrayBuffer | Uint8Array) => void;
+      close: () => void;
+      disconnect: () => void;
+    }
+    type Details = Parameters<typeof _classifyRequestForTest>[0] & { thirdParty?: boolean };
+    type Listener = (details: Details) => void;
+
+    const listeners: { request?: Listener; headers?: Listener } = {};
+    let filters: FakeFilter[] = [];
+    let n = 0;
+    const tabs = browser.tabs as unknown as Record<string, unknown> & {
+      onUpdated: Record<string, unknown>;
+    };
+
+    function makeFilter(): FakeFilter {
+      const written: string[] = [];
+      return {
+        ondata: null,
+        onstop: null,
+        onerror: null,
+        written,
+        write: (data) => written.push(new TextDecoder().decode(data)),
+        close: () => undefined,
+        disconnect: () => undefined,
+      };
+    }
+
+    /** Run one SharedWorker script request through both listeners and onstop. */
+    function runSharedWorker(overrides: Partial<Details>): string {
+      const details: Details = {
+        requestId: `untied-${++n}`,
+        url: "https://chatgpt.com/shared.js",
+        type: "script",
+        method: "GET",
+        tabId: -1,
+        frameId: -1,
+        requestHeaders: [{ name: "Sec-Fetch-Dest", value: "sharedworker" }],
+        ...overrides,
+      };
+      const before = filters.length;
+      listeners.request!(details);
+      const filter = filters[before];
+      expect(filter, "a filter is attached").toBeDefined();
+      listeners.headers!(details);
+      filter.ondata!({ data: new TextEncoder().encode(BODY).buffer });
+      filter.onstop!();
+      return filter.written.join("");
+    }
+
+    async function install(open: Array<{ id: number; url: string }>): Promise<void> {
+      vi.mocked(browser.tabs.query).mockResolvedValue(open as never);
+      await installWorkerRequestFilter();
+      updateWorkerFilterSettings(SETTINGS);
+    }
+
+    beforeEach(() => {
+      filters = [];
+      (browser as unknown as { webRequest?: unknown }).webRequest = {
+        filterResponseData: () => {
+          const f = makeFilter();
+          filters.push(f);
+          return f;
+        },
+        onBeforeRequest: {
+          addListener: (fn: Listener) => (listeners.request = fn),
+          removeListener: () => undefined,
+        },
+        onBeforeSendHeaders: {
+          addListener: (fn: Listener) => (listeners.headers = fn),
+          removeListener: () => undefined,
+        },
+      };
+      tabs.onRemoved = { addListener: () => undefined, removeListener: () => undefined };
+      tabs.onUpdated.removeListener = () => undefined;
+    });
+
+    afterEach(() => {
+      uninstallWorkerRequestFilter();
+      delete (browser as unknown as { webRequest?: unknown }).webRequest;
+      delete tabs.onRemoved;
+      delete tabs.onUpdated.removeListener;
+      vi.mocked(browser.tabs.query).mockResolvedValue([]);
+      updateWorkerFilterSettings(IN_SCOPE_SETTINGS);
+    });
+
+    test("an entry's frame on an unmatched page gives its worker the main location", async () => {
+      // example.org (no entry) embeds chatgpt.com (Dublin), which starts the worker.
+      await install([{ id: 1, url: "https://example.org/" }]);
+      const out = runSharedWorker({ documentUrl: "https://chatgpt.com/embed", thirdParty: true });
+      expect(out).toBe(MAIN + BODY);
+      expect(out).not.toContain("Europe/Dublin");
+    });
+
+    test("the same, even with a chatgpt.com tab open elsewhere", async () => {
+      await install([
+        { id: 1, url: "https://example.org/" },
+        { id: 2, url: "https://chatgpt.com/c/1" },
+      ]);
+      expect(runSharedWorker({ documentUrl: "https://chatgpt.com/embed", thirdParty: true })).toBe(
+        MAIN + BODY
+      );
+    });
+
+    test("a same-site frame whose top-level page has another value gets the main location", async () => {
+      await install([{ id: 1, url: "https://example.com/" }]);
+      const out = runSharedWorker({
+        url: "https://sub.example.com/shared.js",
+        documentUrl: "https://sub.example.com/frame",
+        thirdParty: false,
+      });
+      expect(out).toBe(MAIN + BODY);
+      expect(out).not.toContain("America/Mexico_City");
+    });
+
+    test("a SharedWorker the matched top-level page started keeps its site location", async () => {
+      await install([
+        { id: 1, url: "https://chatgpt.com/c/1" },
+        { id: 2, url: "https://example.org/" },
+      ]);
+      expect(runSharedWorker({ documentUrl: "https://chatgpt.com/c/1", thirdParty: false })).toBe(
+        DUBLIN_PAYLOAD + BODY
+      );
+    });
+
+    test("frameAncestors, when reported, still decide", async () => {
+      await install([]);
+      expect(
+        runSharedWorker({
+          documentUrl: "https://chatgpt.com/embed",
+          frameAncestors: [{ url: "https://example.org/", frameId: 0 }],
+        })
+      ).toBe(MAIN + BODY);
+      expect(
+        runSharedWorker({
+          documentUrl: "https://chatgpt.com/embed",
+          frameAncestors: [{ url: "https://openai.com/", frameId: 0 }],
+        })
+      ).toBe(DUBLIN_PAYLOAD + BODY);
+    });
+
+    test("until the open tabs are known, no site location applies", async () => {
+      let release!: (open: Array<{ id: number; url: string }>) => void;
+      vi.mocked(browser.tabs.query).mockReturnValue(
+        new Promise((resolve) => (release = resolve as typeof release)) as never
+      );
+      const installing = installWorkerRequestFilter();
+      updateWorkerFilterSettings(SETTINGS);
+      // A tab update lands before the seed does.
+      tabPageUrlCache.set(1, "https://chatgpt.com/c/1");
+      const top = { documentUrl: "https://chatgpt.com/c/1", thirdParty: false };
+      expect(runSharedWorker(top)).toBe(MAIN + BODY);
+
+      release([{ id: 1, url: "https://chatgpt.com/c/1" }]);
+      await installing;
+      updateWorkerFilterSettings(SETTINGS);
+      expect(runSharedWorker(top)).toBe(DUBLIN_PAYLOAD + BODY);
+    });
   });
 });

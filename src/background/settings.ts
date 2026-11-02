@@ -593,12 +593,33 @@ export async function getSettings(): Promise<Settings> {
   return await loadSettings();
 }
 
+let settingsWrites: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run a load, change, and save of the whole settings object as one step,
+ * after every step queued before it. Each save writes the complete object, so
+ * two overlapping steps that loaded the same old object would otherwise have
+ * the later save erase the earlier one's field. A failed step doesn't wedge
+ * the queue, and its caller still gets the error.
+ *
+ * `job` must not await `updateSettings` or another queued step: it would wait
+ * on itself. The site-location queue's jobs may call `updateSettings`, because
+ * no step here waits on that queue.
+ */
+export function runSettingsWrite<T>(job: () => Promise<T>): Promise<T> {
+  const run = settingsWrites.then(job);
+  settingsWrites = run.catch(() => undefined);
+  return run;
+}
+
 /**
  * Update settings with partial updates
  */
-export async function updateSettings(updates: Partial<Settings>): Promise<Settings> {
-  const current = await loadSettings();
-  const updated: Settings = { ...current, ...updates };
-  await saveSettings(updated);
-  return updated;
+export function updateSettings(updates: Partial<Settings>): Promise<Settings> {
+  return runSettingsWrite(async () => {
+    const current = await loadSettings();
+    const updated: Settings = { ...current, ...updates };
+    await saveSettings(updated);
+    return updated;
+  });
 }

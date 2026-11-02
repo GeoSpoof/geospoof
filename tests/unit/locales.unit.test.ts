@@ -232,6 +232,31 @@ describe("Per-site locations keys are present in every locale", () => {
     expect(keys.filter((key) => !(key in source))).toEqual([]);
   });
 
+  // The feature's name is a glossary term: the list's accessible name and the
+  // Pro note use the section title's exact words in every language.
+  test.each(listLocales())("%s names the feature the same way everywhere", (locale) => {
+    const file = loadLocale(locale);
+    const title = file.siteLocation_sectionTitle.message;
+    expect(file.siteLocation_listAriaLabel.message).toBe(title);
+    expect(file.siteLocation_proNote.message.toLowerCase()).toContain(title.toLowerCase());
+  });
+
+  // Per-site strings use each locale's established words. Vietnamese says
+  // "trang web" for a site, as Filters do ("trang" alone reads as "page"), and
+  // Simplified Chinese says 伪造 for spoofing, not 伪装 ("disguise").
+  test("vi says 'trang web' for a site, as its Filters heading does", () => {
+    const vi = loadLocale("vi");
+    expect(vi.filters_heading.message).toContain("trang web");
+    expect(vi.siteLocation_sectionTitle.message).toMatch(/trang web$/);
+    expect(vi.details_siteLocation.message).toContain("trang web");
+  });
+
+  test("zh_CN per-site strings say 伪造 for spoofing, as Filters do", () => {
+    const zh = loadLocale("zh_CN");
+    expect(zh.filters_modeAllDesc.message).toContain("伪造");
+    expect(REQUIRED_KEYS.filter((key) => zh[key].message.includes("伪装"))).toEqual([]);
+  });
+
   // Keys that lose their last use get removed, so translators aren't asked to
   // maintain strings nobody sees.
   test("every Per-site locations key in en is used", () => {

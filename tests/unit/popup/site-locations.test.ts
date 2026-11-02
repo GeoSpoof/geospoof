@@ -7,7 +7,7 @@
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import type { Favorite, Settings } from "@/shared/types/settings";
+import type { Favorite, Settings, SiteLocation } from "@/shared/types/settings";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 import {
   ENTRY_DUBLIN,
@@ -259,7 +259,10 @@ describe("Main tab: the line when a site location applies", () => {
     expect(isShown("siteLocationLine")).toBe(true);
     expect(isShown("siteLocationLineMain")).toBe(false);
     expect(isShown("siteLocationLineReloadHint")).toBe(true);
-    expect(byId("siteLocationLineReloadHint").getAttribute("role")).toBe("status");
+    // The announcer is the one live region; the hint itself has no role, so
+    // revealing it can't add a second reading.
+    expect(byId("siteLocationLineReloadHint").hasAttribute("role")).toBe(false);
+    expect(byId("siteLocationAnnouncer").getAttribute("role")).toBe("status");
     expect(byId("siteLocationsReloadHint").hidden).toBe(true);
 
     // The pressed button is gone, so focus moves to the confirmation: it's
@@ -267,6 +270,85 @@ describe("Main tab: the line when a site location applies", () => {
     expect(isShown("siteLocationLineUseMain")).toBe(false);
     expect(document.activeElement).toBe(byId("siteLocationLineReloadHint"));
     expect(byId("siteLocationLineReloadHint").getAttribute("tabindex")).toBe("-1");
+  });
+
+  // "Use main location" removes only the winning pattern, so it shows only
+  // when that leaves exactly this site on the main location. Edit always shows.
+  describe("'Use main location' shows only when it gives just this site the main location", () => {
+    const rule = (id: string, patterns: string[], place = ENTRY_MEXICO_CITY): SiteLocation => ({
+      ...place,
+      id,
+      patterns,
+    });
+
+    test.each<[string, SiteLocation[], string, boolean]>([
+      ["an exact-host rule", [ENTRY_MEXICO_CITY], "https://twitch.tv/x", true],
+      ["the suggested rule on www.", [ENTRY_MEXICO_CITY], "https://www.twitch.tv/x", true],
+      ["one site of a multi-site entry", [ENTRY_DUBLIN], "https://openai.com/", true],
+      ["a Unicode spelling of this host", [rule("a", ["münchen.de"])], "https://münchen.de/", true],
+      [
+        "a broader rule in another entry left matching",
+        [rule("a", ["foo.example.com"], ENTRY_DUBLIN), rule("b", ["example.com"])],
+        "https://foo.example.com/",
+        false,
+      ],
+      [
+        "a broader rule in the same entry left matching",
+        [rule("a", ["foo.example.com", "example.com"])],
+        "https://foo.example.com/",
+        false,
+      ],
+      ["a wildcard rule like *.ru", [rule("a", ["*.ru"])], "https://yandex.ru/", false],
+      ["a parent-domain rule", [rule("a", ["example.com"])], "https://a.b.example.com/", false],
+      ["a subdomain wildcard", [rule("a", ["*.example.com"])], "https://www.example.com/", false],
+    ])("%s", (_name, siteLocations, url, shown) => {
+      renderSiteLocationLine(makeSettings({ siteLocations }), url, false);
+      expect(isShown("siteLocationLineMain")).toBe(true);
+      expect(isShown("siteLocationLineEdit")).toBe(true);
+      expect(isShown("siteLocationLineUseMain")).toBe(shown);
+    });
+
+    test("where it's hidden, it sends nothing", async () => {
+      renderSiteLocationLine(
+        makeSettings({ siteLocations: [rule("a", ["*.ru"])] }),
+        "https://yandex.ru/",
+        false
+      );
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
+    });
+
+    // Removing the rule would leave the site unspoofed, not on a main location.
+    test("hidden with no main location set, even for this site's own rule", async () => {
+      renderSiteLocationLine(
+        makeSettings({
+          location: null,
+          timezone: null,
+          locationName: null,
+          siteLocations: [ENTRY_MEXICO_CITY],
+        }),
+        "https://twitch.tv/x",
+        false
+      );
+      expect(isShown("siteLocationLineMain")).toBe(true);
+      expect(isShown("siteLocationLineEdit")).toBe(true);
+      expect(isShown("siteLocationLineUseMain")).toBe(false);
+
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
+    });
+
+    test("a later render shows it again where it applies", () => {
+      renderSiteLocationLine(
+        makeSettings({ siteLocations: [rule("a", ["*.ru"])] }),
+        "https://yandex.ru/",
+        false
+      );
+      renderSiteLocationLine(makeSettings(), "https://twitch.tv/", false);
+      expect(isShown("siteLocationLineUseMain")).toBe(true);
+    });
   });
 
   test("a failed 'Use main location' shows an alert and doesn't reload", async () => {
@@ -436,6 +518,63 @@ describe("Filters tab: the Per-site locations disclosure", () => {
     expect(byId("siteLocationLine").hidden).toBe(true);
   });
 
+  describe("focus after removing an entry", () => {
+    function removeButtonOf(id: string): HTMLButtonElement {
+      const row = Array.from(byId("siteLocationsList").children).find(
+        (node) => (node as HTMLElement).dataset.siteLocationId === id
+      );
+      const button = row?.querySelector<HTMLButtonElement>(".scope-site-remove");
+      if (!button) throw new Error(`no remove button for ${id}`);
+      return button;
+    }
+
+    /** Remove `id` successfully, with loadSettings re-rendering `remaining`. */
+    async function removeWithRerender(id: string, remaining: Settings["siteLocations"]) {
+      sendMessage.mockResolvedValue({ success: true, id });
+      vi.mocked(loadSettings).mockImplementationOnce(() => {
+        renderAll(makeSettings({ siteLocations: remaining }), "https://example.com/");
+        return Promise.resolve();
+      });
+      const remove = removeButtonOf(id);
+      remove.focus();
+      remove.click();
+      await flush();
+    }
+
+    test("removing the first of two focuses the remaining row's Edit, not its ✕", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      await removeWithRerender(ENTRY_DUBLIN.id, [ENTRY_MEXICO_CITY]);
+      expect(document.activeElement).toBe(rowEditButton(ENTRY_MEXICO_CITY.id));
+    });
+
+    test("removing the last row focuses the row before it", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      await removeWithRerender(ENTRY_MEXICO_CITY.id, [ENTRY_DUBLIN]);
+      expect(document.activeElement).toBe(rowEditButton(ENTRY_DUBLIN.id));
+    });
+
+    test("removing the only entry focuses 'Set a location for a site'", async () => {
+      showFiltersView();
+      renderAll(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), "https://example.com/");
+      await removeWithRerender(ENTRY_DUBLIN.id, []);
+      expect(document.activeElement).toBe(byId("siteLocationsAddButton"));
+    });
+
+    test("a failed remove puts focus back on the restored ✕", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      const remove = removeButtonOf(ENTRY_DUBLIN.id);
+      remove.focus();
+      remove.click();
+      await flush();
+      expect(remove.isConnected).toBe(true);
+      expect(document.activeElement).toBe(remove);
+    });
+  });
+
   test("doesn't change Filters' 'Add current site' control", () => {
     renderSiteLocationsSection(makeSettings(), undefined, false);
     expect(byId("scopeAddCurrentButton").closest("#scopeListManager")).not.toBeNull();
@@ -503,6 +642,28 @@ describe("Editor", () => {
     expect(text("siteLocationExplain")).toContain("Work");
   });
 
+  // Per-site locations work without a main location, and some embedded content
+  // can't be reached, so the summary promises neither.
+  test("the summary says only which place the sites will see", () => {
+    openFromAdd(
+      "https://www.example.com/page",
+      makeSettings({ location: null, timezone: null, locationName: null })
+    );
+    pickFavorite(FAVORITE.id);
+    const en = (
+      JSON.parse(readFileSync("_locales/en/messages.json", "utf8")) as Record<
+        string,
+        { message: string }
+      >
+    ).siteLocation_explain.message;
+
+    expect(text("siteLocationExplain")).toBe("Pages on example.com will see Work.");
+    expect(en.replace("$SITES$", "example.com").replace("$PLACE$", "Work")).toBe(
+      text("siteLocationExplain")
+    );
+    expect(text("siteLocationExplain")).not.toMatch(/main location|embedded/i);
+  });
+
   test("the add row hides while the editor is open, and Cancel brings it and focus back", () => {
     openFromAdd();
     expect(isShown("siteLocationsAddRow")).toBe(false);
@@ -537,6 +698,41 @@ describe("Editor", () => {
     byId("siteLocationSave").click();
     await flush();
     expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+
+    // A host with no A-label form never matches, so the background rejects it.
+    setPatterns("xn--zz.com");
+    byId("siteLocationSave").click();
+    await flush();
+    expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+    expect(isShown("siteLocationError")).toBe(true);
+  });
+
+  describe("two spellings of one host count once, as the background counts them", () => {
+    const nine = Array.from({ length: 9 }, (_, i) => `site${i}.com`);
+
+    test("ten sites plus an alias is at the cap, and sends the first spelling", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      setPatterns([...nine, "münchen.de", "xn--mnchen-3ya.de"].join(", "));
+      sendMessage.mockResolvedValue({ success: true, id: "new" });
+      byId("siteLocationSave").click();
+      await flush();
+
+      const [payload] = messagesOfType("SAVE_SITE_LOCATION") as Array<{ patterns: string[] }>;
+      expect(payload?.patterns).toEqual([...nine, "münchen.de"]);
+      expect(isShown("siteLocationError")).toBe(false);
+    });
+
+    test("eleven sites plus an alias is still over the cap", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      setPatterns([...nine, "other.com", "xn--mnchen-3ya.de", "münchen.de"].join(", "));
+      byId("siteLocationSave").click();
+      await flush();
+
+      expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+      expect(text("siteLocationErrorText")).toBe("One location can cover up to 10 sites.");
+    });
   });
 
   test("no location chosen blocks the send", async () => {
@@ -628,6 +824,242 @@ describe("Editor", () => {
     expect(text("siteLocationErrorText")).toBe(message);
     expect(isShown("siteLocationEditOwner")).toBe(false);
     expect(isShown("siteLocationEditor")).toBe(true);
+  });
+
+  // The payload is built when Save is pressed and the message can't be called
+  // back, so nothing in the editor may look like it changes the save.
+  describe("while a save is in flight", () => {
+    const CONTROLS = [
+      "siteLocationPatterns",
+      "siteLocationSearch",
+      "siteLocationFavorite",
+      "siteLocationAddToAllowlist",
+      "siteLocationEditOwner",
+      "siteLocationSave",
+      "siteLocationCancel",
+    ];
+    const BERLIN = {
+      name: "Berlin, Germany",
+      latitude: 52.52,
+      longitude: 13.405,
+      city: "Berlin",
+      country: "DE",
+    };
+
+    /** Hold SAVE_SITE_LOCATION and GEOCODE_QUERY replies until released; anything else succeeds. */
+    function holdReplies(): { save: (reply: unknown) => void; geocode: (reply: unknown) => void } {
+      const pending: Record<string, (reply: unknown) => void> = {};
+      sendMessage.mockImplementation((message: unknown) => {
+        const { type } = message as { type: string };
+        if (type === "SAVE_SITE_LOCATION" || type === "GEOCODE_QUERY") {
+          return new Promise((resolve) => {
+            pending[type] = resolve;
+          });
+        }
+        return Promise.resolve({ success: true, id: "other" });
+      });
+      return {
+        save: (reply) => pending.SAVE_SITE_LOCATION?.(reply),
+        geocode: (reply) => pending.GEOCODE_QUERY?.(reply),
+      };
+    }
+
+    function disabledControls(): string[] {
+      return CONTROLS.filter((id) => byId<HTMLInputElement>(id).disabled);
+    }
+
+    async function announced(): Promise<string> {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return text("siteLocationAnnouncer");
+    }
+
+    const RELOAD_EN = (
+      JSON.parse(readFileSync("_locales/en/messages.json", "utf8")) as Record<
+        string,
+        { message: string }
+      >
+    ).siteLocation_reloadHint.message;
+
+    test.each<[string, () => void]>([
+      ["Cancel", () => byId("siteLocationCancel").click()],
+      [
+        "Escape",
+        () =>
+          byId("siteLocationPatterns").dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+          ),
+      ],
+    ])("%s waits for it, then the save takes its normal path", async (_name, dismiss) => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+      expect(byId("siteLocationEditor").getAttribute("aria-busy")).toBe("true");
+
+      dismiss();
+      expect(isShown("siteLocationEditor")).toBe(true);
+
+      held.save({ success: true, id: "new" });
+      await flush();
+      expect(isShown("siteLocationEditor")).toBe(false);
+      expect(byId("siteLocationEditor").hasAttribute("aria-busy")).toBe(false);
+      expect(loadSettings).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(byId("siteLocationsAddButton"));
+      expect(await announced()).toBe(RELOAD_EN);
+    });
+
+    test("every control is disabled, and nothing chosen meanwhile changes the save", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      const search = byId<HTMLInputElement>("siteLocationSearch");
+      search.value = "Berlin";
+      search.dispatchEvent(new Event("input"));
+      // Past the search debounce: the query is sent, its reply held.
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(messagesOfType("GEOCODE_QUERY")).toEqual([{ query: "Berlin" }]);
+
+      byId("siteLocationSave").click();
+      await flush();
+      expect(disabledControls()).toEqual(CONTROLS);
+
+      // The search reply arrives: no result buttons appear.
+      held.geocode({ results: [BERLIN] });
+      await flush();
+      expect(byId("siteLocationResults").querySelectorAll("button")).toHaveLength(0);
+      // A result or favorite picked anyway, and Edit on another row, change nothing.
+      renderSearchResults([BERLIN]);
+      byId("siteLocationResults").querySelector("button")!.click();
+      pickFavorite(FAVORITE.id);
+      rowEditButton(ENTRY_DUBLIN.id).click();
+      expect(text("siteLocationChosen")).toBe("Work");
+      expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("example.com");
+
+      held.save({ success: true, id: "new" });
+      await flush();
+      expect(disabledControls()).toEqual([]);
+      expect(messagesOfType("SAVE_SITE_LOCATION")).toHaveLength(1);
+      expect(isShown("siteLocationEditor")).toBe(false);
+    });
+
+    test.each<[string, unknown, string]>([
+      ["TIMEZONE_UNAVAILABLE", { error: "TIMEZONE_UNAVAILABLE" }, "siteLocationSave"],
+      [
+        "PATTERN_IN_USE",
+        { error: "PATTERN_IN_USE", pattern: "example.com", ownerId: ENTRY_MEXICO_CITY.id },
+        "siteLocationPatterns",
+      ],
+    ])("a %s failure releases the editor and puts focus back", async (_name, reply, focusId) => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      const save = byId("siteLocationSave");
+      save.focus();
+      save.click();
+      await flush();
+      // A browser drops focus from a control that becomes disabled (jsdom
+      // doesn't), leaving it on the page.
+      const stand = document.body.appendChild(document.createElement("button"));
+      stand.focus();
+      stand.remove();
+      expect(document.activeElement).toBe(document.body);
+
+      held.save(reply);
+      await flush();
+      expect(disabledControls()).toEqual([]);
+      expect(byId("siteLocationEditor").hasAttribute("aria-busy")).toBe(false);
+      expect(isShown("siteLocationEditor")).toBe(true);
+      expect(isShown("siteLocationError")).toBe(true);
+      expect(document.activeElement).toBe(byId(focusId));
+      expect(loadSettings).not.toHaveBeenCalled();
+    });
+
+    test("a failed send releases the editor too", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      sendMessage.mockRejectedValue(new Error("disconnected"));
+      byId("siteLocationSave").click();
+      await flush();
+      expect(disabledControls()).toEqual([]);
+      expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
+    });
+
+    function rowRemoveButton(id: string): HTMLButtonElement {
+      const row = Array.from(byId("siteLocationsList").children).find(
+        (node) => (node as HTMLElement).dataset.siteLocationId === id
+      );
+      const button = row?.querySelector<HTMLButtonElement>(".scope-site-remove");
+      if (!button) throw new Error(`no remove button for ${id}`);
+      return button;
+    }
+
+    // A remove sent now would reach the background before the save, which
+    // would then be refused as superseded.
+    test("the edited entry's ✕ and 'Use main location' wait for it; other rows don't", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://twitch.tv/");
+      rowEditButton(ENTRY_MEXICO_CITY.id).click();
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+
+      const useMain = byId<HTMLButtonElement>("siteLocationLineUseMain");
+      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(true);
+      expect(rowRemoveButton(ENTRY_DUBLIN.id).disabled).toBe(false);
+      expect(isShown("siteLocationLineUseMain")).toBe(true);
+      expect(useMain.disabled).toBe(true);
+
+      // A re-render meanwhile keeps them off.
+      renderAll(makeSettings(), "https://twitch.tv/");
+      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(true);
+      expect(rowRemoveButton(ENTRY_DUBLIN.id).disabled).toBe(false);
+      expect(useMain.disabled).toBe(true);
+
+      rowRemoveButton(ENTRY_MEXICO_CITY.id).click();
+      // A dispatched click reaches the listener even on a disabled button.
+      useMain.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+      expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
+
+      held.save({ success: true, id: ENTRY_MEXICO_CITY.id });
+      await flush();
+      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(false);
+      expect(useMain.disabled).toBe(false);
+    });
+
+    test("a save that lands after the Pro lock closed its editor still reloads and announces", async () => {
+      showFiltersView();
+      renderAll(makeSettings(), "https://example.com/");
+      rowEditButton(ENTRY_DUBLIN.id).click();
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+
+      // The one thing left that can close the frozen editor.
+      renderAll(makeSettings(), "https://example.com/", true);
+      expect(isShown("siteLocationEditor")).toBe(false);
+
+      held.save({ success: true, id: ENTRY_DUBLIN.id });
+      await flush();
+      expect(loadSettings).toHaveBeenCalledTimes(1);
+      expect(disabledControls()).toEqual([]);
+      expect(await announced()).toBe(RELOAD_EN);
+    });
+
+    test("a save refused as superseded shows 'Change not saved' and stays open", async () => {
+      openFromAdd();
+      pickFavorite(FAVORITE.id);
+      const held = holdReplies();
+      byId("siteLocationSave").click();
+      await flush();
+
+      held.save({ error: "SUPERSEDED" });
+      await flush();
+      expect(isShown("siteLocationEditor")).toBe(true);
+      expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
+      expect(loadSettings).not.toHaveBeenCalled();
+    });
   });
 
   test("search results are keyboard-operable buttons that set the location", () => {
@@ -827,5 +1259,143 @@ describe("Accessibility", () => {
     renderSiteLocationLine(makeSettings(), "https://twitch.tv/", false);
     const edit = byId("siteLocationLineEdit");
     expect(edit.getAttribute("aria-label")?.startsWith(text("siteLocationLineEdit"))).toBe(true);
+  });
+
+  test("one polite announcer, outside every view, starts empty and never shown", () => {
+    const announcer = byId("siteLocationAnnouncer");
+    expect(announcer.getAttribute("role")).toBe("status");
+    expect(announcer.getAttribute("aria-live")).toBe("polite");
+    expect(announcer.getAttribute("aria-atomic")).toBe("true");
+    expect(announcer.closest("[hidden]")).toBeNull();
+    expect(announcer.closest(".tab-content")).toBeNull();
+    expect(announcer.closest("details")).toBeNull();
+    expect(announcer.classList.contains("visually-hidden")).toBe(true);
+    expect(text("siteLocationAnnouncer")).toBe("");
+    // The reload hints are no longer live regions of their own.
+    expect(byId("siteLocationLineReloadHint").hasAttribute("role")).toBe(false);
+    expect(byId("siteLocationsReloadHint").hasAttribute("role")).toBe(false);
+  });
+
+  test("the visually-hidden utility clips rather than hides", () => {
+    const css = readFileSync("assets/popup.css", "utf8");
+    const rule = /\.visually-hidden\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toContain("position: absolute");
+    expect(rule).toContain("clip-path: inset(50%)");
+    expect(rule).not.toMatch(/display:\s*none|visibility:\s*hidden/);
+  });
+
+  describe("confirmations are announced", () => {
+    const RELOAD = "Reload affected pages to apply the change.";
+
+    /** Wait out the announcer's clear-then-set delay, then read it. */
+    async function announced(): Promise<string> {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return text("siteLocationAnnouncer");
+    }
+
+    function openEditorAt(url: string, settings: Settings): void {
+      showFiltersView();
+      renderAll(settings, url);
+      byId("siteLocationsAddButton").click();
+    }
+
+    // One hint for every change, and a change can reach sites other than the
+    // one in the tab (up to ten in one save), so it names no site.
+    test("the fallback is the en catalog's wording", () => {
+      const en = JSON.parse(readFileSync("_locales/en/messages.json", "utf8")) as Record<
+        string,
+        { message: string }
+      >;
+      expect(en.siteLocation_reloadHint.message).toBe(RELOAD);
+      expect(text("siteLocationsReloadHint")).toBe(RELOAD);
+      expect(text("siteLocationLineReloadHint")).toBe(RELOAD);
+    });
+
+    test("Save", async () => {
+      openEditorAt("https://www.example.com/page", makeSettings());
+      pickFavorite(FAVORITE.id);
+      sendMessage.mockResolvedValue({ success: true, id: "new" });
+      byId("siteLocationSave").click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed Save announces nothing (the alert speaks)", async () => {
+      openEditorAt("https://www.example.com/page", makeSettings());
+      pickFavorite(FAVORITE.id);
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationSave").click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("Remove", async () => {
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed Remove announces nothing", async () => {
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("Use main location", async () => {
+      renderAll(makeSettings(), "https://twitch.tv/");
+      sendMessage.mockResolvedValue({ success: true, id: ENTRY_MEXICO_CITY.id });
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed Use main location announces nothing", async () => {
+      renderAll(makeSettings(), "https://twitch.tv/");
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationLineUseMain").click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("the one-tap Add to allowlist", async () => {
+      openEditorAt(
+        "https://chatgpt.com/c/1",
+        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com"] })
+      );
+      sendMessage.mockResolvedValue({ success: true });
+      byId("siteLocationAddToAllowlist").click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+    });
+
+    test("a failed one-tap announces nothing", async () => {
+      openEditorAt(
+        "https://chatgpt.com/c/1",
+        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com"] })
+      );
+      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+      byId("siteLocationAddToAllowlist").click();
+      await flush();
+      expect(await announced()).toBe("");
+    });
+
+    test("the same confirmation twice is spoken again: cleared, then set", async () => {
+      renderAll(makeSettings(), "https://example.com/");
+      sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      expect(await announced()).toBe(RELOAD);
+
+      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      await flush();
+      // Cleared at once, so the repeat registers as a change...
+      expect(text("siteLocationAnnouncer")).toBe("");
+      // ...then set again.
+      expect(await announced()).toBe(RELOAD);
+    });
   });
 });

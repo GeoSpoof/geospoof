@@ -10,7 +10,7 @@
 import type { Runtime, Tabs, Alarms } from "webextension-polyfill";
 import type { Message } from "@/shared/types/messages";
 import type { Settings } from "@/shared/types/settings";
-import { loadSettings, saveSettings } from "./settings";
+import { loadSettings, runSettingsWrite, saveSettings } from "./settings";
 import { setDebugEnabled, setVerbosityLevel, createLogger } from "@/shared/utils/debug-logger";
 import { now } from "@/shared/utils/safe-time";
 import { setWebRTCProtection } from "./webrtc";
@@ -224,36 +224,42 @@ async function initialize(): Promise<void> {
   // the rest of init broadcasts the adopted state.
   await adoptPendingSettingsFromApp();
 
-  const settings = await loadSettings();
+  // The load, the migration check, and its save run as one settings write, so
+  // a message, alarm, or bridge write that lands during startup can't be
+  // erased by saving the object loaded here.
+  const settings = await runSettingsWrite(async () => {
+    const loaded = await loadSettings();
 
-  // One-time migration persistence (Req 13.2, 13.6, and the site-scoping
-  // Req 3.9 failure semantics). loadSettings() returns the validated/upgraded
-  // in-memory Settings but does not itself write. To satisfy Req 13.6 we detect
-  // whether the stored object was on an older/absent schema by reading the raw
-  // stored `version` (the value before validation): a present settings object
-  // whose version is not "1.2" was migrated to "1.2" by validateSettings(). When
-  // that is the case we persist the upgraded object exactly once. A fresh
-  // install with no stored settings object is skipped, so we never needlessly
-  // write on first run. If persistence fails we keep the in-memory upgraded
-  // Settings for the session and surface the error rather than crashing init;
-  // the next successful save persists the migration.
-  try {
-    const stored = await browser.storage.local.get("settings");
-    const rawSettings: unknown = stored.settings;
-    const migrationOccurred =
-      rawSettings != null &&
-      typeof rawSettings === "object" &&
-      (rawSettings as { version?: unknown }).version !== "1.2";
-    if (migrationOccurred) {
-      try {
-        await saveSettings(settings);
-      } catch (error) {
-        logger.error("Failed to persist migrated settings on startup:", error);
+    // One-time migration persistence (Req 13.2, 13.6, and the site-scoping
+    // Req 3.9 failure semantics). loadSettings() returns the validated/upgraded
+    // in-memory Settings but does not itself write. To satisfy Req 13.6 we detect
+    // whether the stored object was on an older/absent schema by reading the raw
+    // stored `version` (the value before validation): a present settings object
+    // whose version is not "1.2" was migrated to "1.2" by validateSettings(). When
+    // that is the case we persist the upgraded object exactly once. A fresh
+    // install with no stored settings object is skipped, so we never needlessly
+    // write on first run. If persistence fails we keep the in-memory upgraded
+    // Settings for the session and surface the error rather than crashing init;
+    // the next successful save persists the migration.
+    try {
+      const stored = await browser.storage.local.get("settings");
+      const rawSettings: unknown = stored.settings;
+      const migrationOccurred =
+        rawSettings != null &&
+        typeof rawSettings === "object" &&
+        (rawSettings as { version?: unknown }).version !== "1.2";
+      if (migrationOccurred) {
+        try {
+          await saveSettings(loaded);
+        } catch (error) {
+          logger.error("Failed to persist migrated settings on startup:", error);
+        }
       }
+    } catch (error) {
+      logger.error("Failed to check stored settings for migration persistence:", error);
     }
-  } catch (error) {
-    logger.error("Failed to check stored settings for migration persistence:", error);
-  }
+    return loaded;
+  });
 
   // Restore logger state from persisted settings
   setDebugEnabled(settings.debugLogging);
@@ -658,7 +664,14 @@ if (browser.tabs && browser.tabs.onCreated) {
             // this path, and a consumer someone forgot to update is the
             // likeliest bug for any per-tab feature, so every page-bound
             // payload goes through `page-payload.ts`.
-            const scopedPayload = await buildPagePayload(settings, tab.url);
+            //
+            // Judged by the tab's URL now, not the `tab` snapshot from the
+            // event: a tab opened straight at a URL (a link opened in a new
+            // tab, `window.open`) is created as about:blank or with no URL,
+            // and its page can already be listening 100ms later. A payload
+            // built from the snapshot would turn spoofing off on that page.
+            const current = await browser.tabs.get(tab.id!);
+            const scopedPayload = await buildPagePayload(settings, current.url);
             await browser.tabs.sendMessage(tab.id!, {
               type: "UPDATE_SETTINGS",
               payload: scopedPayload,
