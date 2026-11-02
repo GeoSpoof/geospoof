@@ -295,9 +295,10 @@ describe("site locations", () => {
     expect(payload).not.toContain('"Europe/Dublin"');
   });
 
-  test("workerPayloadFor never applies a site zone out of scope", () => {
+  test("workerPayloadFor is empty out of scope", () => {
     const s = { ...SITE_SETTINGS, scopeMode: "denylist" as const, denylist: ["chatgpt.com"] };
-    expect(workerPayloadFor(s, "https://chatgpt.com/")).not.toContain('"Europe/Dublin"');
+    expect(workerPayloadFor(s, "https://chatgpt.com/")).toBe("");
+    expect(workerPayloadFor({ ...SITE_SETTINGS, enabled: false }, "https://example.com/")).toBe("");
   });
 
   test("workerPayloadFor is empty with no zone and no locale", () => {
@@ -328,6 +329,49 @@ describe("site locations", () => {
     tabPageUrlCache.set(3, "https://chatgpt.com/c/1");
     expect(resolveWorkerPageUrl({ ...fromFrame, tabId: 3 })).toBe("https://chatgpt.com/c/1");
     tabPageUrlCache.clear();
+  });
+
+  // Top-level page A (example.org) embeds frame B (chatgpt.com), which starts
+  // a same-site SharedWorker. Firefox reports it with no tab, `documentUrl` B,
+  // and `frameAncestors` [A]. Filters must judge A, as the payload does.
+  describe("a SharedWorker from an embedded frame gets the top-level page's decision", () => {
+    const fromFrame = {
+      requestId: "sw-2",
+      url: "https://chatgpt.com/shared.js",
+      type: "script",
+      method: "GET",
+      tabId: -1,
+      frameId: 9,
+      documentUrl: "https://chatgpt.com/embed",
+      frameAncestors: [{ url: "https://example.org/", frameId: 0 }],
+      requestHeaders: [{ name: "Sec-Fetch-Dest", value: "sharedworker" }],
+    };
+
+    beforeEach(() => tabPageUrlCache.clear());
+    afterEach(() => updateWorkerFilterSettings(IN_SCOPE_SETTINGS));
+
+    test("Allowlist with only the top-level page allowed patches it with the page's zone", () => {
+      const s = { ...SITE_SETTINGS, scopeMode: "allowlist" as const, allowlist: ["example.org"] };
+      updateWorkerFilterSettings(s);
+      expect(_classifyRequestForTest(fromFrame)).toBe("patch");
+      expect(workerPayloadFor(s, resolveWorkerPageUrl(fromFrame))).toContain('"Asia/Tokyo"');
+    });
+
+    test("Denylist with the top-level page denied leaves it unmodified", () => {
+      const s = { ...SITE_SETTINGS, scopeMode: "denylist" as const, denylist: ["example.org"] };
+      updateWorkerFilterSettings(s);
+      expect(_classifyRequestForTest(fromFrame)).toBe("pass");
+      expect(workerPayloadFor(s, resolveWorkerPageUrl(fromFrame))).toBe("");
+    });
+
+    test("the same-site gate still judges the frame that started the worker", () => {
+      updateWorkerFilterSettings(SITE_SETTINGS);
+      expect(_classifyRequestForTest(fromFrame)).toBe("patch");
+      // Same-site as A but not as B, the frame that started it.
+      expect(_classifyRequestForTest({ ...fromFrame, url: "https://example.org/shared.js" })).toBe(
+        "pass"
+      );
+    });
   });
 
   test("hasWorkerTimezoneSource is true with only site locations", () => {

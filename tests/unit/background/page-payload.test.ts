@@ -206,8 +206,12 @@ describe("Site locations: all consumers agree", () => {
       expect(group).toBeUndefined();
     }
 
-    // Worker payload embeds the same zone.
-    expect(workerPayloadFor(SETTINGS, row.url)).toContain(JSON.stringify(zone));
+    // Worker payload embeds the same zone, or is empty (script unmodified) out of scope.
+    if (payload.enabled) {
+      expect(workerPayloadFor(SETTINGS, row.url)).toContain(JSON.stringify(zone));
+    } else {
+      expect(workerPayloadFor(SETTINGS, row.url)).toBe("");
+    }
 
     // CDP overrides (debugger mode on) apply the same zone, or none out of scope.
     const overrides = buildOverridesForTab({ ...SETTINGS, debuggerModeEnabled: true }, row.url);

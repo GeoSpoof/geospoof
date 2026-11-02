@@ -228,9 +228,9 @@ interface PendingRequest {
   decision: Decision;
   chunks: Uint8Array[];
   /**
-   * The initiating document's URL, recorded at classification. `onstop` builds
-   * the payload against it so a worker on a site-location page gets that
-   * site's zone, not the main one.
+   * The worker's top-level page (`resolveWorkerPageUrl`), recorded at
+   * classification. `onstop` builds the payload against it so a worker on a
+   * site-location page gets that site's zone, not the main one.
    */
   pageUrl?: string;
 }
@@ -328,11 +328,14 @@ export function hasWorkerTimezoneSource(settings: Settings): boolean {
 /**
  * Build the worker payload for a worker created by the document at `pageUrl`.
  * The timezone and locale come from the same per-site resolution the page
- * payload uses, so a worker and its page agree. Returns "" when there is
- * neither a timezone nor a locale to apply (leave the script unmodified).
+ * payload uses, so a worker and its page agree. Returns "" (leave the script
+ * unmodified) when GeoSpoof is off for that page, whatever the classifier
+ * decided, or when there is neither a timezone nor a locale to apply.
  */
 export function workerPayloadFor(settings: Settings, pageUrl: string | undefined): string {
-  const effective = resolveSiteSettings(settings, pageUrl, isRestrictedUrl).settings;
+  const resolved = resolveSiteSettings(settings, pageUrl, isRestrictedUrl);
+  if (!resolved.enabled) return "";
+  const effective = resolved.settings;
   const identifier = effective.timezone?.identifier;
   // Either axis alone is enough to warrant a payload — a user can spoof a
   // locale with no location (hence no timezone), or a timezone with no locale.
@@ -392,6 +395,7 @@ export function _classifyRequestForTest(details: {
   frameId: number;
   documentUrl?: string;
   originUrl?: string;
+  frameAncestors?: { url: string; frameId: number }[];
   requestHeaders?: { name: string; value?: string }[];
 }): Decision {
   return classifyRequest(details);
@@ -582,14 +586,17 @@ function classifyRequest(details: WebRequestDetailsWithHeaders): Decision {
   // untouched (documented known limitation).
   if (dest === "serviceworker") return "pass";
 
-  // Resolve the URL of the document that initiated this worker fetch (see
-  // resolveInitiatorUrl for the per-tab cache vs SharedWorker fallback).
-  const pageUrl = resolveInitiatorUrl(details);
-  if (!pageUrl) return "pass"; // unknown initiator → safe fallback
+  // Two URLs. The scope gate judges the top-level page, the same URL the
+  // payload is built for (resolveWorkerPageUrl), so a SharedWorker started by
+  // an embedded frame gets its page's decision. The same-site gate judges the
+  // document that started the worker (resolveInitiatorUrl).
+  const pageUrl = resolveWorkerPageUrl(details);
+  const initiatorUrl = resolveInitiatorUrl(details);
+  if (!pageUrl || !initiatorUrl) return "pass"; // unknown initiator → safe fallback
 
   // Scope gate (Req 11): consult the single source of truth so the worker
-  // filter agrees with the background's per-tab decision for this initiating
-  // document. Out-of-scope (allowlist miss / denylist hit / restricted / master
+  // filter agrees with the background's per-tab decision for the top-level
+  // page. Out-of-scope (allowlist miss / denylist hit / restricted / master
   // off) ⇒ leave the worker script unmodified. When settings haven't loaded
   // yet, fall back to "pass".
   if (!cachedSettings) return "pass";
@@ -606,7 +613,7 @@ function classifyRequest(details: WebRequestDetailsWithHeaders): Decision {
 
   // Same-site gate: exact origin (covers localhost / IP / single-label hosts)
   // or same registrable domain (covers sibling sub-domains).
-  if (!isSameOriginWorker(details.url, pageUrl)) return "pass";
+  if (!isSameOriginWorker(details.url, initiatorUrl)) return "pass";
 
   return "patch";
 }
