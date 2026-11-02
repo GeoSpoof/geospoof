@@ -211,6 +211,14 @@ export interface UpdateSettingsPayload {
 }
 
 /**
+ * Optional GET_SETTINGS payload. Extension pages send none.
+ */
+export interface GetSettingsPayload {
+  /** Content scripts: this document is its tab's top frame (`window.top === window`). */
+  topFrame?: boolean;
+}
+
+/**
  * Response shape for GET_SETTINGS messages.
  */
 export type GetSettingsResponse = Settings;
@@ -355,7 +363,9 @@ export type SiteLocationErrorCode =
   | "TOO_MANY_PATTERNS"
   | "INVALID_LOCATION"
   | "TIMEZONE_UNAVAILABLE"
-  | "STORAGE_ERROR";
+  | "STORAGE_ERROR"
+  /** A remove or save of the same entry that arrived later was written first. */
+  | "SUPERSEDED";
 
 export type SiteLocationResponse =
   | { success: true; id: string }

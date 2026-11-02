@@ -20,12 +20,20 @@ export const RESTRICTED_URL_PREFIXES = [
   "file:",
 ];
 
-/** Hosts (and their subdomains) where the browser forbids extension scripts. */
+/**
+ * Hosts (and their subdomains) where the browser forbids extension scripts.
+ * One list for every engine; keep it in the same order as the popup's copy in
+ * `src/popup/settings.ts`.
+ */
 export const RESTRICTED_DOMAINS = [
   "addons.mozilla.org",
   "accounts.firefox.com",
   "testpilot.firefox.com",
   "chrome.google.com",
+  // Chrome Web Store (Chromium's extension_urls.cc); Firefox's
+  // extensions.webextensions.restrictedDomains default lists support.mozilla.org.
+  "chromewebstore.google.com",
+  "support.mozilla.org",
 ];
 
 /**

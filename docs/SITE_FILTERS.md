@@ -118,7 +118,7 @@ Anything invalid is rejected inline when you add it, so a bad pattern is never s
 
 ## Limitations and behavior notes
 
-- **The decision is made from the tab's top-level (address-bar) URL.** Every frame in the tab — including cross-origin iframes and embedded widgets — inherits the top-level page's decision. An iframe's own URL is never evaluated separately.
+- **The decision is made from the tab's top-level (address-bar) URL.** Every frame in the tab — including cross-origin iframes and embedded widgets — inherits the top-level page's decision. An iframe's own URL is never evaluated separately. A page Chrome prerenders in the background is judged by its own URL, the one it shows once opened.
 - **Single-page apps (path filters).** When a site changes route without a full page load (History API), GeoSpoof re-evaluates and turns spoofing on/off for new activity. However, overrides already applied to objects the page created while in scope stay in effect until the page reloads. If you rely on path filtering on a heavy single-page app, a reload gives the cleanest result.
 - **Trailing slash / `:*`.** `example.com/` is treated the same as `example.com` (whole site), and `example.com:*` the same as `example.com` (any port).
 - **Case.** Scheme and host are case-insensitive; the path is case-sensitive.
@@ -132,14 +132,14 @@ The **Per-site locations** list at the bottom of the Filters tab gives specific 
 | **Filters** (mode)     | **Whether** GeoSpoof is on for a site                 |
 | **Per-site locations** | **Which** location it reports on a site where it's on |
 
-Filters are checked first. If they keep GeoSpoof off for a site, its own location doesn't apply. Otherwise the matching location replaces the main location and time zone (and, with Reported Language on **Match my location**, the language); every other site keeps your main location. Neither setting changes your IP address. See [Per-site locations in the User Guide](USER_GUIDE.md#per-site-locations) for what that means in practice.
+Filters are checked first. If they keep GeoSpoof off for a site, its own location doesn't apply. Otherwise the matching location replaces the main location and time zone (and, with Reported Language on **Match my location**, the language); every other site keeps your main location, if you've set one. Neither setting changes your IP address. See [Per-site locations in the User Guide](USER_GUIDE.md#per-site-locations) for what that means in practice.
 
 **Patterns are host-only.** Per-site locations use the same pattern language as filters, minus two forms:
 
 - **No paths.** `example.com/app/*` is rejected: a page's location can't change with its path, and every frame in a tab already follows the top-level page.
 - **No bare `*`.** `*`, `*://*`, and `*:8080` are rejected: per-site locations name specific sites, and your main location already covers "everything else".
 
-Everything else works the same: `example.com` covers the site and its subdomains, `*.example.com` subdomains only, `*.ru` a whole TLD, plus ports (`localhost:3000`), schemes (`https://example.com`), and internationalized domains. Every pattern accepted here is also a valid filter pattern. One location can list up to 10 sites, separated by commas, and you can have up to 50. A pattern can belong to only one of them.
+Everything else works the same: `example.com` covers the site and its subdomains, `*.example.com` subdomains only, `*.ru` a whole TLD, plus ports (`localhost:3000`), schemes (`https://example.com`), and internationalized domains. Every pattern accepted here is also a valid filter pattern. One location can list up to 10 sites, separated by commas, and you can have up to 50. A pattern can belong to only one of them, and the Unicode and `xn--` spellings of a domain (`münchen.de`, `xn--mnchen-3ya.de`) count as the same pattern.
 
 **The most specific pattern wins.** When several per-site locations match a page, the most specific pattern decides, whatever the order of the list:
 

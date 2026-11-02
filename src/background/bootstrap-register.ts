@@ -363,6 +363,9 @@ export function planBootstrapScripts(settings: Settings): BootstrapPlanItem[] {
 /** Serializes registrations so two calls can't interleave their unregister/register pairs. */
 let queue: Promise<void> = Promise.resolve();
 
+/** Counts calls; only the latest one may register. */
+let generation = 0;
+
 /**
  * Register (or refresh) the document_start bootstrap user scripts to reflect
  * the current settings, or remove them when there's nothing to seed.
@@ -371,19 +374,21 @@ let queue: Promise<void> = Promise.resolve();
  * startup. Idempotent. Calls run one after another in call order, so the last
  * call wins: without that, two overlapping calls could unregister twice, then
  * register A, then fail to register B on the duplicate ids and leave A's stale
- * code in place.
+ * code in place. A call that a newer one has overtaken only unregisters, so
+ * scripts for settings that are no longer stored are never installed.
  */
 export function updateBootstrapRegistration(settings: Settings): Promise<void> {
   // Compiled out entirely on Chromium / Safari builds.
   if (!__FIREFOX__) return Promise.resolve();
 
   // registerNow catches everything, so the queue never wedges.
-  const run = queue.then(() => registerNow(settings));
+  const gen = ++generation;
+  const run = queue.then(() => registerNow(settings, gen));
   queue = run.catch(() => undefined);
   return run;
 }
 
-async function registerNow(settings: Settings): Promise<void> {
+async function registerNow(settings: Settings, gen: number): Promise<void> {
   const api = getUserScriptsApi();
   if (!api) {
     // userScripts permission not yet granted (it's an optional-only permission
@@ -397,12 +402,22 @@ async function registerNow(settings: Settings): Promise<void> {
   }
 
   try {
+    // Remove the live scripts before building their replacements. They were
+    // built from older settings, so a page loading while the new payloads are
+    // built must get no seed rather than a stale one, and a failed build
+    // leaves no bootstrap at all (absent, never wrong). Re-registering from
+    // scratch is the portable path: userScripts has no in-place "replace code"
+    // guarantee across engines.
+    // Unfiltered on purpose: only this module registers user scripts, the ids
+    // vary with the plan, and an id filter naming an unregistered id may
+    // reject the whole call and leave stale scripts behind.
+    await api.unregister();
+    if (gen !== generation) return; // a newer call registers its own settings
+
     const plan = planBootstrapScripts(settings);
 
-    // Build every registration before touching the live ones, so a failure
-    // here leaves the previous set in place. Payloads come from the shared
-    // page-payload module, so the inlined point and locale match what the
-    // async path delivers moments later.
+    // Payloads come from the shared page-payload module, so the inlined point
+    // and locale match what the async path delivers moments later.
     const registrations: Array<Record<string, unknown>> = [];
     for (const item of plan) {
       const registration: Record<string, unknown> = {
@@ -419,13 +434,8 @@ async function registerNow(settings: Settings): Promise<void> {
       registrations.push(registration);
     }
 
-    // Re-register from scratch so the inlined payloads always reflect the
-    // latest settings (userScripts has no in-place "replace code" guarantee
-    // across engines, so unregister-then-register is the portable path).
-    // Unfiltered on purpose: only this module registers user scripts, the ids
-    // vary with the plan, and an id filter naming an unregistered id may
-    // reject the whole call and leave stale scripts behind.
-    await api.unregister();
+    // Settings changed again while the payloads were built.
+    if (gen !== generation) return;
 
     if (registrations.length === 0) {
       logger.debug("[bootstrap] nothing to seed — removed bootstrap scripts");
