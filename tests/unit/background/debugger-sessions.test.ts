@@ -603,7 +603,7 @@ describe("the newest reconcile of a tab writes last", () => {
     expect(tracker.isHeld(TAB)).toBe(true);
   });
 
-  test("a session Chrome ends stops a hold whose root command then fails: no attach again", async () => {
+  test("a cancelled session (endSession) stops a hold whose root command then fails: no attach again", async () => {
     const { dbg, calls, holdNext } = fakeDebugger();
     const tracker = new TabSessionTracker();
     tracker.markHeld(TAB);

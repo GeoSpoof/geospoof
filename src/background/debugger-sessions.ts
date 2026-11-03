@@ -203,9 +203,9 @@ export class TabSessionTracker {
   }
 
   /**
-   * Chrome ended the tab's session (`chrome.debugger.onDetach`): forget the
-   * tab and stop every reconcile of it in flight, so none of them attaches
-   * again, for example after the user cancelled the debugging bar. A
+   * The user cancelled the debugging bar (`chrome.debugger.onDetach` with
+   * `canceled_by_user`): forget the tab and stop every reconcile of it in
+   * flight, so none of them attaches again and brings the bar back. A
    * reconcile that starts later (the next navigation) still can.
    */
   endSession(tabId: number): void {

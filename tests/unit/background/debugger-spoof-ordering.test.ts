@@ -257,31 +257,43 @@ describe("a same-document navigation finishes the reconcile it claims", () => {
 });
 
 describe("a session Chrome ends", () => {
-  test("stops the tab's reconcile in flight: no attach, no zone, not held", async () => {
+  type DetachListener = (
+    source: ChromeDebugger.Debuggee,
+    reason: ChromeDebugger.DetachReason
+  ) => void;
+
+  /**
+   * A held tab whose navigation to the Dublin page is waiting on its root
+   * command; `end(reason)` ends the session, then fails that command.
+   */
+  async function heldTabMidNavigation() {
     const mod = await load();
     mod.installDebuggerWatchers();
-    const onDetach = fake.dbg.onDetach.addListener.mock.calls[0][0] as (
-      source: ChromeDebugger.Debuggee,
-      reason: ChromeDebugger.DetachReason
-    ) => void;
+    const onDetach = fake.dbg.onDetach.addListener.mock.calls[0][0] as DetachListener;
     fake.state.targets = [target(MAIN_URL, false)];
     await mod.syncDebuggerSpoofing(makeSettings());
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     browser.tabs.sendMessage = sendMessage;
     browser.tabs.get = vi.fn().mockResolvedValue({ id: TAB, url: DUBLIN_URL });
-
-    // A navigation's root command is pending when the user cancels the bar.
     const fail = fake.holdNext("Emulation.setTimezoneOverride");
     const nav = mod.claimTab(TAB)(DUBLIN_URL);
     await vi.waitFor(() =>
       expect(zonesSentTo(fake.calls, ROOT)).toEqual(["Asia/Tokyo", "Europe/Dublin"])
     );
-    const atCancel = fake.calls.length;
-    onDetach(ROOT, "canceled_by_user");
-    fail(new Error("Debugger is not attached to the tab with id: 7."));
-    await nav;
+    const atEnd = fake.calls.length;
+    const end = async (reason: ChromeDebugger.DetachReason): Promise<void> => {
+      onDetach(ROOT, reason);
+      fail(new Error("Debugger is not attached to the tab with id: 7."));
+      await nav;
+    };
+    return { mod, sendMessage, atEnd, end };
+  }
 
-    expect(fake.calls.slice(atCancel)).toEqual([]);
+  test("cancelled by the user: the reconcile in flight stops (no attach, no zone, not held)", async () => {
+    const { mod, sendMessage, atEnd, end } = await heldTabMidNavigation();
+    await end("canceled_by_user");
+
+    expect(fake.calls.slice(atEnd)).toEqual([]);
     // The tab is still sent its settings again.
     await vi.waitFor(() =>
       expect(sendMessage).toHaveBeenCalledWith(
@@ -291,6 +303,24 @@ describe("a session Chrome ends", () => {
     );
     // Not left marked held: the next navigation attaches first.
     await mod.claimTab(TAB)(MAIN_URL);
-    expect(fake.calls[atCancel]?.method).toBe("attach");
+    expect(fake.calls[atEnd]?.method).toBe("attach");
+  });
+
+  test("target_closed: the navigation in flight attaches again and sets its zone", async () => {
+    // On a page with another extension's frame, Chrome ends the session while
+    // the tab navigates; this attach, on the new document, is what sets it.
+    const { sendMessage, atEnd, end } = await heldTabMidNavigation();
+    await end("target_closed");
+
+    expect(fake.calls.slice(atEnd).map((c) => [c.method, c.params?.timezoneId])).toEqual([
+      ["attach", undefined],
+      ["Emulation.setTimezoneOverride", "Europe/Dublin"],
+    ]);
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        TAB,
+        expect.objectContaining({ type: "UPDATE_SETTINGS" })
+      )
+    );
   });
 });

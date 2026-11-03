@@ -353,15 +353,22 @@ async function resendTabPayload(tabId: number): Promise<void> {
 
 /**
  * A debug session ended (tab closed, DevTools opened, user dismissed the bar,
- * another extension's frame appeared in the page). A reconcile of the tab in
- * flight stops here, so a command of it that fails now can't attach again.
+ * another extension's frame appeared in the page). When the user dismissed
+ * the bar, a reconcile of the tab in flight stops here too, so a command of
+ * it that fails now can't attach again and bring the bar back. Otherwise
+ * (`target_closed`) a reconcile in flight may attach again: it belongs to a
+ * navigation under way, and on a page with another extension's frame that
+ * attach, on the new document, is what sets its zone.
  */
 function onDebuggerDetach(
   source: ChromeDebugger.Debuggee,
   reason: ChromeDebugger.DetachReason
 ): void {
   logger.debug(`debugger detached from tab ${source.tabId ?? "?"} (${reason})`);
-  if (source.tabId != null) tracker.endSession(source.tabId);
+  if (source.tabId != null) {
+    if (reason === "canceled_by_user") tracker.endSession(source.tabId);
+    else tracker.clearTab(source.tabId);
+  }
   void handleDebuggerDetach(source.tabId, resendTabPayload);
 }
 
