@@ -1,6 +1,6 @@
 /**
  * Engine-level Spoofing's listeners and settings sync, driven through
- * `debugger-spoof.ts` with `__CHROMIUM__` stubbed on and a fake
+ * `debugger-spoof.ts` with the Chromium build flags stubbed and a fake
  * `chrome.debugger`: the newest event for a tab must be the last to write,
  * whichever lookup finishes first. (The session logic itself is tested in
  * `debugger-sessions.test.ts`.)
@@ -113,12 +113,52 @@ let fake: ReturnType<typeof fakeChromeDebugger>;
 async function load(): Promise<DebuggerSpoof> {
   vi.resetModules();
   vi.stubGlobal("__CHROMIUM__", true);
+  vi.stubGlobal("__FIREFOX__", false);
   fake = fakeChromeDebugger();
   vi.stubGlobal("chrome", {
     ...(globalThis as unknown as { chrome: object }).chrome,
     debugger: fake.dbg,
   });
   return import("@/background/debugger-spoof");
+}
+
+type UpdatedListener = (
+  tabId: number,
+  changeInfo: { url?: string },
+  tab: { id: number; url: string }
+) => void;
+type EventListener = (
+  source: ChromeDebugger.DebuggerSession,
+  method: string,
+  params?: object
+) => void;
+
+/**
+ * {@link load}, through the background entry, so its listeners are bound:
+ * `onUpdated` fires every `tabs.onUpdated` listener, `onEvent` is the
+ * debugger's event listener.
+ */
+async function loadBackground(): Promise<{
+  mod: DebuggerSpoof;
+  onUpdated: UpdatedListener;
+  onEvent: EventListener;
+}> {
+  await load();
+  await import("@/background");
+  const mod = await import("@/background/debugger-spoof");
+  const onUpdatedMock = browser.tabs.onUpdated as unknown as Record<
+    string,
+    ReturnType<typeof vi.fn>
+  >;
+  const updated = onUpdatedMock["addListener"].mock.calls.map((c) => c[0] as UpdatedListener);
+  const onEvent = fake.dbg.onEvent.addListener.mock.calls[0][0] as EventListener;
+  return {
+    mod,
+    onUpdated: (tabId, changeInfo, tab) => {
+      for (const l of updated) l(tabId, changeInfo, tab);
+    },
+    onEvent,
+  };
 }
 
 beforeEach(() => {
@@ -176,5 +216,42 @@ describe("a settings sync is ordered by when it starts", () => {
     await mod.syncDebuggerSpoofing(makeSettings());
     await nav;
     expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe("Asia/Tokyo");
+  });
+});
+
+describe("a same-document navigation finishes the reconcile it claims", () => {
+  const CHILD = { tabId: TAB, sessionId: "S1" };
+
+  test("with the mode off, it finishes the teardown it interrupted", async () => {
+    const { mod, onUpdated, onEvent } = await loadBackground();
+    // A held tab with a cross-site iframe's child session.
+    fake.state.targets = [target(MAIN_URL, false)];
+    await mod.syncDebuggerSpoofing(makeSettings());
+    onEvent(ROOT, "Target.attachedToTarget", {
+      sessionId: "S1",
+      targetInfo: { type: "iframe" },
+      waitingForDebugger: false,
+    });
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, CHILD)).toEqual(["Asia/Tokyo"]));
+
+    // The mode is turned off; the teardown waits on the child's revert.
+    const off = makeSettings({ debuggerModeEnabled: false });
+    storageData.settings = off;
+    fake.state.targets = [target(MAIN_URL, true)];
+    const releaseChild = fake.holdNext("Emulation.setTimezoneOverride");
+    const teardown = mod.syncDebuggerSpoofing(off);
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, CHILD)).toEqual(["Asia/Tokyo", ""]));
+
+    // An in-page route change lands meanwhile.
+    const next = "https://example.com/next";
+    onUpdated(TAB, { url: next }, { id: TAB, url: next });
+    await vi.waitFor(() => expect(fake.calls.map((c) => c.method)).toContain("detach"));
+    releaseChild();
+    await teardown;
+
+    expect(zonesSentTo(fake.calls, ROOT)).toEqual(["Asia/Tokyo", ""]);
+    expect(fake.calls.filter((c) => c.method === "detach")).toEqual([
+      { target: ROOT, method: "detach" },
+    ]);
   });
 });

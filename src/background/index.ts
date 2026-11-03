@@ -712,10 +712,11 @@ if (browser.tabs && browser.tabs.onUpdated) {
           // boundary. Reconcile just this tab against the new URL — attach+apply
           // if now in scope, detach (clearing the override) if not — so path
           // scoping is consistent whether or not debugger mode is on (Req 11).
+          // Run it even with the mode off, where it tears down: the claim above
+          // already stopped any older reconcile of the tab, including a
+          // mode-off teardown, so skipping it would leave that teardown undone.
           // Compiled out on Firefox/Safari.
-          if (reconcileEngineLevel && settings.debuggerModeEnabled) {
-            await reconcileEngineLevel(tab.url);
-          }
+          if (reconcileEngineLevel) await reconcileEngineLevel(tab.url);
         })();
         return;
       }
