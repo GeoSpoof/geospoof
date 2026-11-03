@@ -261,13 +261,20 @@ async function detachAll(generation: number): Promise<void> {
  * called, not by when `getTargets()` answers: a navigation or a later sync
  * that starts meanwhile keeps the tabs it reaches, so this sync's older URL
  * snapshot can't be the last to write.
+ *
+ * `saved` is what the caller just saved or loaded, and is only checked for the
+ * warning below. What the sync applies is read from storage after it has taken
+ * its place in that order: callers reach here after awaiting a broadcast, a
+ * badge update or an injection pass, so an older change's caller can arrive
+ * after a newer one's sync. It then applies the newer settings again, not its
+ * own older snapshot.
  */
-export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
+export async function syncDebuggerSpoofing(saved: Settings): Promise<void> {
   if (!__CHROMIUM__) return;
 
   const dbg = chrome.debugger;
   if (!dbg) {
-    if (shouldSpoof(settings)) {
+    if (shouldSpoof(saved)) {
       // Mode is on but the `debugger` API isn't available (permission revoked
       // from chrome://extensions, or a non-Chromium engine reaching here).
       logger.warn("[debugger] mode enabled but chrome.debugger is unavailable; skipping");
@@ -275,8 +282,11 @@ export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
     return;
   }
 
-  // Taken before the first await (see the ordering note above).
+  // Taken before the first await (see the ordering note above). The settings
+  // are read after it, so a sync that takes a later generation reads every
+  // change saved before it started.
   const generation = tracker.reserve();
+  const settings = await loadSettings();
 
   if (!shouldSpoof(settings)) {
     await detachAll(generation);

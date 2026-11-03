@@ -8,7 +8,7 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Settings } from "@/shared/types/settings";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
-import { storageData } from "../../setup";
+import { storageData, sessionStorageData } from "../../setup";
 import { ENTRY_DUBLIN, TOKYO, TOKYO_TZ } from "../../helpers/site-locations";
 
 type DebuggerSpoof = typeof import("@/background/debugger-spoof");
@@ -30,6 +30,7 @@ const TAB = 7;
 const ROOT = { tabId: TAB };
 const MAIN_URL = "https://example.com/";
 const DUBLIN_URL = "https://chatgpt.com/c/1";
+const LA = { identifier: "America/Los_Angeles", offset: -480, dstOffset: 60 };
 
 function target(url: string, attached: boolean): ChromeDebugger.TargetInfo {
   return { type: "page", id: "T7", tabId: TAB, url, attached, title: "" };
@@ -188,8 +189,9 @@ describe("a settings sync is ordered by when it starts", () => {
     const releaseOlder = fake.holdTargets();
     const older = mod.syncDebuggerSpoofing(makeSettings());
     fake.state.targets = [target(MAIN_URL, false)];
-    const LA = { identifier: "America/Los_Angeles", offset: -480, dstOffset: 60 };
-    await mod.syncDebuggerSpoofing(makeSettings({ timezone: LA }));
+    const la = makeSettings({ timezone: LA });
+    storageData.settings = la;
+    await mod.syncDebuggerSpoofing(la);
     expect(zonesSentTo(fake.calls, ROOT)).toEqual(["America/Los_Angeles"]);
     releaseOlder([target(MAIN_URL, true)]);
     await older;
@@ -199,13 +201,26 @@ describe("a settings sync is ordered by when it starts", () => {
   test("an older mode-off sync whose list arrives last can't detach the newer session", async () => {
     const mod = await load();
     const releaseOff = fake.holdTargets();
-    const off = mod.syncDebuggerSpoofing(makeSettings({ debuggerModeEnabled: false }));
+    const off = makeSettings({ debuggerModeEnabled: false });
+    storageData.settings = off;
+    const offSync = mod.syncDebuggerSpoofing(off);
+    // The mode-off sync's settings read lands before the mode is turned on.
+    await vi.waitFor(() => expect(fake.dbg.getTargets).toHaveBeenCalledTimes(1));
     fake.state.targets = [target(MAIN_URL, false)];
+    storageData.settings = makeSettings();
     await mod.syncDebuggerSpoofing(makeSettings());
     releaseOff([target(MAIN_URL, true)]);
-    await off;
+    await offSync;
     expect(zonesSentTo(fake.calls, ROOT)).toEqual(["Asia/Tokyo"]);
     expect(fake.calls.map((c) => c.method)).not.toContain("detach");
+  });
+
+  test("it applies the settings stored when it starts, not the snapshot it was given", async () => {
+    const mod = await load();
+    fake.state.targets = [target(MAIN_URL, false)];
+    storageData.settings = makeSettings({ timezone: LA });
+    await mod.syncDebuggerSpoofing(makeSettings());
+    expect(zonesSentTo(fake.calls, ROOT)).toEqual(["America/Los_Angeles"]);
   });
 
   test("a sync still supersedes a navigation that started before it", async () => {
@@ -216,6 +231,74 @@ describe("a settings sync is ordered by when it starts", () => {
     await mod.syncDebuggerSpoofing(makeSettings());
     await nav;
     expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe("Asia/Tokyo");
+  });
+});
+
+describe("settings changes whose handlers reach the sync out of order", () => {
+  const SLOW_TAB = 8;
+  const CHILD = { tabId: TAB, sessionId: "S1" };
+  const LA_POINT = { latitude: 34.0522, longitude: -118.2437 };
+  const PARIS_TZ = { identifier: "Europe/Paris", offset: 60, dstOffset: 60 };
+  const NAME = { city: "", country: "", displayName: "test" };
+
+  test("an older location change held in its broadcast sends no old zone after a newer one", async () => {
+    const mod = await load();
+    mod.installDebuggerWatchers();
+    const onEvent = fake.dbg.onEvent.addListener.mock.calls[0][0] as EventListener;
+    const messages = await import("@/background/messages");
+    const { getCacheKey } = await import("@/background/geocoding");
+    // Both zones are cached, so no lookup goes to the network.
+    sessionStorageData[`cache:timezone:${getCacheKey(TOKYO.latitude, TOKYO.longitude)}`] = TOKYO_TZ;
+    sessionStorageData[`cache:timezone:${getCacheKey(LA_POINT.latitude, LA_POINT.longitude)}`] = LA;
+
+    // A held tab on Paris with a cross-site iframe's child session.
+    const paris = makeSettings({ timezone: PARIS_TZ, siteLocations: [] });
+    storageData.settings = paris;
+    fake.state.targets = [target(MAIN_URL, false)];
+    await mod.syncDebuggerSpoofing(paris);
+    onEvent(ROOT, "Target.attachedToTarget", {
+      sessionId: "S1",
+      targetInfo: { type: "iframe" },
+      waitingForDebugger: false,
+    });
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, CHILD)).toEqual(["Europe/Paris"]));
+
+    // Another tab answers the first broadcast late.
+    const { query, sendMessage } = browser.tabs;
+    const slow = deferred<undefined>();
+    let slowSends = 0;
+    browser.tabs.query = vi.fn().mockResolvedValue([
+      { id: TAB, url: MAIN_URL },
+      { id: SLOW_TAB, url: "https://slow.example/" },
+    ]);
+    browser.tabs.sendMessage = vi.fn((tabId: number) =>
+      tabId === SLOW_TAB && slowSends++ === 0 ? slow.promise : Promise.resolve(undefined)
+    );
+    try {
+      // The older change (Tokyo) waits on that tab; the newer one (LA) finishes.
+      const older = messages.handleSetLocation(
+        { latitude: TOKYO.latitude, longitude: TOKYO.longitude },
+        { fromVpnSync: true, locationName: NAME }
+      );
+      await vi.waitFor(() => expect(slowSends).toBe(1));
+      await messages.handleSetLocation(LA_POINT, { fromVpnSync: true, locationName: NAME });
+      expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe("America/Los_Angeles");
+      expect(zonesSentTo(fake.calls, CHILD).at(-1)).toBe("America/Los_Angeles");
+      const atNewer = fake.calls.length;
+
+      slow.resolve(undefined);
+      await older;
+      const later = fake.calls
+        .slice(atNewer)
+        .filter((c) => c.method === "Emulation.setTimezoneOverride")
+        .map((c) => c.params?.timezoneId);
+      expect(later).not.toContain("Asia/Tokyo");
+      expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe("America/Los_Angeles");
+      expect(zonesSentTo(fake.calls, CHILD).at(-1)).toBe("America/Los_Angeles");
+    } finally {
+      browser.tabs.query = query;
+      browser.tabs.sendMessage = sendMessage;
+    }
   });
 });
 
