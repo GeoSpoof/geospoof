@@ -11,7 +11,7 @@
  * Native strings are built with Intl in the stated OS zone, so these don't
  * depend on the machine's zone.
  */
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import type { LastModifiedContext } from "@/content/injected/document-overrides";
 
 /** `state.ts` captures navigator.geolocation at import time and jsdom has none. */
@@ -65,7 +65,7 @@ const ENGINE_ZONE = "Asia/Tokyo";
 
 function engineCtx(os: string, nowMs: number, osNowMs = nowMs): LastModifiedContext {
   return {
-    engineMode: true,
+    engineCanBeEmulated: true,
     nowMs,
     osNow: () => nativeIn(os, osNowMs),
     engineOffsetEastAt: (ms) => eastIn(ENGINE_ZONE, ms),
@@ -130,19 +130,26 @@ describe("lastModifiedEpoch in Engine-level Spoofing", () => {
     expect(doc.lastModifiedEpoch("01/12/2026 21:20:34", ctx)).toBe(7);
   });
 
-  test("not Engine-level: parsed as local time, exactly as before", async () => {
+  test("Firefox and Safari: parsed as local time, exactly as before", async () => {
     const { doc } = await loadModules();
     const parseLocal = vi.fn().mockReturnValue(99);
     const osNow = vi.fn().mockReturnValue("01/15/2026 07:00:00");
     const ctx: LastModifiedContext = {
-      engineMode: false,
+      engineCanBeEmulated: false,
       nowMs: NOW,
       osNow,
       engineOffsetEastAt: () => 540,
       parseLocal,
     };
     expect(doc.lastModifiedEpoch("01/12/2026 21:20:34", ctx)).toBe(99);
+    expect(doc.emulatedOsOffset(ctx)).toBeNull();
     expect(osNow).not.toHaveBeenCalled();
+  });
+
+  test("emulatedOsOffset: the OS offset only where the engine reports another", async () => {
+    const { doc } = await loadModules();
+    expect(doc.emulatedOsOffset(engineCtx("America/New_York", NOW))).toBe(-300);
+    expect(doc.emulatedOsOffset(engineCtx("Asia/Tokyo", NOW))).toBeNull();
   });
 
   test("parseLastModifiedWallClock: the wall clock as UTC, or null", async () => {
@@ -154,13 +161,14 @@ describe("lastModifiedEpoch in Engine-level Spoofing", () => {
   });
 });
 
+/** Minutes east implied by a lastModified string read now. */
+function eastOf(str: string): number {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/.exec(str)!;
+  const wall = Date.UTC(+m[3], +m[1] - 1, +m[2], +m[4], +m[5], +m[6]);
+  return Math.round((wall - Date.now()) / 60000);
+}
+
 describe("the lastModified getter", () => {
-  /** Minutes east implied by a lastModified string read now. */
-  function eastOf(str: string): number {
-    const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/.exec(str)!;
-    const wall = Date.UTC(+m[3], +m[1] - 1, +m[2], +m[4], +m[5], +m[6]);
-    return Math.round((wall - Date.now()) / 60000);
-  }
   const TOKYO = { identifier: "Asia/Tokyo", offset: 540, dstOffset: 0 };
   /** A prototype with its own copy of the native getter, so jsdom's stays untouched. */
   function syntheticDocumentProto(): Document {
@@ -206,5 +214,116 @@ describe("the lastModified getter", () => {
     state.setEngineTimezoneData(null);
     const value = String(Reflect.get(proto, "lastModified", document));
     expect(Math.abs(eastOf(value) + new Date().getTimezoneOffset())).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * Chrome can keep a CDP override after the session ends (another extension's
+ * frame in the page), and then refuses to revert it. Turning the mode off,
+ * protection off, or a Filters exclusion then reaches the page while its engine
+ * still reports the override's zone. Every `lastModified` surface must agree
+ * with Date there too.
+ *
+ * Stand-in: jsdom's engine (the host zone) plays the kept override, and the
+ * document's native getter prints "now" in OS_ZONE, a zone with another offset,
+ * as Chrome prints the OS zone under an override.
+ */
+describe("lastModified after Chrome kept the override", () => {
+  const HOST_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const OS_ZONE = new Date().getTimezoneOffset() === -330 ? "Pacific/Chatham" : "Asia/Kolkata";
+  const PAGE_ZONE = { identifier: HOST_ZONE, offset: 0, dstOffset: 0 };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A prototype whose native getter prints now in OS_ZONE, for any real document. */
+  function osZoneDocumentProto(): Document {
+    const proto = Object.create(Document.prototype) as Document;
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called with each document below
+    const jsdomGetter = Object.getOwnPropertyDescriptor(Document.prototype, "lastModified")!.get!;
+    Object.defineProperty(proto, "lastModified", {
+      configurable: true,
+      enumerable: true,
+      get(this: Document) {
+        jsdomGetter.call(this); // the brand check
+        return nativeIn(OS_ZONE, Date.now());
+      },
+    });
+    return proto;
+  }
+
+  function dispatch(eventName: string, enabled: boolean, engineTimezone: boolean): void {
+    const detail = {
+      enabled,
+      location: null,
+      timezone: PAGE_ZONE,
+      engineTimezone,
+      debugLogging: false,
+      verbosityLevel: "INFO",
+      webrtcProtection: false,
+      preserveGeolocationPrompt: false,
+      locale: null,
+    };
+    window.dispatchEvent(new CustomEvent(eventName, { detail }));
+  }
+
+  /** Each surface's offset from lastModified, and what Date reports (the host, here). */
+  function surfaces(proto: Document) {
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    try {
+      const read = (d: Document): number => eastOf(String(Reflect.get(proto, "lastModified", d)));
+      return {
+        document: read(document),
+        domParser: read(new DOMParser().parseFromString("", "text/html")),
+        iframe: read(frame.contentDocument!),
+        date: -new Date().getTimezoneOffset(),
+      };
+    } finally {
+      frame.remove();
+    }
+  }
+
+  async function retainedOverride(chromium: boolean) {
+    vi.stubGlobal("__CHROMIUM__", chromium);
+    const { state, doc } = await loadModules();
+    const { installSettingsListener } = await import("@/content/injected/settings-listener");
+    installSettingsListener();
+    const proto = osZoneDocumentProto();
+    doc.installLastModifiedOverride(proto);
+    // Engine-level on, and the engine reports the page's zone: engine-owned.
+    dispatch(state.EVENT_NAME, true, true);
+    expect(state.timezoneData).toBeNull();
+    return { state, proto };
+  }
+
+  const near = (r: ReturnType<typeof surfaces>, east: number): void => {
+    for (const v of [r.document, r.domParser, r.iframe]) {
+      expect(Math.abs(v - east)).toBeLessThanOrEqual(1);
+    }
+  };
+
+  // Protection off and a Filters exclusion send the same payload: enabled false.
+  test.each([
+    ["Engine-level off (the injected path takes the zone)", true, false],
+    ["protection off or a Filters exclusion (native Date)", false, true],
+    ["Engine-level off, then protection off or an exclusion", false, false],
+  ])("Chromium, %s: every surface agrees with Date", async (_name, enabled, engineTimezone) => {
+    const { state, proto } = await retainedOverride(true);
+    near(surfaces(proto), -new Date().getTimezoneOffset());
+    dispatch(state.EVENT_NAME, enabled, engineTimezone);
+    expect(state.engineTimezoneMode).toBe(engineTimezone);
+    const r = surfaces(proto);
+    near(r, r.date);
+  });
+
+  test("Firefox and Safari (the engine is never emulated there): unchanged", async () => {
+    const { state, proto } = await retainedOverride(false);
+    const osEast = eastIn(OS_ZONE, Date.now());
+    dispatch(state.EVENT_NAME, true, false);
+    near(surfaces(proto), osEast); // parsed as engine-local time, as before
+    dispatch(state.EVENT_NAME, false, false);
+    near(surfaces(proto), osEast); // native
   });
 });

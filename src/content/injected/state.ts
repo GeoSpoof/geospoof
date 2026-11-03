@@ -269,9 +269,10 @@ export let localeData: LocaleData | null = null;
  * The payload's `engineTimezone`: Engine-level Spoofing (Chromium) sets the
  * page's zone in the engine. Whether this realm's engine actually reports it is
  * decided per realm in `settings-listener.ts` (`timezoneData` is null where it
- * does). While true, the engine's own zone can change under the realm (an
- * override that lands or changes later), so the cached real zone is re-checked
- * (`computeEpochAdjustment`) and `lastModified` recovers the OS offset itself.
+ * does). While true, the workers this realm starts re-check the real zone they
+ * cache (`worker-patching.ts`). The page realm's own checks for an emulated
+ * zone (`computeEpochAdjustment`, `lastModified`) don't read this: on Chromium
+ * they always run, since Chrome can keep an override after the mode is off.
  * Always false on Firefox and Safari.
  */
 export let engineTimezoneMode = false;

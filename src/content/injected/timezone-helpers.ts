@@ -10,7 +10,6 @@ import {
   OriginalDateTimeFormat,
   originalGetTimezoneOffset,
   originalResolvedOptions,
-  engineTimezoneMode,
 } from "./state";
 import { createLogger } from "@/shared/utils/debug-logger";
 
@@ -22,9 +21,9 @@ const logger = createLogger("INJ");
  * real system offset at full sub-minute precision (see computeEpochAdjustment),
  * independent of the spoofed timezone. Falls back to "UTC" if resolution fails.
  *
- * "Real" means the zone the engine itself uses for local time. In Engine-level
- * Spoofing that can change under the realm (an override that lands or changes
- * after this was cached), so `computeEpochAdjustment` re-checks it there.
+ * "Real" means the zone the engine itself uses for local time. On Chromium a
+ * CDP override can change that under the realm (one that lands, changes or is
+ * kept after this was cached), so `computeEpochAdjustment` re-checks it there.
  */
 let _realTimeZoneId: string | undefined;
 function getRealTimeZoneId(): string {
@@ -422,13 +421,14 @@ export function computeEpochAdjustment(
   //     both sides at the same precision so the fraction cancels correctly.
   const realEastFallback = -originalGetTimezoneOffset.call(parsedDate);
   let realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
-  // Engine-level Spoofing can change the engine's zone after the realm cached
-  // it (a CDP override that lands after this realm installed the injected
-  // overrides). Native getTimezoneOffset always follows the engine, and it
-  // differs from the cached zone's offset by under a minute only through
+  // On Chromium the engine's zone can change after the realm cached it (a CDP
+  // override that lands after this realm installed the injected overrides, or
+  // one Chrome keeps after Engine-level Spoofing is turned off), whatever the
+  // payload says now. Native getTimezoneOffset always follows the engine, and
+  // it differs from the cached zone's offset by under a minute only through
   // truncation, so a gap of a minute or more means the cache is stale.
   // (`realOffset` is positive-west, `realEastFallback` positive-east.)
-  if (engineTimezoneMode && Math.abs(realOffset + realEastFallback) >= 1) {
+  if (__CHROMIUM__ && Math.abs(realOffset + realEastFallback) >= 1) {
     _realTimeZoneId = undefined;
     realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
   }
