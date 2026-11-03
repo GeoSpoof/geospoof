@@ -201,6 +201,17 @@ export class TabSessionTracker {
   clearTab(tabId: number): void {
     this.tabs.delete(tabId);
   }
+
+  /**
+   * Chrome ended the tab's session (`chrome.debugger.onDetach`): forget the
+   * tab and stop every reconcile of it in flight, so none of them attaches
+   * again, for example after the user cancelled the debugging bar. A
+   * reconcile that starts later (the next navigation) still can.
+   */
+  endSession(tabId: number): void {
+    this.begin(tabId);
+    this.clearTab(tabId);
+  }
 }
 
 /** Resolve with `p`, or with `fallback` after `ms`, whichever is first. */

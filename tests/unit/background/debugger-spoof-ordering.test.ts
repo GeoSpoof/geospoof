@@ -255,3 +255,42 @@ describe("a same-document navigation finishes the reconcile it claims", () => {
     ]);
   });
 });
+
+describe("a session Chrome ends", () => {
+  test("stops the tab's reconcile in flight: no attach, no zone, not held", async () => {
+    const mod = await load();
+    mod.installDebuggerWatchers();
+    const onDetach = fake.dbg.onDetach.addListener.mock.calls[0][0] as (
+      source: ChromeDebugger.Debuggee,
+      reason: ChromeDebugger.DetachReason
+    ) => void;
+    fake.state.targets = [target(MAIN_URL, false)];
+    await mod.syncDebuggerSpoofing(makeSettings());
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    browser.tabs.sendMessage = sendMessage;
+    browser.tabs.get = vi.fn().mockResolvedValue({ id: TAB, url: DUBLIN_URL });
+
+    // A navigation's root command is pending when the user cancels the bar.
+    const fail = fake.holdNext("Emulation.setTimezoneOverride");
+    const nav = mod.claimTab(TAB)(DUBLIN_URL);
+    await vi.waitFor(() =>
+      expect(zonesSentTo(fake.calls, ROOT)).toEqual(["Asia/Tokyo", "Europe/Dublin"])
+    );
+    const atCancel = fake.calls.length;
+    onDetach(ROOT, "canceled_by_user");
+    fail(new Error("Debugger is not attached to the tab with id: 7."));
+    await nav;
+
+    expect(fake.calls.slice(atCancel)).toEqual([]);
+    // The tab is still sent its settings again.
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith(
+        TAB,
+        expect.objectContaining({ type: "UPDATE_SETTINGS" })
+      )
+    );
+    // Not left marked held: the next navigation attaches first.
+    await mod.claimTab(TAB)(MAIN_URL);
+    expect(fake.calls[atCancel]?.method).toBe("attach");
+  });
+});

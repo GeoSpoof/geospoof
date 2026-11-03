@@ -32,11 +32,15 @@ function fakeDebugger(
   rejectOnce = new Set<string>()
 ) {
   const calls: Call[] = [];
-  // holdNext(method): the next call of `method` resolves only when released.
+  // holdNext(method): the next call of `method` settles only when released,
+  // and rejects if released with an error.
   const held: { method: string; gate: Promise<void> }[] = [];
-  const holdNext = (method: string): (() => void) => {
-    let release!: () => void;
-    held.push({ method, gate: new Promise<void>((r) => (release = r)) });
+  const holdNext = (method: string): ((error?: Error) => void) => {
+    let release!: (error?: Error) => void;
+    const gate = new Promise<void>((resolve, reject) => {
+      release = (error) => (error ? reject(error) : resolve());
+    });
+    held.push({ method, gate });
     return release;
   };
   const gateFor = (method: string): Promise<void> | null => {
@@ -597,6 +601,20 @@ describe("the newest reconcile of a tab writes last", () => {
     expect(zonesSentTo(calls, ROOT)).toEqual([LA]);
     expect(zonesSentTo(calls, CHILD)).toEqual(["", LA]);
     expect(tracker.isHeld(TAB)).toBe(true);
+  });
+
+  test("a session Chrome ends stops a hold whose root command then fails: no attach again", async () => {
+    const { dbg, calls, holdNext } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    tracker.markHeld(TAB);
+    const fail = holdNext("Emulation.setTimezoneOverride");
+    const hold = holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS);
+    await vi.waitFor(() => expect(zonesSentTo(calls, ROOT)).toEqual(["Asia/Tokyo"]));
+    tracker.endSession(TAB);
+    fail(new Error("Debugger is not attached to the tab with id: 7."));
+    expect(await hold).toBe(false);
+    expect(calls.map((c) => c.method)).toEqual(["Emulation.setTimezoneOverride"]);
+    expect(tracker.isHeld(TAB)).toBe(false);
   });
 
   test("a reconcile that starts during the detach: the teardown doesn't forget the tab", async () => {
