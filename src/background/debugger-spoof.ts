@@ -144,17 +144,23 @@ export function buildOverridesForTab(
 
 /**
  * Ensure we hold `tabId`, then apply the override to its root session and its
- * child sessions (`holdTab`), as a new reconcile of the tab. A tab we already
- * hold isn't attached again. If the tab can't be attached (it shows another
- * extension's frame, a restricted target) the apply fails harmlessly and the
- * page falls back to the injected timezone. A successful root apply marks the
- * tab held and turns on child auto-attach for its cross-site iframes. Never
- * throws.
+ * child sessions (`holdTab`), as the settings sync's reconcile `generation`
+ * of the tab. Nothing is sent if a reconcile of the tab started after the
+ * sync did (a navigation while the sync listed the tabs): that one decides
+ * the tab. A tab we already hold isn't attached again. If the tab can't be
+ * attached (it shows another extension's frame, a restricted target) the
+ * apply fails harmlessly and the page falls back to the injected timezone. A
+ * successful root apply marks the tab held and turns on child auto-attach for
+ * its cross-site iframes. Never throws.
  */
-async function attachAndApplyTab(tabId: number, overrides: Overrides): Promise<void> {
+async function attachAndApplyTab(
+  tabId: number,
+  overrides: Overrides,
+  generation: number
+): Promise<void> {
   const dbg = chrome.debugger;
-  if (!dbg) return;
-  await holdTab(dbg, tracker, tabId, overrides.timezoneId, tracker.begin(tabId), holdOptions());
+  if (!dbg || !tracker.claim(tabId, generation)) return;
+  await holdTab(dbg, tracker, tabId, overrides.timezoneId, generation, holdOptions());
 }
 
 /**
@@ -209,20 +215,24 @@ function ensureTabSpoofed(tabId: number, url: string | undefined): Promise<void>
 
 /**
  * Revert our timezone override on one tab (its child sessions first) so it
- * reads the real zone live, then detach, as a new reconcile of the tab. We
- * clear explicitly (empty timezoneId disables the override) rather than
- * relying on detach's implicit teardown, which doesn't reliably revert
- * `Emulation.setTimezoneOverride` on the already-loaded document. Best-effort;
- * never throws.
+ * reads the real zone live, then detach, as the settings sync's reconcile
+ * `generation` of the tab, unless a reconcile of the tab started after the
+ * sync did. We clear explicitly (empty timezoneId disables the override)
+ * rather than relying on detach's implicit teardown, which doesn't reliably
+ * revert `Emulation.setTimezoneOverride` on the already-loaded document.
+ * Best-effort; never throws.
  */
-async function detachTab(tabId: number): Promise<void> {
+async function detachTab(tabId: number, generation: number): Promise<void> {
   const dbg = chrome.debugger;
-  if (!dbg) return;
-  await revertAndDetachTab(dbg, tracker, tabId, tracker.begin(tabId));
+  if (!dbg || !tracker.claim(tabId, generation)) return;
+  await revertAndDetachTab(dbg, tracker, tabId, generation);
 }
 
-/** Clear the timezone override on, and detach from, every page target we hold. */
-async function detachAll(): Promise<void> {
+/**
+ * Clear the timezone override on, and detach from, every page target we hold,
+ * as the settings sync's reconcile `generation`.
+ */
+async function detachAll(generation: number): Promise<void> {
   const dbg = chrome.debugger;
   if (!dbg) return;
 
@@ -235,7 +245,7 @@ async function detachAll(): Promise<void> {
   }
 
   const attached = targets.filter((t) => t.type === "page" && t.tabId != null && t.attached);
-  await Promise.allSettled(attached.map((t) => detachTab(t.tabId!)));
+  await Promise.allSettled(attached.map((t) => detachTab(t.tabId!, generation)));
 }
 
 /**
@@ -246,6 +256,11 @@ async function detachAll(): Promise<void> {
  *
  * Active → attach to every in-scope open tab and (re)apply the timezone
  * override. Inactive → detach everything. No-op on non-Chromium builds.
+ *
+ * The sync is one reconcile of every tab it reaches, ordered by when it was
+ * called, not by when `getTargets()` answers: a navigation or a later sync
+ * that starts meanwhile keeps the tabs it reaches, so this sync's older URL
+ * snapshot can't be the last to write.
  */
 export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
   if (!__CHROMIUM__) return;
@@ -260,8 +275,11 @@ export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
     return;
   }
 
+  // Taken before the first await (see the ordering note above).
+  const generation = tracker.reserve();
+
   if (!shouldSpoof(settings)) {
-    await detachAll();
+    await detachAll(generation);
     return;
   }
 
@@ -290,8 +308,8 @@ export async function syncDebuggerSpoofing(settings: Settings): Promise<void> {
   });
 
   await Promise.allSettled([
-    ...apply.map((p) => attachAndApplyTab(p.target.tabId!, p.overrides!)),
-    ...staleAttached.map((p) => detachTab(p.target.tabId!)),
+    ...apply.map((p) => attachAndApplyTab(p.target.tabId!, p.overrides!, generation)),
+    ...staleAttached.map((p) => detachTab(p.target.tabId!, generation)),
   ]);
 }
 

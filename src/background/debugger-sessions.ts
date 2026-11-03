@@ -106,9 +106,30 @@ export class TabSessionTracker {
    * to write, whichever lookup finishes first.
    */
   begin(tabId: number): number {
-    const generation = ++this.lastGeneration;
+    const generation = this.reserve();
     this.generations.set(tabId, generation);
     return generation;
+  }
+
+  /**
+   * A generation for a reconcile that doesn't know its tabs yet (a settings
+   * sync, before it lists them). Take it when the event arrives, then {@link
+   * claim} each tab with it.
+   */
+  reserve(): number {
+    return ++this.lastGeneration;
+  }
+
+  /**
+   * Make `generation`, from {@link reserve}, the tab's newest reconcile,
+   * unless the tab already has it or a reconcile of the tab started after it
+   * was reserved: that one decides the tab. Returns whether the tab is now
+   * `generation`'s.
+   */
+  claim(tabId: number, generation: number): boolean {
+    if ((this.generations.get(tabId) ?? 0) >= generation) return false;
+    this.generations.set(tabId, generation);
+    return true;
   }
 
   /** The tab's newest reconcile, if one has started. */

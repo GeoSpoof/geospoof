@@ -423,6 +423,22 @@ describe("the newest reconcile of a tab writes last", () => {
     expect(tracker.isCurrent(TAB, g1)).toBe(false);
   });
 
+  test("a reserved generation claims a tab only if nothing newer started on it", () => {
+    const tracker = new TabSessionTracker();
+    tracker.begin(TAB);
+    const sync = tracker.reserve();
+    expect(tracker.claim(TAB, sync)).toBe(true);
+    expect(tracker.isCurrent(TAB, sync)).toBe(true);
+    // Once per tab: a second claim of the same tab with it is refused.
+    expect(tracker.claim(TAB, sync)).toBe(false);
+    // A navigation that starts while the sync lists the tabs keeps its tab.
+    const OTHER = TAB + 1;
+    const late = tracker.reserve();
+    const nav = tracker.begin(OTHER);
+    expect(tracker.claim(OTHER, late)).toBe(false);
+    expect(tracker.isCurrent(OTHER, nav)).toBe(true);
+  });
+
   test("a child attaching after a reconcile set the zone gets it at once, with no lookup", async () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
