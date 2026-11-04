@@ -766,7 +766,7 @@
     "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
   },
   "siteLocation_hintVpn": {
-    "message": "網站仍會看到你 VPN 的 IP 位址。在此使用不同的位置可能會顯得不一致。",
+    "message": "網站仍會看到你的 VPN 的 IP 位址。在此使用不同的位置可能會顯得不一致。",
     "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
   },
   "siteLocation_reloadHint": {
