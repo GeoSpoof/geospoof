@@ -62,18 +62,19 @@ Every workflow follows the same rules, enforced by zizmor on any change under `.
 - Runners pinned to `ubuntu-24.04` (not `ubuntu-latest`) so the OS changes only when we choose.
 - `concurrency` on every workflow. The release uses `cancel-in-progress: false` so it's never killed mid-publish.
 
-| Workflow                    | Purpose                                                                                                                      |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `ci.yml`                    | Type-check, lint, format, build, `web-ext lint`, unit tests, `npm audit signatures`. Required (`Build & Test`).              |
-| `cdk-ci.yml`                | Same gate for `cdk/`. Path-filtered, so it can't be a required check.                                                        |
-| `codeql.yml`                | CodeQL `security-and-quality` on shipped code (`tests/**` and `scripts/**` excluded via `.github/codeql/codeql-config.yml`). |
-| `dependency-review.yml`     | Blocks PRs that add a high+ severity vulnerable dependency. Required.                                                        |
-| `zizmor.yml`                | Static analysis of workflows; findings go to code scanning.                                                                  |
-| `scorecard.yml`             | OpenSSF Scorecard; publishes results and the README badge.                                                                   |
-| `dependabot-auto-merge.yml` | Narrow auto-merge; see [MAINTENANCE](MAINTENANCE.md#auto-merge-policy).                                                      |
-| `release.yml`               | The release pipeline below.                                                                                                  |
-| `cdn-publish-preflight.yml` | Manually proves the CDN publish role is assumable.                                                                           |
-| `stale.yml`                 | Issue and PR housekeeping.                                                                                                   |
+| Workflow                    | Purpose                                                                                                                                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci.yml`                    | Type-check, lint, format, build, `web-ext lint`, unit tests, `npm audit signatures`. Required (`Build & Test`).                                                                                                                                                      |
+| `cdk-ci.yml`                | Same gate for `cdk/`. Path-filtered, so it can't be a required check.                                                                                                                                                                                                |
+| `codeql.yml`                | CodeQL `security-and-quality` on shipped code (`tests/**` and `scripts/**` excluded via `.github/codeql/codeql-config.yml`).                                                                                                                                         |
+| `dependency-review.yml`     | Blocks PRs that add a high+ severity vulnerable dependency. Required.                                                                                                                                                                                                |
+| `zizmor.yml`                | Static analysis of workflows; findings go to code scanning.                                                                                                                                                                                                          |
+| `scorecard.yml`             | OpenSSF Scorecard; publishes results and the README badge.                                                                                                                                                                                                           |
+| `dependabot-auto-merge.yml` | Narrow auto-merge; see [MAINTENANCE](MAINTENANCE.md#auto-merge-policy).                                                                                                                                                                                              |
+| `release.yml`               | The release pipeline below.                                                                                                                                                                                                                                          |
+| `cdn-publish-preflight.yml` | Manually proves the CDN publish role is assumable.                                                                                                                                                                                                                   |
+| `site-groups-catalog.yml`   | Weekly (and on dispatch from `main`): converts the latest v2fly release, sha256-verified and shrink-guarded, and publishes it under `site-groups/v1/` with a role that trusts only `main` and writes only `site-groups/*`. No environment, same reason as `publish`. |
+| `stale.yml`                 | Issue and PR housekeeping.                                                                                                                                                                                                                                           |
 
 ## Release trust chain
 

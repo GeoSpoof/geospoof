@@ -177,4 +177,63 @@ describe("GeoTzCdnStack (prod) — CDN publish roles", () => {
     // so the second publish role must import the first's — not create a duplicate.
     template.resourceCountIs("Custom::AWSCDKOpenIdConnectProvider", 1);
   });
+
+  it("site-groups role trusts only the geospoof main branch, via GitHub OIDC", () => {
+    // The weekly catalog workflow runs on main (schedule) or is dispatched from
+    // main, with no `environment:`. Tags and other branches must not publish.
+    template.hasResourceProperties("AWS::IAM::Role", {
+      Description: Match.stringLikeRegexp("site-groups catalog"),
+      AssumeRolePolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: "sts:AssumeRoleWithWebIdentity",
+            Condition: {
+              StringEquals: {
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              },
+              StringLike: {
+                "token.actions.githubusercontent.com:sub": [
+                  "repo:*/geospoof@1170325630:ref:refs/heads/main",
+                ],
+              },
+            },
+          }),
+        ]),
+      }),
+    });
+  });
+
+  it("site-groups write access is scoped to the site-groups/ prefix only", () => {
+    // Find the policy attached to the site-groups role and check EVERY PutObject
+    // statement in it, so a broader grant added later fails here.
+    const roles = template.findResources("AWS::IAM::Role", {
+      Properties: { Description: Match.stringLikeRegexp("site-groups catalog") },
+    });
+    const roleIds = Object.keys(roles);
+    expect(roleIds).toHaveLength(1);
+    const policies = Object.values(template.findResources("AWS::IAM::Policy")).filter((p) =>
+      JSON.stringify(p.Properties.Roles).includes(roleIds[0])
+    );
+    expect(policies).toHaveLength(1);
+    const statements = policies[0].Properties.PolicyDocument.Statement as {
+      Action: string;
+      Resource: unknown;
+    }[];
+    const puts = statements.filter((s) => s.Action === "s3:PutObject");
+    expect(puts).toHaveLength(1);
+    expect(JSON.stringify(puts[0].Resource)).toMatch(/"\/site-groups\/\*"/);
+    expect(statements.map((s) => s.Action).sort()).toEqual([
+      "cloudfront:CreateInvalidation",
+      "s3:PutObject",
+    ]);
+  });
+
+  it("outputs the site-groups role ARN and pointer URL", () => {
+    template.hasOutput("*", {
+      Description: "extension repo variable SITE_GROUPS_PUBLISH_ROLE_ARN",
+    });
+    template.hasOutput("*", {
+      Value: "https://cdn.geospoof.com/site-groups/v1/latest.json",
+    });
+  });
 });

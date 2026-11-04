@@ -55,27 +55,28 @@ For Chromium development, use `npm run start:chrome` or `npm run start:brave` in
 
 ## Scripts Reference
 
-| Command                    | What it does                                                          |
-| -------------------------- | --------------------------------------------------------------------- |
-| `npm run dev`              | Watch mode — Vite rebuilds `dist/` on every file change               |
-| `npm start`                | Launch Firefox with the extension loaded from `dist/`                 |
-| `npm run build:dev`        | One-time dev build (source maps, console logs)                        |
-| `npm run build:prod`       | One-time production build (minified, no logs)                         |
-| `npm run build:firefox`    | Production build targeting Firefox                                    |
-| `npm run build:chromium`   | Production build targeting Chrome/Brave/Edge                          |
-| `npm test`                 | Run all tests                                                         |
-| `npm run lint:ext`         | Lint the extension manifest and files                                 |
-| `npm run validate`         | Type-check + lint + format check + tests (run before PRs)             |
-| `npm run package`          | Firefox production build + zip for AMO submission                     |
-| `npm run package:chromium` | Chromium production build + zip for Chrome Web Store                  |
-| `npm run package:xpi`      | Production build + package as `.xpi` for sideloading                  |
-| `npm run package:source`   | Zip source code for AMO review (excludes node_modules, dist, etc.)    |
-| `npm run sign:xpi`         | Sign the built `.xpi` via AMO unlisted channel (requires credentials) |
-| `npm run sign:xpi:amo`     | Sign the built `.xpi` via AMO listed channel (requires credentials)   |
-| `npm run start:firefox`    | Launch Firefox with the extension loaded                              |
-| `npm run start:chrome`     | Build for Chromium + launch Chrome                                    |
-| `npm run start:brave`      | Build for Chromium + launch Brave                                     |
-| `npm run start:android`    | Launch on Firefox for Android (USB, auto-detects device)              |
+| Command                      | What it does                                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                | Watch mode — Vite rebuilds `dist/` on every file change                                                    |
+| `npm start`                  | Launch Firefox with the extension loaded from `dist/`                                                      |
+| `npm run build:dev`          | One-time dev build (source maps, console logs)                                                             |
+| `npm run build:prod`         | One-time production build (minified, no logs)                                                              |
+| `npm run build:firefox`      | Production build targeting Firefox                                                                         |
+| `npm run build:chromium`     | Production build targeting Chrome/Brave/Edge                                                               |
+| `npm test`                   | Run all tests                                                                                              |
+| `npm run lint:ext`           | Lint the extension manifest and files                                                                      |
+| `npm run validate`           | Type-check + lint + format check + tests (run before PRs)                                                  |
+| `npm run package`            | Firefox production build + zip for AMO submission                                                          |
+| `npm run package:chromium`   | Chromium production build + zip for Chrome Web Store                                                       |
+| `npm run package:xpi`        | Production build + package as `.xpi` for sideloading                                                       |
+| `npm run package:source`     | Zip source code for AMO review (excludes node_modules, dist, etc.)                                         |
+| `npm run sign:xpi`           | Sign the built `.xpi` via AMO unlisted channel (requires credentials)                                      |
+| `npm run sign:xpi:amo`       | Sign the built `.xpi` via AMO listed channel (requires credentials)                                        |
+| `npm run start:firefox`      | Launch Firefox with the extension loaded                                                                   |
+| `npm run start:chrome`       | Build for Chromium + launch Chrome                                                                         |
+| `npm run start:brave`        | Build for Chromium + launch Brave                                                                          |
+| `npm run start:android`      | Launch on Firefox for Android (USB, auto-detects device)                                                   |
+| `npm run site-groups:update` | Download the latest v2fly release, verify it, and regenerate the bundled `assets/site-groups/catalog.json` |
 
 ## Testing on Android
 
@@ -249,11 +250,12 @@ The `publish` job deliberately has **no** environment. An environment would chan
 
 **Repository variables** (not secrets; publishing uses OIDC with no stored credentials):
 
-| Variable                  | Description                                           |
-| ------------------------- | ----------------------------------------------------- |
-| `EXT_PUBLISH_ROLE_ARN`    | IAM role the release assumes to publish `update.json` |
-| `EXT_CDN_BUCKET`          | CDN origin bucket                                     |
-| `EXT_CDN_DISTRIBUTION_ID` | CloudFront distribution to invalidate                 |
+| Variable                       | Description                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `EXT_PUBLISH_ROLE_ARN`         | IAM role the release assumes to publish `update.json`                                             |
+| `SITE_GROUPS_PUBLISH_ROLE_ARN` | IAM role the weekly `site-groups-catalog.yml` assumes to publish under `site-groups/` (main only) |
+| `EXT_CDN_BUCKET`               | CDN origin bucket                                                                                 |
+| `EXT_CDN_DISTRIBUTION_ID`      | CloudFront distribution to invalidate                                                             |
 
 ### Self-hosted update path
 
@@ -265,9 +267,12 @@ Since v2.2.1 it points at `https://cdn.geospoof.com/firefox/update.json`, a doma
 
 **Releasing:** `main` is protected (PRs only, required checks), so the version bump goes through a PR:
 
+Before the bump, refresh the bundled site-groups catalog so a fresh install starts from recent data (the weekly CDN copy replaces it once a group is in use). Run `npm run site-groups:update`, check that the printed list and rule counts are close to the previous ones (`git diff --stat assets/site-groups/catalog.json`), and commit the catalog in the release PR. See [docs/SITE_GROUPS_DATA.md](../docs/SITE_GROUPS_DATA.md#refreshing-the-bundled-copy).
+
 ```bash
 npm run validate
 git switch -c release-2.2.4
+npm run site-groups:update               # refresh the bundled catalog, review the counts
 npm version patch --no-git-tag-version   # or minor/major
 git commit -am "2.2.4" && git push -u origin release-2.2.4
 gh pr create --fill                      # merge once checks pass

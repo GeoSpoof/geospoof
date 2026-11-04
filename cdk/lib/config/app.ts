@@ -73,6 +73,21 @@ export interface ExtensionUpdatesConfig {
   // for token.actions.githubusercontent.com.
 }
 
+/**
+ * Publishing the site-groups catalog (v2fly domain lists, converted) under
+ * `site-groups/` on the CDN. The extension's weekly
+ * `.github/workflows/site-groups-catalog.yml` assumes this role. See
+ * docs/SITE_GROUPS_DATA.md.
+ */
+export interface SiteGroupsCatalogConfig {
+  /**
+   * OIDC `sub` claim patterns allowed to publish the catalog. Full `sub`
+   * patterns, not "owner/repo" - same caveat as
+   * `GpsReleaseConfig.githubSubjectPatterns`.
+   */
+  readonly githubSubjectPatterns: readonly string[];
+}
+
 /** One APNs signing key: its public Key ID, and where the secret holding it lives. */
 export interface ApnsKeyConfig {
   /** Apple Key ID. The secret's own `keyId` must equal this or the relay signs nothing. */
@@ -153,6 +168,12 @@ export interface GeoTzCdnEnv {
    * practice: `update_url` in shipped extensions points at prod.
    */
   readonly extensionUpdates?: ExtensionUpdatesConfig;
+  /**
+   * When set, the stack provisions a scoped IAM role the extension's weekly
+   * site-groups workflow assumes to publish the catalog under `site-groups/`.
+   * PROD ONLY: installed extensions fetch from cdn.geospoof.com.
+   */
+  readonly siteGroupsCatalog?: SiteGroupsCatalogConfig;
   /**
    * Email for the 5xx alarm + cost-budget notifications. Sourced from the
    * GEOSPOOF_ALARM_EMAIL env var so it stays out of this public repo. If unset,
@@ -327,6 +348,14 @@ export const environments: Record<EnvName, GeoTzCdnEnv> = {
         "repo:*/geospoof@1170325630:ref:refs/tags/v*",
         "repo:*/geospoof@1170325630:ref:refs/heads/main",
       ],
+    },
+    // The extension repo's weekly site-groups workflow publishes the catalog
+    // under site-groups/. Same immutable subject as above, but main ONLY: the
+    // schedule always runs on the default branch, and the workflow is dispatched
+    // from main. Its job has no `environment:`, so the `sub` stays `...:ref:<ref>`.
+    // A tag or any other branch cannot write the catalog.
+    siteGroupsCatalog: {
+      githubSubjectPatterns: ["repo:*/geospoof@1170325630:ref:refs/heads/main"],
     },
     // Prod serves the APNs PRODUCTION host with the prod account's key.
     apnsRelay: {
