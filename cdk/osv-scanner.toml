@@ -1,0 +1,15 @@
+# Vulnerabilities reviewed and accepted for cdk/package-lock.json. OSV-Scanner
+# reads only the osv-scanner.toml next to each lockfile, so the root file
+# doesn't cover this directory. Same rules: every entry needs a reason and an
+# expiry, and the advisory reappears for re-review when ignoreUntil passes.
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-02-01
+reason = """minimatch globparts amplification (DoS). Synth and lint tooling \
+only: aws-cdk-lib's bundled copy, eslint and typescript-eslint. The vulnerable \
+firstPhasePreProcess() runs only at optimizationLevel >= 2 (default 1), and \
+nothing here sets it. Patterns come from repo config, not users. Fixed only in \
+minimatch 11 (breaking API), which no parent has adopted; aws-cdk-lib bundles \
+its copy, so overrides can't reach it. Also dismissed as not_used in \
+Dependabot. Re-check on expiry: drop this entry once aws-cdk-lib, eslint and \
+typescript-eslint move to minimatch 11."""
