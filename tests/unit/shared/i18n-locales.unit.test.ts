@@ -90,6 +90,15 @@ describe("normalizeToSupportedLocale", () => {
       expect(normalizeToSupportedLocale(tag)).toBe("zh_CN");
     }
   });
+
+  test("Chinese ignores extension and private-use subtags", () => {
+    // `nu-hant` / `nu-hans` is a numbering-system preference, not the UI script.
+    expect(normalizeToSupportedLocale("zh-CN-u-nu-hant")).toBe("zh_CN");
+    expect(normalizeToSupportedLocale("zh-TW-u-nu-hans")).toBe("zh_TW");
+    expect(normalizeToSupportedLocale("zh-u-nu-hant")).toBe("zh_CN");
+    expect(normalizeToSupportedLocale("zh-Hans-x-tw")).toBe("zh_CN");
+    expect(normalizeToSupportedLocale("zh-Hant-u-nu-hans")).toBe("zh_TW");
+  });
 });
 
 describe("toAppleLocaleCode", () => {

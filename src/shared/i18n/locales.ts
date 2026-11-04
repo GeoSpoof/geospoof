@@ -103,8 +103,13 @@ export function normalizeToSupportedLocale(tag: string | null | undefined): stri
   const base = subtags[0];
 
   // Two Chinese catalogs share the primary subtag, so choose by script/region.
+  // Only the language part of the tag counts: it ends at the first singleton
+  // (`u`, `t`, `x`, ...), after which come extension or private-use subtags.
+  // So "zh-CN-u-nu-hant" (a Han-numeral preference) stays Simplified.
   if (base === "zh") {
-    const chinese = chineseLocaleFor(subtags.slice(1));
+    const singleton = subtags.findIndex((s, i) => i > 0 && s.length === 1);
+    const languageSubtags = singleton === -1 ? subtags : subtags.slice(0, singleton);
+    const chinese = chineseLocaleFor(languageSubtags.slice(1));
     if (LOCALE_CODES.includes(chinese)) return chinese;
   }
 
