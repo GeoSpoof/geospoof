@@ -7,9 +7,10 @@ on:
     branches-ignore:
       - dependabot/**
   schedule:
-    # Once every day at midnight UTC
+    # Once every day at midnight UTC. Each run also removes the stale label
+    # from anything commented on since it was marked, so no issue_comment
+    # trigger is needed (zizmor flags it as a dangerous trigger).
     - cron: "0 0 * * *"
-  issue_comment:
 
 permissions: {}
 
@@ -19,14 +20,10 @@ defaults:
 
 concurrency:
   group: stale-issues
-  cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
+  cancel-in-progress: true
 
 jobs:
   stale:
-    if: >
-      github.event_name != 'issue_comment' || (
-        contains(github.event.issue.labels.*.name, 'stale')
-      )
     runs-on: ubuntu-slim
     permissions:
       contents: write
