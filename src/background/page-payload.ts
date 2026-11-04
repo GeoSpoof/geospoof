@@ -17,6 +17,7 @@ import { computeEffectiveAccuracySetting } from "@/shared/accuracy/resolver";
 import { resolvePageLocale } from "@/shared/locale/resolver";
 import { resolveCurrentPageLocation } from "./precision-cadence";
 import { isRestrictedUrl } from "./restricted-url";
+import { currentSiteGroups } from "./site-groups-store";
 
 /** The inlined Firefox bootstrap payload: the synchronous-surface subset of the page payload. */
 export type BootstrapPayload = { enabled: true } & Pick<
@@ -83,7 +84,8 @@ export async function buildPagePayload(
   const r = resolveSiteSettings(
     options.withoutSiteLocation === true ? { ...settings, siteLocations: [] } : settings,
     topLevelUrl,
-    isRestrictedUrl
+    isRestrictedUrl,
+    currentSiteGroups()
   );
 
   // When Engine-level (chrome.debugger) spoofing is active on Chromium, CDP sets

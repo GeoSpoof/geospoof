@@ -1,0 +1,708 @@
+/**
+ * Site groups in the background (plan item 10): building data from the
+ * bundled catalog, downloading lists from links, the weekly refresh with its
+ * pointer and sha256 check, last-known-good data, pruning, the alarm, and the
+ * Safari gate.
+ *
+ * `fetch` is routed per test; `crypto.subtle` is Node's; `storage.local` is a
+ * multi-key stand-in, because the global mock only persists `settings`.
+ */
+
+import { describe, test, expect, vi, beforeEach } from "vitest";
+import { DEFAULT_SETTINGS } from "@/shared/types/settings";
+import type { Settings } from "@/shared/types/settings";
+import {
+  BUNDLED_CATALOG_PATH,
+  MAX_LINK_BYTES,
+  SITE_GROUPS_REFRESH_ALARM,
+  SITE_GROUPS_REFRESH_PERIOD_MINUTES,
+  SITE_GROUP_CATALOG_KEY,
+  SITE_GROUP_STATUS_KEY,
+  __resetSiteGroupsForTest,
+  currentCatalog,
+  ensureSiteGroupRefreshAlarm,
+  fetchLinkList,
+  handleGetSiteGroups,
+  loadBundledCatalog,
+  onSiteGroupsStartup,
+  pruneSiteGroupDataSoon,
+  refreshSiteGroups,
+  repairSiteGroupDataSoon,
+  siteGroupRefreshDelayMinutes,
+  withSiteGroupData,
+} from "@/background/site-groups";
+import {
+  SITE_GROUP_DATA_KEY,
+  __resetSiteGroupStoreForTest,
+  currentSiteGroups,
+} from "@/background/site-groups-store";
+import {
+  BUNDLED_URL,
+  CATALOG_A,
+  CATALOG_B,
+  POINTER_URL,
+  cdnRoutes,
+  fetchedUrls,
+  installLocalStore,
+  responseAt,
+  routeFetch,
+  storedGroup,
+  storedGroups,
+  type LocalStore,
+} from "../../helpers/site-groups";
+
+const gate = vi.hoisted(() => ({ available: true }));
+vi.mock("@/shared/site-groups/availability", () => ({
+  siteGroupsAvailable: () => gate.available,
+}));
+
+const GOOGLE = "geosite:google";
+const YOUTUBE = "geosite:youtube";
+const LINK_URL = "https://lists.example.org/rules/direct-list.txt";
+const LINK = `list:${LINK_URL}`;
+
+let store: LocalStore;
+
+function settingsWith(overrides: Partial<Settings>): Settings {
+  return { ...DEFAULT_SETTINGS, enabled: true, ...overrides };
+}
+
+/** Store `settings` (validated on load, like the real one). */
+function storeSettings(overrides: Partial<Settings>): void {
+  store.data.settings = settingsWith(overrides);
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+beforeEach(() => {
+  gate.available = true;
+  __resetSiteGroupsForTest();
+  __resetSiteGroupStoreForTest();
+  store = installLocalStore();
+  routeFetch();
+  vi.mocked(browser.alarms.get).mockResolvedValue(undefined);
+  vi.mocked(browser.tabs.query).mockResolvedValue([]);
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+describe("the bundled catalog", () => {
+  test("is fetched from the package and validated, once", async () => {
+    const fetchMock = routeFetch();
+    expect(browser.runtime.getURL(BUNDLED_CATALOG_PATH)).toBe(BUNDLED_URL);
+    const [a, b] = await Promise.all([loadBundledCatalog(), loadBundledCatalog()]);
+    expect(a?.release).toBe(CATALOG_A.release);
+    expect(b).toBe(a);
+    expect(fetchedUrls(fetchMock)).toEqual([BUNDLED_URL]);
+  });
+
+  test("an invalid bundled file gives null and is retried next time", async () => {
+    routeFetch({}, { ...CATALOG_A, release: "nope" });
+    expect(await loadBundledCatalog()).toBeNull();
+    routeFetch();
+    expect((await loadBundledCatalog())?.release).toBe(CATALOG_A.release);
+  });
+
+  test("a newer stored catalog wins over the bundled one", async () => {
+    store.data[SITE_GROUP_CATALOG_KEY] = CATALOG_B;
+    expect((await currentCatalog())?.release).toBe(CATALOG_B.release);
+    __resetSiteGroupsForTest();
+    store.data[SITE_GROUP_CATALOG_KEY] = { ...CATALOG_B, release: "20250101000000" };
+    expect((await currentCatalog())?.release).toBe(CATALOG_A.release);
+  });
+});
+
+describe("withSiteGroupData: groups", () => {
+  test("builds the data from the bundled catalog, stores it, then runs the write", async () => {
+    storeSettings({});
+    const order: string[] = [];
+    store.set.mockImplementation((obj: Record<string, unknown>) => {
+      order.push(...Object.keys(obj));
+      Object.assign(store.data, structuredClone(obj));
+      return Promise.resolve();
+    });
+    const write = vi.fn(() => {
+      order.push("write");
+      store.data.settings = settingsWith({ allowlist: [GOOGLE] });
+      return Promise.resolve("written");
+    });
+
+    const result = await withSiteGroupData([GOOGLE], write);
+
+    expect(result).toEqual({
+      ok: true,
+      value: "written",
+      added: { [GOOGLE]: { count: 3, skipped: 2 } },
+    });
+    expect(order).toEqual([SITE_GROUP_DATA_KEY, "write"]);
+    const group = storedGroups(store)[GOOGLE];
+    expect(group).toMatchObject({
+      n: 3,
+      skipped: 2,
+      source: "catalog",
+      release: CATALOG_A.release,
+    });
+    expect(group.d).toBe("\ngoogle.com\ngoogle.cn\n");
+    expect(group.f).toBe("\nwww.google.com\n");
+    expect(currentSiteGroups().has(GOOGLE, "mail.google.com")).toBe(true);
+  });
+
+  test("attrs filter with AND and count their own skipped rules", async () => {
+    storeSettings({});
+    const result = await withSiteGroupData(["geosite:google@cn"], () => Promise.resolve(1));
+    expect(result).toMatchObject({
+      ok: true,
+      added: { "geosite:google@cn": { count: 1, skipped: 1 } },
+    });
+    expect(storedGroups(store)["geosite:google@cn"].d).toBe("\ngoogle.cn\n");
+  });
+
+  test.each([
+    ["geosite:nosuchlist", "UNKNOWN_GROUP"],
+    ["geosite:google@ads", "EMPTY_GROUP"],
+    ["geosite:empty", "EMPTY_GROUP"],
+  ])("%s answers %s and writes nothing", async (token, error) => {
+    storeSettings({});
+    const write = vi.fn(() => Promise.resolve());
+    const result = await withSiteGroupData([token], write);
+    expect(result).toEqual({ ok: false, error, token });
+    expect(write).not.toHaveBeenCalled();
+    expect(store.writes).not.toContain(SITE_GROUP_DATA_KEY);
+  });
+
+  test("a token that already has data is not rebuilt or rewritten", async () => {
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [GOOGLE]: storedGroup(["google.com"]) } };
+    storeSettings({ allowlist: [GOOGLE] });
+    const fetchMock = routeFetch();
+    const result = await withSiteGroupData([GOOGLE], () => Promise.resolve("ok"));
+    expect(result).toEqual({
+      ok: true,
+      value: "ok",
+      added: { [GOOGLE]: { count: 1, skipped: 0 } },
+    });
+    expect(store.writes).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("STORAGE_FULL when the kept data would pass 5,000,000 chars", async () => {
+    const big = "geosite:big";
+    const bigGroup = {
+      ...storedGroup([]),
+      d: `\n${"a".repeat(4_999_990)}\n`,
+      n: 1,
+    };
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [big]: bigGroup } };
+    storeSettings({ allowlist: [big] });
+    const write = vi.fn(() => Promise.resolve());
+    const result = await withSiteGroupData([GOOGLE], write);
+    expect(result).toEqual({ ok: false, error: "STORAGE_FULL", token: GOOGLE });
+    expect(write).not.toHaveBeenCalled();
+    expect(Object.keys(storedGroups(store))).toEqual([big]);
+  });
+
+  test("unreferenced leftovers don't count toward the cap and are dropped", async () => {
+    const big = "geosite:big";
+    store.data[SITE_GROUP_DATA_KEY] = {
+      v: 1,
+      groups: { [big]: { ...storedGroup([]), d: `\n${"a".repeat(4_999_990)}\n`, n: 1 } },
+    };
+    storeSettings({});
+    const result = await withSiteGroupData([GOOGLE], () => Promise.resolve());
+    expect(result.ok).toBe(true);
+    expect(Object.keys(storedGroups(store))).toEqual([GOOGLE]);
+  });
+
+  test("a failed data write answers STORAGE_ERROR and skips the settings write", async () => {
+    storeSettings({});
+    store.set.mockRejectedValueOnce(new Error("disk on fire"));
+    const write = vi.fn(() => Promise.resolve());
+    const result = await withSiteGroupData([GOOGLE], write);
+    expect(result).toEqual({ ok: false, error: "STORAGE_ERROR", token: GOOGLE });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  test("no tokens: the write runs alone", async () => {
+    const fetchMock = routeFetch();
+    const result = await withSiteGroupData(["example.com"], () => Promise.resolve(7));
+    expect(result).toEqual({ ok: true, value: 7, added: {} });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.get).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchLinkList and link adds", () => {
+  test("downloads with no credentials and parses, counting skipped rules", async () => {
+    const fetchMock = routeFetch({
+      [LINK_URL]: (url) =>
+        responseAt(url, "example.com\nfull:mail.example.net\nregexp:^a\nkeyword:ads\nbad_host!\n"),
+    });
+    const result = await fetchLinkList(LINK_URL);
+    expect(result).toEqual({
+      ok: true,
+      data: { d: "\nexample.com\n", f: "\nmail.example.net\n", n: 2, skipped: 3 },
+    });
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init).toMatchObject({ credentials: "omit", cache: "no-cache", redirect: "follow" });
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("a redirect that ends on http fails", async () => {
+    routeFetch({ [LINK_URL]: () => responseAt("http://lists.example.org/x.txt", "example.com") });
+    expect(await fetchLinkList(LINK_URL)).toEqual({ ok: false, error: "LINK_FAILED" });
+  });
+
+  test("an http link is refused without a request", async () => {
+    const fetchMock = routeFetch();
+    expect(await fetchLinkList("http://lists.example.org/x.txt")).toEqual({
+      ok: false,
+      error: "LINK_FAILED",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a non-ok status or a network error fails", async () => {
+    routeFetch({ [LINK_URL]: (url) => responseAt(url, "nope", { status: 404 }) });
+    expect(await fetchLinkList(LINK_URL)).toEqual({ ok: false, error: "LINK_FAILED" });
+    routeFetch({});
+    expect(await fetchLinkList(LINK_URL)).toEqual({ ok: false, error: "LINK_FAILED" });
+  });
+
+  test("a declared size over 10 MB is too large", async () => {
+    routeFetch({
+      [LINK_URL]: (url) =>
+        responseAt(url, "example.com", {
+          headers: { "content-length": String(MAX_LINK_BYTES + 1) },
+        }),
+    });
+    expect(await fetchLinkList(LINK_URL)).toEqual({ ok: false, error: "LINK_TOO_LARGE" });
+  });
+
+  test("a body that streams past 10 MB is too large", async () => {
+    const chunk = new Uint8Array(1024 * 1024).fill(0x61);
+    routeFetch({
+      [LINK_URL]: (url) => {
+        let sent = 0;
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent >= 11) controller.close();
+            else {
+              sent++;
+              controller.enqueue(chunk);
+            }
+          },
+        });
+        return responseAt(url, body);
+      },
+    });
+    expect(await fetchLinkList(LINK_URL)).toEqual({ ok: false, error: "LINK_TOO_LARGE" });
+  });
+
+  test("a list with nothing usable is empty, with its skipped count", async () => {
+    routeFetch({
+      [LINK_URL]: (url) => responseAt(url, "# comment\nregexp:^a\nDOMAIN-KEYWORD,ads\n"),
+    });
+    expect(await fetchLinkList(LINK_URL)).toEqual({ ok: false, error: "LINK_EMPTY", skipped: 2 });
+  });
+
+  test("a link add stores the downloaded data with its counts", async () => {
+    storeSettings({});
+    routeFetch({ [LINK_URL]: (url) => responseAt(url, "example.com\nregexp:^a\n") });
+    const result = await withSiteGroupData([LINK], () => Promise.resolve());
+    expect(result).toMatchObject({ ok: true, added: { [LINK]: { count: 1, skipped: 1 } } });
+    expect(storedGroups(store)[LINK]).toMatchObject({
+      d: "\nexample.com\n",
+      source: "link",
+      lastError: null,
+      skipped: 1,
+    });
+  });
+
+  test("a failed link add answers its error and writes nothing", async () => {
+    storeSettings({});
+    routeFetch({ [LINK_URL]: (url) => responseAt(url, "regexp:^a\n") });
+    const write = vi.fn(() => Promise.resolve());
+    expect(await withSiteGroupData([LINK], write)).toEqual({
+      ok: false,
+      error: "LINK_EMPTY",
+      token: LINK,
+      skipped: 1,
+    });
+    expect(write).not.toHaveBeenCalled();
+    expect(store.writes).toEqual([]);
+  });
+});
+
+describe("refreshSiteGroups", () => {
+  test("a newer pointer downloads, verifies and stores the catalog, then rebuilds", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    store.data[SITE_GROUP_DATA_KEY] = {
+      v: 1,
+      groups: { [GOOGLE]: storedGroup(["google.com"], { release: CATALOG_A.release }) },
+    };
+    vi.mocked(browser.tabs.query).mockClear();
+    const fetchMock = routeFetch(await cdnRoutes(CATALOG_B));
+
+    const result = await refreshSiteGroups({ manual: false });
+
+    expect(result).toMatchObject({
+      success: true,
+      status: { release: CATALOG_B.release, lastError: null, updating: false },
+    });
+    expect(fetchedUrls(fetchMock)).toEqual(
+      expect.arrayContaining([
+        POINTER_URL,
+        `https://cdn.geospoof.com/site-groups/v1/catalog-${CATALOG_B.release}.json`,
+      ])
+    );
+    const pointerInit = fetchMock.mock.calls.find((c) => c[0] === POINTER_URL)![1] as RequestInit;
+    expect(pointerInit).toMatchObject({ cache: "no-cache", credentials: "omit" });
+    expect((store.data[SITE_GROUP_CATALOG_KEY] as { release: string }).release).toBe(
+      CATALOG_B.release
+    );
+    expect(storedGroups(store)[GOOGLE]).toMatchObject({ release: CATALOG_B.release, n: 4 });
+    expect(store.data[SITE_GROUP_STATUS_KEY]).toEqual({
+      checkedAt: expect.any(Number) as number,
+      lastError: null,
+    });
+    // The entries changed, so tabs were told.
+    expect(browser.tabs.query).toHaveBeenCalled();
+  });
+
+  test("the same release downloads only the pointer", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    const fetchMock = routeFetch(await cdnRoutes(CATALOG_A));
+    const result = await refreshSiteGroups({ manual: false });
+    expect(result).toMatchObject({ success: true });
+    expect(fetchedUrls(fetchMock).filter((u) => u !== BUNDLED_URL)).toEqual([POINTER_URL]);
+    expect(store.data[SITE_GROUP_CATALOG_KEY]).toBeUndefined();
+  });
+
+  test("a sha256 mismatch stores nothing and reports INVALID", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [GOOGLE]: storedGroup(["google.com"]) } };
+    routeFetch(await cdnRoutes(CATALOG_B, { sha256: "0".repeat(64) }));
+    const result = await refreshSiteGroups({ manual: false });
+    expect(result).toMatchObject({ error: "INVALID", status: { release: CATALOG_A.release } });
+    expect(store.data[SITE_GROUP_CATALOG_KEY]).toBeUndefined();
+    expect(storedGroups(store)[GOOGLE].d).toBe("\ngoogle.com\n");
+    expect(store.data[SITE_GROUP_STATUS_KEY]).toMatchObject({ lastError: "INVALID" });
+  });
+
+  test("a catalog that matches its sha256 but fails validation is refused", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    const bad = { ...CATALOG_B, lists: { "Bad Name": { rules: "x.com", skipped: [] } } };
+    routeFetch(await cdnRoutes(CATALOG_B, {}, JSON.stringify(bad)));
+    expect(await refreshSiteGroups({ manual: false })).toMatchObject({ error: "INVALID" });
+    expect(store.data[SITE_GROUP_CATALOG_KEY]).toBeUndefined();
+  });
+
+  test("a catalog whose release differs from the pointer's is refused", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    const routes = await cdnRoutes(
+      CATALOG_B,
+      {},
+      JSON.stringify({ ...CATALOG_B, release: "20260301000000" })
+    );
+    routeFetch(routes);
+    expect(await refreshSiteGroups({ manual: false })).toMatchObject({ error: "INVALID" });
+    expect(store.data[SITE_GROUP_CATALOG_KEY]).toBeUndefined();
+  });
+
+  test.each([
+    [
+      "a malformed pointer",
+      { [POINTER_URL]: (url: string) => responseAt(url, "{not json") },
+      "INVALID",
+    ],
+    [
+      "a pointer path outside site-groups/v1",
+      {
+        [POINTER_URL]: (url: string) =>
+          responseAt(
+            url,
+            JSON.stringify({
+              format: 1,
+              release: CATALOG_B.release,
+              path: "../x.json",
+              sha256: "0".repeat(64),
+              bytes: 10,
+            })
+          ),
+      },
+      "INVALID",
+    ],
+    ["an unreachable CDN", {}, "NETWORK"],
+  ])("%s reports %s and keeps the data", async (_name, routes, error) => {
+    storeSettings({ allowlist: [GOOGLE] });
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [GOOGLE]: storedGroup(["google.com"]) } };
+    routeFetch(routes);
+    expect(await refreshSiteGroups({ manual: false })).toMatchObject({ error });
+    expect(storedGroups(store)[GOOGLE].d).toBe("\ngoogle.com\n");
+  });
+
+  test("a list missing upstream keeps its data, flagged", async () => {
+    storeSettings({ allowlist: [GOOGLE, YOUTUBE] });
+    store.data[SITE_GROUP_DATA_KEY] = {
+      v: 1,
+      groups: {
+        [GOOGLE]: storedGroup(["google.com"]),
+        [YOUTUBE]: storedGroup(["youtube.com"]),
+      },
+    };
+    routeFetch(await cdnRoutes(CATALOG_B));
+    await refreshSiteGroups({ manual: false });
+    const groups = storedGroups(store);
+    expect(groups[YOUTUBE]).toMatchObject({
+      d: "\nyoutube.com\n",
+      missingUpstream: true,
+      release: CATALOG_A.release,
+    });
+    expect(groups[GOOGLE]).toMatchObject({ release: CATALOG_B.release });
+    expect(currentSiteGroups().has(YOUTUBE, "www.youtube.com")).toBe(true);
+  });
+
+  test("a failed link refresh keeps the last good copy and records the error", async () => {
+    storeSettings({ denylist: [LINK] });
+    store.data[SITE_GROUP_DATA_KEY] = {
+      v: 1,
+      groups: { [LINK]: storedGroup(["example.com"], { source: "link", lastError: null }) },
+    };
+    routeFetch({
+      ...(await cdnRoutes(CATALOG_A)),
+      [LINK_URL]: (url) => responseAt(url, "", { status: 500 }),
+    });
+    const result = await refreshSiteGroups({ manual: false });
+    expect(result).toMatchObject({ success: true });
+    expect(storedGroups(store)[LINK]).toMatchObject({
+      d: "\nexample.com\n",
+      lastError: "LINK_FAILED",
+    });
+  });
+
+  test("a successful link refresh replaces the data", async () => {
+    storeSettings({ denylist: [LINK] });
+    store.data[SITE_GROUP_DATA_KEY] = {
+      v: 1,
+      groups: {
+        [LINK]: storedGroup(["old.example.com"], { source: "link", lastError: "LINK_FAILED" }),
+      },
+    };
+    routeFetch({
+      ...(await cdnRoutes(CATALOG_A)),
+      [LINK_URL]: (url) => responseAt(url, "new.example.com"),
+    });
+    await refreshSiteGroups({ manual: false });
+    expect(storedGroups(store)[LINK]).toMatchObject({ d: "\nnew.example.com\n", lastError: null });
+  });
+
+  test("no referenced token: a scheduled refresh makes no request and clears the alarm", async () => {
+    storeSettings({ allowlist: ["example.com"] });
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [GOOGLE]: storedGroup(["google.com"]) } };
+    const fetchMock = routeFetch(await cdnRoutes(CATALOG_B));
+    const result = await refreshSiteGroups({ manual: false });
+    expect(result).toMatchObject({ success: true });
+    expect(fetchedUrls(fetchMock).filter((u) => u !== BUNDLED_URL)).toEqual([]);
+    expect(browser.alarms.clear).toHaveBeenCalledWith(SITE_GROUPS_REFRESH_ALARM);
+    // The unreferenced data is pruned.
+    expect(storedGroups(store)).toEqual({});
+  });
+
+  test("no referenced token: a manual refresh still checks the CDN", async () => {
+    storeSettings({});
+    const fetchMock = routeFetch(await cdnRoutes(CATALOG_B));
+    const result = await refreshSiteGroups({ manual: true });
+    expect(result).toMatchObject({ success: true, status: { release: CATALOG_B.release } });
+    expect(fetchedUrls(fetchMock)).toContain(POINTER_URL);
+  });
+
+  test("single-flight: overlapping calls share one run", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    const fetchMock = routeFetch(await cdnRoutes(CATALOG_A));
+    const [a, b] = await Promise.all([
+      refreshSiteGroups({ manual: false }),
+      refreshSiteGroups({ manual: true }),
+    ]);
+    expect(b).toBe(a);
+    expect(fetchedUrls(fetchMock).filter((u) => u === POINTER_URL)).toHaveLength(1);
+  });
+
+  test("updating is reported while a refresh runs", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    const pointer = deferred<Response>();
+    routeFetch({ [POINTER_URL]: () => pointer.promise });
+    const run = refreshSiteGroups({ manual: true });
+    expect((await handleGetSiteGroups()).status.updating).toBe(true);
+    pointer.resolve(responseAt(POINTER_URL, "{}"));
+    await run;
+    expect((await handleGetSiteGroups()).status.updating).toBe(false);
+  });
+});
+
+describe("pruning", () => {
+  test("drops tokens nothing references", async () => {
+    storeSettings({ allowlist: [GOOGLE] });
+    store.data[SITE_GROUP_DATA_KEY] = {
+      v: 1,
+      groups: { [GOOGLE]: storedGroup(["google.com"]), [YOUTUBE]: storedGroup(["youtube.com"]) },
+    };
+    await pruneSiteGroupDataSoon();
+    expect(Object.keys(storedGroups(store))).toEqual([GOOGLE]);
+  });
+
+  test("never drops a token whose add is still writing its settings", async () => {
+    storeSettings({});
+    const settingsWrite = deferred<void>();
+    const adding = withSiteGroupData([GOOGLE], async () => {
+      await settingsWrite.promise;
+      store.data.settings = settingsWith({ allowlist: [GOOGLE] });
+    });
+    // Let the add store its data and reach the settings write.
+    await vi.waitFor(() => expect(storedGroups(store)[GOOGLE]).toBeDefined());
+
+    await pruneSiteGroupDataSoon();
+    expect(storedGroups(store)[GOOGLE]).toBeDefined();
+
+    settingsWrite.resolve();
+    expect(await adding).toMatchObject({ ok: true });
+    await pruneSiteGroupDataSoon();
+    expect(storedGroups(store)[GOOGLE]).toBeDefined();
+  });
+
+  test("an add whose settings write stored nothing has its data dropped", async () => {
+    storeSettings({});
+    expect(await withSiteGroupData([GOOGLE], () => Promise.resolve(null))).toMatchObject({
+      ok: true,
+    });
+    await vi.waitFor(() => expect(storedGroups(store)[GOOGLE]).toBeUndefined());
+  });
+});
+
+describe("startup and repair", () => {
+  test("startup builds missing data, schedules the alarm, and delivers", async () => {
+    const settings = settingsWith({ scopeMode: "allowlist", allowlist: [GOOGLE] });
+    store.data.settings = settings;
+    vi.mocked(browser.tabs.query).mockClear();
+    await onSiteGroupsStartup(settings);
+    expect(storedGroups(store)[GOOGLE]).toMatchObject({ n: 3, release: CATALOG_A.release });
+    expect(browser.alarms.create).toHaveBeenCalledWith(SITE_GROUPS_REFRESH_ALARM, {
+      delayInMinutes: expect.any(Number) as number,
+      periodInMinutes: SITE_GROUPS_REFRESH_PERIOD_MINUTES,
+    });
+    expect(browser.tabs.query).toHaveBeenCalled();
+  });
+
+  test("startup rebuilds data built from an older catalog", async () => {
+    const settings = settingsWith({ allowlist: [GOOGLE] });
+    store.data.settings = settings;
+    store.data[SITE_GROUP_CATALOG_KEY] = CATALOG_B;
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [GOOGLE]: storedGroup(["google.com"]) } };
+    await onSiteGroupsStartup(settings);
+    expect(storedGroups(store)[GOOGLE]).toMatchObject({ n: 4, release: CATALOG_B.release });
+  });
+
+  test("startup with no token does nothing", async () => {
+    const fetchMock = routeFetch();
+    await onSiteGroupsStartup(settingsWith({}));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(browser.alarms.create).not.toHaveBeenCalled();
+    expect(store.get).not.toHaveBeenCalled();
+  });
+
+  test("repair builds data for a bridged token and downloads a bridged link", async () => {
+    storeSettings({ allowlist: [GOOGLE], denylist: [LINK] });
+    routeFetch({ [LINK_URL]: (url) => responseAt(url, "example.com") });
+    await repairSiteGroupDataSoon();
+    expect(Object.keys(storedGroups(store)).sort()).toEqual([GOOGLE, LINK].sort());
+  });
+
+  test("repair keeps a referenced link that can't be downloaded absent (it matches nothing)", async () => {
+    storeSettings({ denylist: [LINK] });
+    routeFetch({});
+    await repairSiteGroupDataSoon();
+    expect(storedGroups(store)).toEqual({});
+    expect(currentSiteGroups().has(LINK, "example.com")).toBe(false);
+  });
+});
+
+describe("the refresh alarm", () => {
+  const NOW = 1_800_000_000_000;
+  const DAY = 24 * 60 * 60_000;
+
+  test("delay: the time left until a week after the last check, at least 1 minute, plus jitter", () => {
+    expect(siteGroupRefreshDelayMinutes(null, NOW, 0)).toBe(1);
+    expect(siteGroupRefreshDelayMinutes(NOW - DAY, NOW, 0)).toBe(6 * 24 * 60);
+    expect(siteGroupRefreshDelayMinutes(NOW - 8 * DAY, NOW, 0)).toBe(1);
+    expect(siteGroupRefreshDelayMinutes(NOW - DAY, NOW, 0.5)).toBe(6 * 24 * 60 + 180);
+    // A check "in the future" (clock moved back) waits at most a week.
+    expect(siteGroupRefreshDelayMinutes(NOW + 30 * DAY, NOW, 0)).toBe(10_080);
+  });
+
+  test("is created once when a token is referenced", async () => {
+    store.data[SITE_GROUP_STATUS_KEY] = { checkedAt: Date.now() - DAY, lastError: null };
+    await ensureSiteGroupRefreshAlarm(settingsWith({ allowlist: [GOOGLE] }));
+    expect(browser.alarms.create).toHaveBeenCalledTimes(1);
+    const [, info] = vi.mocked(browser.alarms.create).mock.calls[0] as unknown as [
+      string,
+      { delayInMinutes: number; periodInMinutes: number },
+    ];
+    expect(info.periodInMinutes).toBe(10_080);
+    expect(info.delayInMinutes).toBeGreaterThan(6 * 24 * 60 - 1);
+    expect(info.delayInMinutes).toBeLessThanOrEqual(6 * 24 * 60 + 360);
+
+    vi.mocked(browser.alarms.get).mockResolvedValue({ name: SITE_GROUPS_REFRESH_ALARM } as never);
+    await ensureSiteGroupRefreshAlarm(settingsWith({ allowlist: [GOOGLE] }));
+    expect(browser.alarms.create).toHaveBeenCalledTimes(1);
+  });
+
+  test("is not created when nothing is referenced", async () => {
+    await ensureSiteGroupRefreshAlarm(settingsWith({ allowlist: ["example.com"] }));
+    expect(browser.alarms.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("where site groups aren't available (Safari)", () => {
+  beforeEach(() => {
+    gate.available = false;
+  });
+
+  test("no alarm, no request, nothing stored", async () => {
+    const settings = settingsWith({ allowlist: [GOOGLE], denylist: [LINK] });
+    store.data.settings = settings;
+    const fetchMock = routeFetch(await cdnRoutes(CATALOG_B));
+
+    await onSiteGroupsStartup(settings);
+    await ensureSiteGroupRefreshAlarm(settings);
+    expect(await refreshSiteGroups({ manual: true })).toMatchObject({ error: "NOT_AVAILABLE" });
+    await refreshSiteGroups({ manual: false });
+    await repairSiteGroupDataSoon();
+    await pruneSiteGroupDataSoon();
+    const write = vi.fn(() => Promise.resolve("w"));
+    expect(await withSiteGroupData([GOOGLE, LINK], write)).toEqual({
+      ok: true,
+      value: "w",
+      added: {},
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(browser.alarms.create).not.toHaveBeenCalled();
+    expect(store.writes).toEqual([]);
+  });
+
+  test("GET_SITE_GROUPS reports available: false", async () => {
+    expect(await handleGetSiteGroups()).toEqual({
+      available: false,
+      status: {
+        release: null,
+        releasedAt: null,
+        checkedAt: null,
+        lastError: null,
+        updating: false,
+      },
+      groups: {},
+    });
+  });
+});

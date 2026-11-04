@@ -344,6 +344,55 @@ describe("Scope Settings Validation", () => {
 
     expect(validated.allowlist).toEqual(["example.com", "test.org", "alpha.com"]);
   });
+
+  /**
+   * Site group, list-link and exact entries ride inside the same lists. They
+   * survive validation in canonical form; malformed ones are dropped like any
+   * other invalid entry.
+   */
+  test("keeps site group, link and exact entries in canonical form", async () => {
+    const { validateSettings } = await importBackground();
+
+    const validated = validateSettings({
+      allowlist: [
+        " GeoSite:Google@CN@ads ",
+        "list:https://Lists.Example.org/direct-list.txt#frag",
+        "=Mail.Example.com",
+        "=1.2.3.4",
+        "example.com",
+        "geosite:google@ads@cn", // duplicate of the first, canonically
+      ],
+      denylist: ["geosite:geolocation-!cn"],
+    });
+
+    expect(validated.allowlist).toEqual([
+      "geosite:google@ads@cn",
+      "list:https://lists.example.org/direct-list.txt",
+      "=mail.example.com",
+      "1.2.3.4",
+      "example.com",
+    ]);
+    expect(validated.denylist).toEqual(["geosite:geolocation-!cn"]);
+  });
+
+  test("drops malformed site group, link and exact entries", async () => {
+    const { validateSettings } = await importBackground();
+
+    const validated = validateSettings({
+      allowlist: [
+        "geosite:",
+        "geosite:bad name",
+        "geosite:google@",
+        "list:http://lists.example.org/direct-list.txt",
+        "list:https://user:pw@lists.example.org/x.txt",
+        "=*.example.com",
+        "=",
+        "valid.com",
+      ],
+    });
+
+    expect(validated.allowlist).toEqual(["valid.com"]);
+  });
 });
 
 describe("Scope Settings Migration (1.0/1.1 -> 1.2)", () => {

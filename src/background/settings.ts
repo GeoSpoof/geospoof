@@ -21,11 +21,12 @@ import { isSupportedLocale } from "@/shared/i18n/locales";
 import { validateLocaleSpoofing } from "@/shared/locale/resolver";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import { createLogger } from "@/shared/utils/debug-logger";
-import { parsePattern } from "@/shared/utils/scope";
+import { parseFilterEntry } from "@/shared/utils/filter-entries";
 import { validateSiteLocations } from "@/shared/utils/site-locations";
 import { MAX_SETTINGS_REVISION, readRevision } from "@/shared/settings-revision";
 import { getLastSyncedIp } from "./vpn-sync";
 import { openBootstrapWriteWindow } from "./bootstrap-register";
+import { ensureSiteGroupCache } from "./site-groups-store";
 
 /**
  * Re-exported so the settings module remains the one import site for settings
@@ -49,12 +50,13 @@ const logger = createLogger("BG");
 const VALID_SCOPE_MODES = new Set<ScopeMode>(["all", "allowlist", "denylist"]);
 
 /**
- * Sanitize a stored allowlist/denylist value into a clean Pattern string[]
+ * Sanitize a stored allowlist/denylist value into a clean entry string[]
  * (Advanced Filtering Req 13.4, 14.1; superseding the site-scoping domain
  * sanitizer). Drops non-array inputs, non-string entries, and entries the
- * Pattern_Parser reports as invalid; replaces each retained entry with its
- * canonical Pattern form; removes duplicates by canonical form keeping the
- * first occurrence, producing a deterministically ordered list. Because every
+ * entry grammar (`parseFilterEntry`: typed patterns plus exact, site group and
+ * list-link entries) reports as invalid; replaces each retained entry with its
+ * canonical form; removes duplicates by canonical form keeping the first
+ * occurrence, producing a deterministically ordered list. Because every
  * previously stored (schema 1.1) hostname is a valid bare-host Pattern with
  * identical matching meaning, this carries a 1.1 list forward losslessly
  * (Req 13.3).
@@ -69,7 +71,7 @@ function sanitizeDomainList(value: unknown): string[] {
     if (typeof entry !== "string") {
       continue;
     }
-    const canonical = parsePattern(entry);
+    const canonical = parseFilterEntry(entry);
     if (canonical === null) {
       continue;
     }
@@ -233,12 +235,17 @@ export function nextSettingsRevision(previous: unknown): number {
 }
 
 /**
- * Load settings from storage with validation and corruption handling
+ * Load settings from storage with validation and corruption handling. When the
+ * settings reference a site group or list token, the group data cache is
+ * loaded before this resolves, so resolvers can use `currentSiteGroups()`.
  */
 export async function loadSettings(): Promise<Settings> {
   try {
     const result = await browser.storage.local.get("settings");
-    return settingsFromStorage(result.settings);
+    const validated = settingsFromStorage(result.settings);
+    const groupsLoading = ensureSiteGroupCache(validated); // never rejects
+    if (groupsLoading) await groupsLoading;
+    return validated;
   } catch (error) {
     logger.error("Failed to load settings:", error);
     return { ...DEFAULT_SETTINGS };
@@ -255,7 +262,11 @@ export async function loadSettings(): Promise<Settings> {
  */
 export async function loadSettingsOrThrow(): Promise<Settings> {
   const result = await browser.storage.local.get("settings");
-  return settingsFromStorage(result.settings);
+  const validated = settingsFromStorage(result.settings);
+  // Engine-level spoofing resolves through this read too. Never rejects.
+  const groupsLoading = ensureSiteGroupCache(validated);
+  if (groupsLoading) await groupsLoading;
+  return validated;
 }
 
 /** The stored `settings` value, validated, or the defaults when it's absent or not an object. */

@@ -14,6 +14,14 @@ import { parseSiteLocationPattern } from "@/shared/utils/site-locations";
 import { changedSiteLocationIds } from "@/background/site-location-queue";
 import { computeOffsets } from "@/background/timezone";
 import {
+  installLocalStore,
+  responseAt,
+  routeFetch,
+  storedGroup,
+  storedGroups,
+  type LocalStore,
+} from "../../helpers/site-groups";
+import {
   DUBLIN,
   DUBLIN_NAME,
   DUBLIN_TZ,
@@ -36,6 +44,12 @@ const lookups = vi.hoisted(() => ({
 vi.mock("@/background/timezone", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/background/timezone")>()),
   getTimezoneForCoordinates: lookups.timezone,
+}));
+
+/** Site groups are available unless a test turns the Safari gate off. */
+const gate = vi.hoisted(() => ({ available: true }));
+vi.mock("@/shared/site-groups/availability", () => ({
+  siteGroupsAvailable: () => gate.available,
 }));
 
 vi.mock("@/background/geocoding", async (importOriginal) => ({
@@ -1287,5 +1301,156 @@ describe("VPN resync leaves site locations pinned", () => {
     expect(stored.location?.latitude).toBe(52.52);
     expect(stored.timezone?.identifier).toBe("Europe/Berlin");
     expect(JSON.stringify(stored.siteLocations)).toBe(before);
+  });
+});
+
+describe("site group, exact and link patterns", () => {
+  const GOOGLE = "geosite:google";
+  const LINK_URL = "https://lists.example.org/rules/direct-list.txt";
+  const LINK = `list:${LINK_URL}`;
+
+  let store: LocalStore;
+
+  /** Import the background over a multi-key store (group data lives beside settings). */
+  async function bootWithStore(s: Settings, data?: Record<string, unknown>) {
+    vi.clearAllMocks();
+    vi.resetModules();
+    store = installLocalStore({ settings: s, ...(data ? { siteGroupData: data } : {}) });
+    browser.tabs.query = vi.fn().mockResolvedValue([{ id: 1, url: "https://www.google.com/" }]);
+    const broadcasts: Array<Message<Record<string, unknown>>> = [];
+    browser.tabs.sendMessage = vi
+      .fn()
+      .mockImplementation((_tabId: number, message: Message<Record<string, unknown>>) => {
+        if (message.type === "UPDATE_SETTINGS") broadcasts.push(message);
+        return Promise.resolve();
+      });
+    browser.action.setBadgeText = vi.fn().mockResolvedValue(undefined);
+    browser.action.setBadgeBackgroundColor = vi.fn().mockResolvedValue(undefined);
+    const bg = await import("@/background");
+    return { ...bg, broadcasts };
+  }
+
+  const settingsNow = (): Settings => store.data.settings as Settings;
+
+  const saveOn = (patterns: string[], extra: Record<string, unknown> = {}) => ({
+    patterns,
+    latitude: DUBLIN.latitude,
+    longitude: DUBLIN.longitude,
+    locationName: DUBLIN_NAME,
+    ...extra,
+  });
+
+  beforeEach(() => {
+    gate.available = true;
+    routeFetch();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  test("a group pattern stores its data before the settings, and applies on its sites", async () => {
+    const bg = await bootWithStore(makeSettings());
+    const res = await bg.handleSaveSiteLocation(saveOn(["GeoSite:Google", "=Mail.Example.com"]));
+    expect(res).toEqual({ success: true, id: expect.any(String) as string });
+    expect(store.writes.slice(0, 2)).toEqual(["siteGroupData", "settings"]);
+    expect(settingsNow().siteLocations[0].patterns).toEqual([GOOGLE, "=mail.example.com"]);
+    expect(storedGroups(store)[GOOGLE].n).toBe(3);
+    // The open tab (www.google.com) gets Dublin.
+    expect(bg.broadcasts.at(-1)!.payload!.timezone).toEqual(DUBLIN_TZ);
+  });
+
+  test.each([
+    ["geosite:nosuchlist", "UNKNOWN_GROUP"],
+    ["geosite:google@ads", "EMPTY_GROUP"],
+  ])("%s answers %s and stores nothing", async (pattern, error) => {
+    const bg = await bootWithStore(makeSettings());
+    expect(await bg.handleSaveSiteLocation(saveOn([pattern]))).toEqual({ error, pattern });
+    expect(store.writes).toEqual([]);
+  });
+
+  test("a link pattern downloads its list; an empty one answers LINK_EMPTY with skipped", async () => {
+    const bg = await bootWithStore(makeSettings());
+    routeFetch({ [LINK_URL]: (url) => responseAt(url, "regexp:^a\nkeyword:b\n") });
+    expect(await bg.handleSaveSiteLocation(saveOn([LINK]))).toEqual({
+      error: "LINK_EMPTY",
+      pattern: LINK,
+      skipped: 2,
+    });
+    expect(store.writes).toEqual([]);
+
+    routeFetch({ [LINK_URL]: (url) => responseAt(url, "example.com\nregexp:^a\n") });
+    expect(await bg.handleSaveSiteLocation(saveOn([LINK]))).toMatchObject({ success: true });
+    expect(storedGroups(store)[LINK]).toMatchObject({ n: 1, skipped: 1, source: "link" });
+  });
+
+  test("STORAGE_FULL when the group data would pass its cap", async () => {
+    const big = "geosite:big";
+    const bg = await bootWithStore(makeSettings({ allowlist: [big] }), {
+      v: 1,
+      groups: { [big]: { ...storedGroup([]), d: `\n${"a".repeat(4_999_990)}\n`, n: 1 } },
+    });
+    expect(await bg.handleSaveSiteLocation(saveOn([GOOGLE]))).toEqual({
+      error: "STORAGE_FULL",
+      pattern: GOOGLE,
+    });
+    expect(settingsNow().siteLocations).toEqual([]);
+  });
+
+  test("a token another location owns answers PATTERN_IN_USE", async () => {
+    const owner = makeSiteLocation({ id: "owner", patterns: [GOOGLE] });
+    const bg = await bootWithStore(makeSettings({ siteLocations: [owner] }), {
+      v: 1,
+      groups: { [GOOGLE]: storedGroup(["google.com"]) },
+    });
+    expect(await bg.handleSaveSiteLocation(saveOn(["geosite:GOOGLE"]))).toEqual({
+      error: "PATTERN_IN_USE",
+      pattern: GOOGLE,
+      ownerId: "owner",
+    });
+  });
+
+  test("a group counts once toward the 10-site cap", async () => {
+    const typed = Array.from({ length: 9 }, (_, i) => `site${i}.example.com`);
+    const bg = await bootWithStore(makeSettings());
+    expect(await bg.handleSaveSiteLocation(saveOn([...typed, GOOGLE]))).toMatchObject({
+      success: true,
+    });
+    expect(
+      await bg.handleSaveSiteLocation(saveOn([...typed, "site9.example.com", "geosite:youtube"]))
+    ).toEqual({ error: "TOO_MANY_PATTERNS" });
+  });
+
+  test("removing a group pattern drops its data", async () => {
+    const entry = makeSiteLocation({ id: "e1", patterns: [GOOGLE, "chatgpt.com"] });
+    const bg = await bootWithStore(makeSettings({ siteLocations: [entry] }), {
+      v: 1,
+      groups: { [GOOGLE]: storedGroup(["google.com"]) },
+    });
+    expect(await bg.handleRemoveSiteLocation({ id: "e1", pattern: "GEOSITE:google" })).toEqual({
+      success: true,
+      id: "e1",
+    });
+    expect(settingsNow().siteLocations[0].patterns).toEqual(["chatgpt.com"]);
+    await vi.waitFor(() => expect(storedGroups(store)).toEqual({}));
+  });
+
+  describe("where site groups aren't available (Safari)", () => {
+    beforeEach(() => {
+      gate.available = false;
+    });
+
+    test.each([GOOGLE, LINK, "=mail.example.com"])(
+      "%s is rejected as INVALID_PATTERN with nothing stored or fetched",
+      async (pattern) => {
+        const bg = await bootWithStore(makeSettings());
+        const fetchMock = routeFetch();
+        expect(await bg.handleSaveSiteLocation(saveOn(["chatgpt.com", pattern]))).toEqual({
+          error: "INVALID_PATTERN",
+          pattern,
+        });
+        expect(store.writes).toEqual([]);
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(lookups.timezone).not.toHaveBeenCalled();
+      }
+    );
   });
 });

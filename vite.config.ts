@@ -112,6 +112,14 @@ function browserTargetPlugin(target: BrowserTarget): Plugin {
         cpSync(resolve(__dirname, file), resolve(__dirname, `dist/${file}`));
       }
 
+      // Ship the bundled site group catalog (v2fly data, MIT; see NOTICE) for
+      // every target. The background fetches it from the package, so it never
+      // lands in a JS bundle, and the build never downloads it.
+      const siteGroupsSrc = resolve(__dirname, "assets/site-groups");
+      if (existsSync(siteGroupsSrc)) {
+        cpSync(siteGroupsSrc, resolve(__dirname, "dist/site-groups"), { recursive: true });
+      }
+
       // Copy icons directory
       const iconsSrc = resolve(__dirname, "icons");
       if (existsSync(iconsSrc)) {

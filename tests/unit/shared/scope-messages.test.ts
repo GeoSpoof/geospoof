@@ -38,7 +38,14 @@ describe("site-scoping message types", () => {
     expect(invalid.error).toBe("INVALID_PATTERN");
     expect(storage.error).toBe("STORAGE_ERROR");
     expectTypeOf<ScopeErrorResponse["error"]>().toEqualTypeOf<
-      "INVALID_PATTERN" | "STORAGE_ERROR"
+      | "INVALID_PATTERN"
+      | "STORAGE_ERROR"
+      | "UNKNOWN_GROUP"
+      | "EMPTY_GROUP"
+      | "LINK_FAILED"
+      | "LINK_EMPTY"
+      | "LINK_TOO_LARGE"
+      | "STORAGE_FULL"
     >();
   });
 

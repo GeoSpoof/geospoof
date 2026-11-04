@@ -76,6 +76,7 @@ import { createLogger } from "@/shared/utils/debug-logger";
 import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 import { isRestrictedUrl } from "./tabs";
 import { tabPageUrlCache } from "./worker-request-filter";
+import { currentSiteGroups } from "./site-groups-store";
 
 const logger = createLogger("BG");
 
@@ -127,7 +128,7 @@ export function resolveAcceptLanguageFor(
 ): string | null {
   // The same per-site resolution the page payload uses: Filters decide whether,
   // a site location decides which zone (and so, in Match mode, which locale).
-  const r = resolveSiteSettings(settings, topLevelUrl, isRestrictedUrl);
+  const r = resolveSiteSettings(settings, topLevelUrl, isRestrictedUrl, currentSiteGroups());
   if (!r.enabled) return null;
 
   const effective = computeEffectiveLocaleSpoofing(
@@ -320,7 +321,10 @@ export function planAcceptLanguageRules(
     if (value === null) {
       // Only an in-scope tab is excluded: a restricted tab (a new tab's blank
       // page) stays under the global rule so its first navigation is covered.
-      if (layered && resolveSiteSettings(settings, tab.url, isRestrictedUrl).enabled) {
+      if (
+        layered &&
+        resolveSiteSettings(settings, tab.url, isRestrictedUrl, currentSiteGroups()).enabled
+      ) {
         noLocaleTabIds.push(tab.id);
       }
       continue;

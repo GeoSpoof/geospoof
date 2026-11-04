@@ -13,7 +13,7 @@
 import { createLogger } from "@/shared/utils/debug-logger";
 import type { Favorite, ScopeMode, Settings, Timezone } from "@/shared/types/settings";
 import { MAX_FAVORITES } from "@/shared/types/settings";
-import { parsePattern } from "@/shared/utils/scope";
+import { parseFilterEntry } from "@/shared/utils/filter-entries";
 import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import {
@@ -44,6 +44,7 @@ import { syncVpnLocation, clearIpGeoCache } from "./vpn-sync";
 import { broadcastSettingsToTabs } from "./tabs";
 import { updateBadge } from "./badge";
 import { collectAccessReport } from "./website-access";
+import { repairSiteGroupDataSoon } from "./site-groups";
 
 const logger = createLogger("BG");
 
@@ -476,10 +477,11 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
     }
 
     // 5. Site-scoping — adopt the mode and the allow/deny lists when present
-    // and changed. Entries are parsed as glob-style URL patterns + de-duplicated
-    // here so the extension stays the source of truth for list hygiene
-    // regardless of what the app stored, and so advanced patterns (wildcards,
-    // ports, paths) survive the app→extension round-trip. A scope change
+    // and changed. Entries are parsed with the Filters entry grammar
+    // (parseFilterEntry) + de-duplicated here so the extension stays the source
+    // of truth for list hygiene regardless of what the app stored, and so
+    // advanced patterns (wildcards, ports, paths) and exact, site group and
+    // list-link entries survive the app→extension round-trip. A scope change
     // re-broadcasts per-tab and re-badges so open tabs and the toolbar reflect
     // the new decision without a manual reload.
     const scopeUpdates: Partial<Settings> = {};
@@ -507,7 +509,7 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
       const out: string[] = [];
       for (const entry of arr) {
         if (typeof entry !== "string") continue;
-        const canonical = parsePattern(entry);
+        const canonical = parseFilterEntry(entry);
         if (canonical !== null && !seen.has(canonical)) {
           seen.add(canonical);
           out.push(canonical);
@@ -527,6 +529,9 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
 
     if (Object.keys(scopeUpdates).length > 0) {
       const updated = await updateSettings(scopeUpdates);
+      // Adopted group or link tokens may have no data yet; build it and
+      // re-deliver. Fire-and-forget, never rejects.
+      void repairSiteGroupDataSoon();
       await broadcastSettingsToTabs(updated);
       await updateBadge();
     }
@@ -647,6 +652,7 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
           const latestForSites = await loadSettings();
           if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
             const updated = await updateSettings({ siteLocations: next });
+            void repairSiteGroupDataSoon(); // as in step 5
             // The app acted at pendingAtMs. A popup save that arrived before
             // that and is still on its lookups yields for the entries this
             // snapshot changed; one that arrives later still wins. Never later
