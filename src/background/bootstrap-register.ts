@@ -81,7 +81,13 @@ import { compareSpecificity, siteLocationSpecificity } from "@/shared/utils/site
 import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 import { buildBootstrapPayload } from "./page-payload";
 import { RESTRICTED_DOMAINS } from "./restricted-url";
-import { currentSiteGroupData } from "./site-groups-store";
+import {
+  currentSiteGroupData,
+  loadSiteGroupCache,
+  onSiteGroupCacheLoaded,
+  referencedSiteGroupTokens,
+  siteGroupCacheLoaded,
+} from "./site-groups-store";
 
 /* eslint-disable no-var */
 declare var process: { env: Record<string, string | undefined> };
@@ -561,7 +567,10 @@ export function planBootstrapScripts(
 
 // ─────────────────────────────── Registration ───────────────────────────────
 
-/** How long a settings write waits for the old early scripts to be removed. */
+/**
+ * How long a write (settings, or site group data that changes a referenced
+ * token) waits for the old early scripts to be removed.
+ */
 export const BOOTSTRAP_INVALIDATION_TIMEOUT_MS = 1000;
 
 /**
@@ -576,13 +585,43 @@ let generation = 0;
 /** The newest settings revision a call has been made with since the background started. */
 let newestRevision: number | undefined;
 
-/** Settings write windows open now. Writes are serialized, so it's 0 or 1 in practice. */
+/**
+ * Write windows open now. Two queues open them: settings writes
+ * (`saveSettings`) and site group data writes (`site-groups.ts`). Each queue
+ * is serialized, but the two run independently, so one window from each can
+ * be open at the same time. Keep this a counter: only the last window to
+ * close may register, and a boolean would let the first one to close do it.
+ */
 let openWrites = 0;
 
 /** An earlier window's removal timed out and hasn't settled yet. */
 let removalStalled = false;
 
-/** The bootstrap side of one settings write; see {@link openBootstrapWriteWindow}. */
+/** The settings of the newest call that wasn't skipped as older; see `waitingForSiteGroups`. */
+let latestSettings: Settings | null = null;
+
+/**
+ * The last registration registered nothing because its settings reference
+ * site groups whose data couldn't be read. Planning with `{}` would treat
+ * every group as matching nothing, so a denied group's hosts (or a per-site
+ * group's) would get the main zone: wrong, not absent. The next read that
+ * fills the cache redoes the registration with `latestSettings`.
+ */
+let waitingForSiteGroups = false;
+
+if (__FIREFOX__) {
+  onSiteGroupCacheLoaded(() => {
+    if (!waitingForSiteGroups || latestSettings === null) return;
+    waitingForSiteGroups = false;
+    logger.debug("[bootstrap] site group data loaded; registering the scripts skipped earlier");
+    void updateBootstrapRegistration(latestSettings);
+  });
+}
+
+/**
+ * The bootstrap side of one write, of settings or of site group data; see
+ * {@link openBootstrapWriteWindow}.
+ */
 export interface BootstrapWriteWindow {
   /**
    * Settles once the scripts registered before this write are gone, or after
@@ -590,22 +629,29 @@ export interface BootstrapWriteWindow {
    * earlier wait is still stuck). Never rejects.
    */
   readonly removed: Promise<void> | null;
-  /** The write stored `settings`: close the window and register them. Synchronous; the registration runs queued. */
+  /**
+   * The write succeeded: close the window and register `settings` (for a site
+   * group data write, the stored settings, planned with the new data).
+   * Synchronous; the registration runs queued.
+   */
   stored(settings: Settings): void;
   /** The write failed: close the window and re-register what's still stored, read with `load`. Never rejects. */
   failed(load: () => Promise<Settings>): Promise<void>;
 }
 
 /**
- * Open a write window. Firefox-only; call once per `saveSettings`, before the
- * storage write.
+ * Open a write window. Firefox-only; call once per write that changes what the
+ * early scripts seed, before the storage write: every `saveSettings`, and every
+ * site group data write that changes what a referenced token matches
+ * (`writeSiteGroupDataReplacingBootstrap` in `site-groups.ts`). A settings
+ * window and a site group window can be open at the same time.
  *
- * Until the window closes, no registration built from older settings is
- * installed, and the window queues an unfiltered `unregister` so the scripts
- * built from the previous settings are gone before the write. A page that
- * loads in between gets no seed rather than an old one. The loader for
- * `failed` is passed in, so this module never imports `./settings`: the
- * bootstrap queue must never wait on the settings-write queue.
+ * Until the window closes, no registration built from older settings or data
+ * is installed, and the window queues an unfiltered `unregister` so the
+ * scripts built from them are gone before the write. A page that loads in
+ * between gets no seed rather than an old one. The loader for `failed` is
+ * passed in, so this module never imports `./settings`: the bootstrap queue
+ * must never wait on the settings-write queue.
  */
 export function openBootstrapWriteWindow(): BootstrapWriteWindow {
   // From here no queued or building older registerNow registers. Counted
@@ -624,7 +670,7 @@ export function openBootstrapWriteWindow(): BootstrapWriteWindow {
         await api.unregister();
       } catch (error) {
         logger.warn(
-          "[bootstrap] couldn't remove the early scripts before a settings write (continuing):",
+          "[bootstrap] couldn't remove the early scripts before a write (continuing):",
           error
         );
       }
@@ -657,7 +703,7 @@ export function openBootstrapWriteWindow(): BootstrapWriteWindow {
       try {
         if (!getUserScriptsApi()) return;
         const s = await load();
-        logger.debug("[bootstrap] settings write failed; re-registering the stored settings");
+        logger.debug("[bootstrap] write failed; re-registering what's still stored");
         stored(s); // closes, then registers
       } finally {
         close(); // no-op when stored() already closed
@@ -676,7 +722,7 @@ function boundedWait(job: Promise<void>): Promise<void> {
     const timer = setTimeout(() => {
       removalStalled = true;
       logger.warn(
-        `[bootstrap] userScripts didn't answer within ${BOOTSTRAP_INVALIDATION_TIMEOUT_MS} ms; storing the settings without waiting`
+        `[bootstrap] userScripts didn't answer within ${BOOTSTRAP_INVALIDATION_TIMEOUT_MS} ms; writing without waiting`
       );
       void job.finally(() => {
         removalStalled = false;
@@ -701,7 +747,7 @@ function boundedWait(job: Promise<void>): Promise<void> {
  * code in place. A call whose settings are older (by settings revision) than a
  * call already made is skipped without cancelling anything, so a caller that
  * loaded settings before a write can't replace the write's registration with
- * the older settings. While a settings write is open, nothing registers. A
+ * the older settings. While a write window is open, nothing registers. A
  * call overtaken by a newer call or a write stops before registering, or
  * removes what it registered, so scripts for settings that are no longer
  * stored don't stay installed.
@@ -717,6 +763,7 @@ export function updateBootstrapRegistration(settings: Settings): Promise<void> {
     return Promise.resolve();
   }
   if (r !== undefined) newestRevision = r;
+  latestSettings = settings;
 
   // registerNow catches everything, so the queue never wedges.
   const gen = ++generation;
@@ -751,10 +798,30 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
     await api.unregister();
     if (gen !== generation) return; // a newer call registers its own settings
 
+    // The plan needs these settings' group data. loadSettings() normally
+    // loaded it, but if that read failed the cache is still unloaded, and
+    // planning with `{}` would seed the main zone on a denied group's hosts.
+    // Try once more; if storage still can't be read, register nothing (absent,
+    // never wrong) until a later read fills the cache (`waitingForSiteGroups`).
+    if (!siteGroupCacheLoaded() && referencedSiteGroupTokens(settings).length > 0) {
+      try {
+        await loadSiteGroupCache();
+      } catch (error) {
+        waitingForSiteGroups = true;
+        logger.warn(
+          "[bootstrap] couldn't read site group data; no early scripts until it loads:",
+          error
+        );
+        return;
+      }
+      if (gen !== generation) return;
+    }
+    waitingForSiteGroups = false;
+
     // Timed for the real-browser checks: build plus register.
     const started = Date.now();
-    // The cached site group data, which loadSettings() loaded for these
-    // settings. A data change re-registers through updateBootstrapRegistration.
+    // The cached site group data, loaded for these settings above or by
+    // loadSettings(). A data change re-registers through a write window.
     const plan = planBootstrapScripts(settings, currentSiteGroupData());
 
     // Payloads come from the shared page-payload module, so the inlined point
@@ -778,8 +845,8 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
       registrations.push(registration);
     }
 
-    // Settings changed again, or a settings write opened, while the payloads
-    // were built. The write's window registers the stored settings itself.
+    // Settings changed again, or a write window opened, while the payloads
+    // were built. The window registers what's stored when it closes.
     if (gen !== generation || openWrites > 0) return;
 
     if (registrations.length === 0) {

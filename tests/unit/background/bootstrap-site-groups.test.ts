@@ -31,7 +31,7 @@ import {
   writeSiteGroupData,
   type StoredSiteGroup,
 } from "@/background/site-groups-store";
-import { installUserScriptsMock, parseBootstrapPayload } from "../../helpers/cadence";
+import { flush, installUserScriptsMock, parseBootstrapPayload } from "../../helpers/cadence";
 import { scriptMatchesUrl } from "../../helpers/match-pattern";
 import { installLocalStore, storedGroup } from "../../helpers/site-groups";
 import {
@@ -648,6 +648,64 @@ describe("registerNow uses the store's group data", () => {
       expect(siteCode.startsWith("try{")).toBe(true);
       expect(siteCode).not.toContain("example.com");
       expect(parseBootstrapPayload(siteCode).timezone).toEqual(MEXICO_CITY_TZ);
+    } finally {
+      userScripts.restore();
+    }
+  });
+
+  const denySettings = () => makeSettings({ scopeMode: "denylist", denylist: ["geosite:t"] });
+  const storedDenyGroup = () => ({
+    siteGroupData: { v: 1, groups: { "geosite:t": storedGroup(["example.com"]) } },
+  });
+
+  test("an unloaded cache is read before planning, so a denied group is gated", async () => {
+    vi.resetModules();
+    installLocalStore(storedDenyGroup());
+    const userScripts = installUserScriptsMock();
+    try {
+      const { updateBootstrapRegistration } = await import("@/background/bootstrap-register");
+      await updateBootstrapRegistration(denySettings());
+
+      expect(userScripts.register).toHaveBeenCalledTimes(1);
+      const [batch] = userScripts.register.mock.calls[0] as [Registration[]];
+      const mainCode = batch[0].js[0].code;
+      expect(runCode(mainCode, "www.example.com")).toBeUndefined();
+      expect(runCode(mainCode, "other.org")).toBeDefined();
+    } finally {
+      userScripts.restore();
+    }
+  });
+
+  test("an unreadable cache registers nothing, and the next successful read registers gated scripts", async () => {
+    vi.resetModules();
+    const local = installLocalStore(storedDenyGroup());
+    // loadSettings' read failed earlier (the cache is unloaded), and so does registerNow's retry.
+    local.get.mockImplementationOnce(() => Promise.reject(new Error("disk I/O")));
+    const userScripts = installUserScriptsMock();
+    try {
+      const store = await import("@/background/site-groups-store");
+      const { updateBootstrapRegistration } = await import("@/background/bootstrap-register");
+      await updateBootstrapRegistration(denySettings());
+
+      // Absent, not wrong: planning with no data would seed the main zone on example.com.
+      expect(userScripts.unregister).toHaveBeenCalled();
+      expect(userScripts.register).not.toHaveBeenCalled();
+      expect(store.siteGroupCacheLoaded()).toBe(false);
+
+      // A later loadSettings read succeeds and fills the cache.
+      await store.loadSiteGroupCache();
+      await flush();
+
+      expect(userScripts.register).toHaveBeenCalledTimes(1);
+      const [batch] = userScripts.register.mock.calls[0] as [Registration[]];
+      const mainCode = batch[0].js[0].code;
+      expect(runCode(mainCode, "www.example.com")).toBeUndefined();
+      expect(runCode(mainCode, "other.org")).toBeDefined();
+
+      // Once registered, a further read is a no-op: the cache is already loaded.
+      await store.loadSiteGroupCache();
+      await flush();
+      expect(userScripts.register).toHaveBeenCalledTimes(1);
     } finally {
       userScripts.restore();
     }

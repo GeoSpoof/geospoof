@@ -140,10 +140,41 @@ let cache: Record<string, StoredSiteGroup> | null = null;
 let cacheVersion = 0;
 let memo: { version: number; lookup: SiteGroupLookup } | null = null;
 let loading: Promise<Readonly<Record<string, StoredSiteGroup>>> | null = null;
+const loadedListeners = new Set<() => void>();
 
 function setCache(groups: Record<string, StoredSiteGroup>): void {
   cache = groups;
   cacheVersion += 1;
+}
+
+/**
+ * True once the cache holds what storage has: a read or a write filled it.
+ * False means `currentSiteGroupData()` is `{}` because nothing could be read
+ * yet, not because no group has data.
+ */
+export function siteGroupCacheLoaded(): boolean {
+  return cache !== null;
+}
+
+/**
+ * Call `listener` each time a storage read fills a cache that wasn't loaded,
+ * for example the first successful read after an earlier one failed. Writes
+ * don't call it: they run in write windows, which register for themselves.
+ * Lets `bootstrap-register.ts` redo a registration it had to skip without
+ * this module importing it.
+ */
+export function onSiteGroupCacheLoaded(listener: () => void): void {
+  loadedListeners.add(listener);
+}
+
+function notifyLoaded(): void {
+  for (const listener of loadedListeners) {
+    try {
+      listener();
+    } catch (error) {
+      logger.warn("A site group data listener failed:", error);
+    }
+  }
 }
 
 /**
@@ -162,8 +193,12 @@ export function loadSiteGroupCache(): Promise<Readonly<Record<string, StoredSite
         unknown
       >;
       // A write that landed while the read was in flight is newer: keep it.
+      const filled = cache === null;
       const loaded = cache ?? validateStoredSiteGroupData(result?.[SITE_GROUP_DATA_KEY]);
-      if (cache === null) setCache(loaded);
+      if (filled) {
+        setCache(loaded);
+        notifyLoaded();
+      }
       return loaded;
     } finally {
       loading = null;

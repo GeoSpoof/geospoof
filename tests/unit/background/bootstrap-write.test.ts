@@ -342,7 +342,7 @@ describe("the bootstrap write window (F23)", () => {
     unregisterFailures = 1;
     await s.saveSettings(N1());
     expect(bootstrapWarns()).toEqual([
-      "[bootstrap] couldn't remove the early scripts before a settings write (continuing):",
+      "[bootstrap] couldn't remove the early scripts before a write (continuing):",
     ]);
     expect(setCount()).toBe(1);
     await flush();
@@ -390,7 +390,7 @@ describe("the bootstrap write window (F23)", () => {
     expect(setCount(), "stored at 1000 ms").toBe(1);
     await first;
     expect(bootstrapWarns()).toEqual([
-      "[bootstrap] userScripts didn't answer within 1000 ms; storing the settings without waiting",
+      "[bootstrap] userScripts didn't answer within 1000 ms; writing without waiting",
     ]);
 
     const second = s.saveSettings(N2());
