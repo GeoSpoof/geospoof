@@ -54,7 +54,7 @@ import type { Settings } from "@/shared/types/settings";
 import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { chromiumMajorFromUserAgent } from "@/shared/native-offset-precision";
-import { loadSettings } from "./settings";
+import { loadSettingsOrThrow } from "./settings";
 import { isRestrictedUrl, sendSettingsToTab } from "./tabs";
 import {
   TabSessionTracker,
@@ -166,10 +166,11 @@ async function attachAndApplyTab(
 /**
  * The zone a child session of `tabId` gets: the tab's committed top-level
  * page's, from fresh settings, so a frame follows its page. Null when the tab
- * shouldn't be spoofed.
+ * shouldn't be spoofed. Rejects when the settings can't be read; the child
+ * then gets no zone from this lookup.
  */
 async function zoneForTab(tabId: number): Promise<string | null> {
-  const settings = await loadSettings();
+  const settings = await loadSettingsOrThrow();
   if (!shouldSpoof(settings)) return null;
   const tab = await browser.tabs.get(tabId);
   return buildOverridesForTab(settings, tab.url)?.timezoneId ?? null;
@@ -179,7 +180,9 @@ async function zoneForTab(tabId: number): Promise<string | null> {
  * Start reconciling one tab now, in event order, and return the step that
  * finishes it for `url`: read settings fresh, then attach+apply if in scope,
  * else detach (out of scope, spoofing off, no zone here, so no stale session
- * is left on a tab that navigated from an allowlisted page away). Call it
+ * is left on a tab that navigated from an allowlisted page away). If the
+ * settings can't be read, nothing is sent: a failed read isn't "spoofing
+ * off", so the tab keeps its session and zone. Call it
  * synchronously in the event listener, before any await: a reconcile claimed
  * later supersedes this one even if this one's lookups finish last.
  *
@@ -199,7 +202,7 @@ export function claimTab(tabId: number): (url: string | undefined) => Promise<vo
       tabId,
       generation,
       async () => {
-        const settings = await loadSettings();
+        const settings = await loadSettingsOrThrow();
         if (!shouldSpoof(settings)) return null;
         return buildOverridesForTab(settings, url)?.timezoneId ?? null;
       },
@@ -267,7 +270,9 @@ async function detachAll(generation: number): Promise<void> {
  * its place in that order: callers reach here after awaiting a broadcast, a
  * badge update or an injection pass, so an older change's caller can arrive
  * after a newer one's sync. It then applies the newer settings again, not its
- * own older snapshot.
+ * own older snapshot. If that read fails, the sync sends nothing: a failed
+ * read isn't "spoofing off", so every session keeps its zone, and the next
+ * settings change or navigation reconciles it.
  */
 export async function syncDebuggerSpoofing(saved: Settings): Promise<void> {
   if (!__CHROMIUM__) return;
@@ -286,7 +291,13 @@ export async function syncDebuggerSpoofing(saved: Settings): Promise<void> {
   // are read after it, so a sync that takes a later generation reads every
   // change saved before it started.
   const generation = tracker.reserve();
-  const settings = await loadSettings();
+  let settings: Settings;
+  try {
+    settings = await loadSettingsOrThrow();
+  } catch (error) {
+    logger.warn("[debugger] couldn't read the settings; leaving the sessions as they are:", error);
+    return;
+  }
 
   if (!shouldSpoof(settings)) {
     await detachAll(generation);
@@ -347,7 +358,11 @@ export async function handleDebuggerDetach(
   }
 }
 
-/** Send one tab its current payload; nothing if the tab has closed. */
+/**
+ * Send one tab its current payload; nothing if the tab has closed. Rejects
+ * when the settings can't be read, so the defaults are never sent as the
+ * tab's settings.
+ */
 async function resendTabPayload(tabId: number): Promise<void> {
   let tab: Tabs.Tab;
   try {
@@ -355,7 +370,7 @@ async function resendTabPayload(tabId: number): Promise<void> {
   } catch {
     return; // the tab closed
   }
-  const settings = await loadSettings();
+  const settings = await loadSettingsOrThrow();
   await sendSettingsToTab(tab, settings);
 }
 

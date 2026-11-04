@@ -234,6 +234,53 @@ describe("a settings sync is ordered by when it starts", () => {
   });
 });
 
+describe("a settings read that fails leaves the sessions as they are", () => {
+  const CHILD = { tabId: TAB, sessionId: "S1" };
+
+  /** A held tab on Tokyo with a cross-site iframe's child session; returns the call count then. */
+  async function heldTab(mod: DebuggerSpoof): Promise<number> {
+    mod.installDebuggerWatchers();
+    const onEvent = fake.dbg.onEvent.addListener.mock.calls[0][0] as EventListener;
+    fake.state.targets = [target(MAIN_URL, false)];
+    await mod.syncDebuggerSpoofing(makeSettings());
+    onEvent(ROOT, "Target.attachedToTarget", {
+      sessionId: "S1",
+      targetInfo: { type: "iframe" },
+      waitingForDebugger: false,
+    });
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, CHILD)).toEqual(["Asia/Tokyo"]));
+    // The child's own auto-attach is the last step of its setup.
+    await vi.waitFor(() =>
+      expect(fake.calls.at(-1)).toMatchObject({ target: CHILD, method: "Target.setAutoAttach" })
+    );
+    fake.state.targets = [target(MAIN_URL, true)];
+    return fake.calls.length;
+  }
+
+  /** The next storage.local.get rejects (via the index signature, as session-cache.test.ts does). */
+  function failNextSettingsRead(): void {
+    const local = browser.storage.local as unknown as Record<string, unknown>;
+    (local["get"] as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("read failed"));
+  }
+
+  test("a settings sync sends no revert and no detach", async () => {
+    const mod = await load();
+    const before = await heldTab(mod);
+    failNextSettingsRead();
+    // The caller's snapshot is valid; only the sync's own read fails.
+    await mod.syncDebuggerSpoofing(makeSettings());
+    expect(fake.calls.slice(before)).toEqual([]);
+  });
+
+  test("a navigation's reconcile sends no revert and no detach", async () => {
+    const mod = await load();
+    const before = await heldTab(mod);
+    failNextSettingsRead();
+    await mod.claimTab(TAB)(MAIN_URL);
+    expect(fake.calls.slice(before)).toEqual([]);
+  });
+});
+
 describe("settings changes whose handlers reach the sync out of order", () => {
   const SLOW_TAB = 8;
   const CHILD = { tabId: TAB, sessionId: "S1" };
