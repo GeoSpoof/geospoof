@@ -15,18 +15,22 @@
  *     realm, so the iframe's Date.prototype receives the same overrides
  *     as the top-level one. A single implementation, two call sites.
  *
- * On Chrome (V8), native component getters use the shortOffset resolution
- * path internally. We match that by shifting the epoch via getIntlBasedOffset
- * and reading UTC methods on the shifted date.
+ * When `componentsViaShortOffset` is true (V8, JavaScriptCore), we shift the
+ * epoch via getIntlBasedOffset and read UTC methods on the shifted date,
+ * matching how those engines compute local time.
  *
- * On Firefox (SpiderMonkey), native getters match formatToParts, so we use
+ * On SpiderMonkey, native getters match formatToParts, so we use
  * resolvePartsForDate.
+ *
+ * Both paths keep the full seconds of a pre-standard-time offset, as every
+ * engine's native getters do. The precision of `getTimezoneOffset` is a
+ * separate decision (`nativeFractionalOffset`) and doesn't affect these.
  */
 
 import {
   spoofingEnabled,
   timezoneData,
-  engineTruncatesOffset,
+  componentsViaShortOffset,
   originalGetHours,
   originalGetMinutes,
   originalGetSeconds,
@@ -75,7 +79,7 @@ export function installDateGetterOverridesOn(proto: object, originals: DateGette
     installOverride(proto, "getHours", function (this: Date): number {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const val = local.getUTCHours();
             logger.trace("getHours: spoofed", this.getTime(), true, val);
@@ -103,7 +107,7 @@ export function installDateGetterOverridesOn(proto: object, originals: DateGette
     installOverride(proto, "getMinutes", function (this: Date): number {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const val = local.getUTCMinutes();
             logger.trace("getMinutes: spoofed", this.getTime(), true, val);
@@ -131,7 +135,7 @@ export function installDateGetterOverridesOn(proto: object, originals: DateGette
     installOverride(proto, "getSeconds", function (this: Date): number {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const val = local.getUTCSeconds();
             logger.trace("getSeconds: spoofed", this.getTime(), true, val);
@@ -174,7 +178,7 @@ export function installDateGetterOverridesOn(proto: object, originals: DateGette
     installOverride(proto, "getDate", function (this: Date): number {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const val = local.getUTCDate();
             logger.trace("getDate: spoofed", this.getTime(), true, val);
@@ -202,7 +206,7 @@ export function installDateGetterOverridesOn(proto: object, originals: DateGette
     installOverride(proto, "getDay", function (this: Date): number {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const val = local.getUTCDay();
             logger.trace("getDay: spoofed", this.getTime(), true, val);
@@ -231,7 +235,7 @@ export function installDateGetterOverridesOn(proto: object, originals: DateGette
     installOverride(proto, "getMonth", function (this: Date): number {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const val = local.getUTCMonth();
             logger.trace("getMonth: spoofed", this.getTime(), true, val);
@@ -260,7 +264,7 @@ export function installDateGetterOverridesOn(proto: object, originals: DateGette
     installOverride(proto, "getFullYear", function (this: Date): number {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const val = local.getUTCFullYear();
             logger.trace("getFullYear: spoofed", this.getTime(), true, val);

@@ -12,12 +12,17 @@
  *     an arbitrary `Date.prototype` using a caller-supplied originals
  *     bag. The iframe patcher invokes this against each same-origin
  *     iframe's Date.prototype.
+ *
+ * `componentsViaShortOffset` (from `state.ts`) picks how local time is
+ * derived: an epoch shift by the Intl shortOffset value on V8 and
+ * JavaScriptCore, `formatToParts` on SpiderMonkey. Both give the same
+ * whole-second wall clock.
  */
 
 import {
   spoofingEnabled,
   timezoneData,
-  engineTruncatesOffset,
+  componentsViaShortOffset,
   originalToString,
   originalToTimeString,
   originalToDateString,
@@ -102,8 +107,8 @@ export function installDateFormattingOverridesOn(
     installOverride(proto, "toDateString", function (this: Date): string {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
-            // Chrome: use shortOffset-derived local date (matches native getter path)
+          if (componentsViaShortOffset) {
+            // V8/JavaScriptCore: use shortOffset-derived local date (matches native getter path)
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const weekday = SHORT_DAYS[local.getUTCDay()];
             const month = SHORT_MONTHS[local.getUTCMonth()];
@@ -141,7 +146,7 @@ export function installDateFormattingOverridesOn(
     installOverride(proto, "toString", function (this: Date): string {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const offsetMinutes = getIntlBasedOffset(
               this,
@@ -195,7 +200,7 @@ export function installDateFormattingOverridesOn(
     installOverride(proto, "toTimeString", function (this: Date): string {
       try {
         if (spoofingEnabled && timezoneData) {
-          if (engineTruncatesOffset) {
+          if (componentsViaShortOffset) {
             const local = getLocalDateViaOffset(this, timezoneData.identifier, timezoneData.offset);
             const offsetMinutes = getIntlBasedOffset(
               this,

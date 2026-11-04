@@ -4,15 +4,28 @@
  */
 
 import type { Settings } from "@/shared/types/settings";
-import type { InjectionStatus } from "@/shared/types/messages";
+import type { InjectionStatus, UpdateSettingsMessage } from "@/shared/types/messages";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { readRevision } from "@/shared/settings-revision";
 import { updateWorkerFilterSettings } from "./worker-request-filter";
 import { updateAcceptLanguageSettings } from "./accept-language";
 import { buildPagePayload } from "./page-payload";
+import { beforePageDelivery } from "./debugger-spoof";
 
 export { isRestrictedUrl } from "./restricted-url";
 
 const logger = createLogger("BG");
+
+/**
+ * The `revision` field to stamp on a page delivery built from `settings`:
+ * present only when the snapshot carries a usable revision. Shared by
+ * `sendSettingsToTab` and the GET_SETTINGS content-script reply, so both stamp
+ * the same way.
+ */
+export function revisionField(settings: Settings): { revision?: number } {
+  const r = readRevision(settings.revision);
+  return r !== undefined ? { revision: r } : {};
+}
 
 /**
  * Build and deliver the per-tab `UPDATE_SETTINGS` payload for a single tab.
@@ -24,9 +37,12 @@ const logger = createLogger("BG");
  *
  * Shared by `broadcastSettingsToTabs` (settings/list/mode changes) and the
  * navigation re-evaluation path in `index.ts` (full and same-document/SPA
- * navigations), so both build an identical payload (Req 9.1, 9.2). Returns
- * `true` when the message was delivered, `false` on a send failure (e.g. no
- * content script in the tab yet) or a missing tab id.
+ * navigations), so both build an identical payload (Req 9.1, 9.2). The
+ * injection-check alarm and `tabs.onCreated` send through it too, so every
+ * push is stamped here, on the envelope, with the revision of the snapshot the
+ * payload was built from. Returns `true` when the message was delivered,
+ * `false` on a send failure (e.g. no content script in the tab yet) or a
+ * missing tab id.
  */
 export async function sendSettingsToTab(
   tab: { id?: number; url?: string },
@@ -36,10 +52,21 @@ export async function sendSettingsToTab(
     return false;
   }
 
-  const payload = await buildPagePayload(settings, tab.url);
+  // Chromium Engine-level: from here an older settings sync can't change this
+  // tab's engine zone under the page. Waits for its commands in flight; if one
+  // can still land, no frame keeps native Date/Intl on this delivery.
+  const engineTimezoneSettled =
+    !__CHROMIUM__ || (await beforePageDelivery(tab.id, settings, tab.url));
+
+  const payload = await buildPagePayload(settings, tab.url, { engineTimezoneSettled });
+  const message: UpdateSettingsMessage = {
+    type: "UPDATE_SETTINGS",
+    payload,
+    ...revisionField(settings),
+  };
 
   try {
-    await browser.tabs.sendMessage(tab.id, { type: "UPDATE_SETTINGS", payload });
+    await browser.tabs.sendMessage(tab.id, message);
     return true;
   } catch (error) {
     // "Receiving end does not exist" is an EXPECTED outcome, not a fault: the

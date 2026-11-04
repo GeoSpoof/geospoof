@@ -18,8 +18,9 @@
 
 import { describe, test, expect, vi } from "vitest";
 import type { Settings } from "@/shared/types/settings";
-import type { Message } from "@/shared/types/messages";
+import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
 import { computeEffectiveEnabled } from "@/shared/utils/scope";
+import { makeSiteLocation, TOKYO, TOKYO_NAME, TOKYO_TZ } from "../../helpers/site-locations";
 
 function makeSettings(overrides?: Partial<Settings>): Settings {
   return {
@@ -173,6 +174,223 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
 
       expect(response.accuracySetting).toEqual({ mode: "fixed", meters: 250 });
       expect(response.accuracySeed).toBe(1234567);
+    });
+  });
+
+  // A page Chrome prerenders runs in the tab the user is still looking at, so
+  // `tab.url` is the page being left. Its outermost frame has a non-zero
+  // frameId; the content script's `topFrame` claim, honored only while the
+  // document is prerendering, says it's a top-level document.
+  describe("prerendered and top-frame senders", () => {
+    const A_URL = "https://a.test/";
+    const B_URL = "https://b.test/page";
+    const settingsForB = (): Settings =>
+      makeSettings({
+        scopeMode: "allowlist",
+        allowlist: ["b.test"],
+        siteLocations: [
+          makeSiteLocation({
+            patterns: ["b.test"],
+            location: TOKYO,
+            timezone: TOKYO_TZ,
+            locationName: TOKYO_NAME,
+          }),
+        ],
+      });
+    const prerenderSender = (tabId: number): browser.runtime.MessageSender =>
+      ({
+        frameId: 7,
+        documentLifecycle: "prerender",
+        url: B_URL,
+        tab: { id: tabId, url: A_URL } as browser.tabs.Tab,
+      }) as browser.runtime.MessageSender;
+
+    test("a prerendered page on site B while tab.url is site A gets B's values", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      const response = (await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: true } },
+        prerenderSender(21)
+      )) as UpdateSettingsPayload;
+
+      expect(response.enabled).toBe(true);
+      expect(response.timezone?.identifier).toBe("Asia/Tokyo");
+      expect(response.location?.latitude).toBe(TOKYO.latitude);
+      expect(response.location?.longitude).toBe(TOKYO.longitude);
+    });
+
+    test("a prerendered subframe (no top-frame claim) still follows the tab", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      const response = (await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: false } },
+        prerenderSender(22)
+      )) as UpdateSettingsPayload;
+
+      expect(response.enabled).toBe(false);
+      expect(response.timezone?.identifier).not.toBe("Asia/Tokyo");
+    });
+
+    test("the badge for a prerendered page keeps describing the visible page", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: true } },
+        prerenderSender(23)
+      );
+
+      // a.test isn't allowlisted, so the visible tab is out of scope ("•"),
+      // even though the prerendered b.test document is in scope.
+      expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "•", tabId: 23 });
+    });
+
+    // Engine-level spoofing (Chromium debugger mode) flags the payload so each
+    // frame keeps native Date/Intl where the engine already reports the zone,
+    // but CDP is attached to the tab, which still shows A, so it doesn't reach
+    // a page being prerendered: that document gets the plain injected path.
+    test("Engine-level spoofing flags the zone, except for a prerendering document", async () => {
+      const { buildPagePayload } = await import("@/background/page-payload");
+      const s = { ...settingsForB(), debuggerModeEnabled: true };
+
+      const active = await buildPagePayload(s, B_URL, { engineTimezone: true });
+      const prerendering = await buildPagePayload(s, B_URL, {
+        engineTimezone: true,
+        prerendering: true,
+      });
+
+      expect(active.timezone?.identifier).toBe("Asia/Tokyo");
+      expect(active.engineTimezone).toBe(true);
+      expect(prerendering.timezone).toEqual(active.timezone);
+      expect(prerendering.engineTimezone).toBe(false);
+      expect(prerendering.location).toEqual(active.location);
+    });
+
+    test("GET_SETTINGS tells the payload builder whether the sender is prerendering", async () => {
+      const seen: unknown[] = [];
+      vi.doMock("@/background/page-payload", async (importOriginal) => {
+        const mod = await importOriginal<typeof import("@/background/page-payload")>();
+        return {
+          ...mod,
+          buildPagePayload: (...args: Parameters<typeof mod.buildPagePayload>) => {
+            seen.push(args[2]);
+            return mod.buildPagePayload(...args);
+          },
+        };
+      });
+      try {
+        const { handleMessage } = await importBackgroundWith(settingsForB());
+        await handleMessage(
+          { type: "GET_SETTINGS", payload: { topFrame: true } },
+          prerenderSender(25)
+        );
+        await handleMessage(
+          { type: "GET_SETTINGS", payload: { topFrame: true } },
+          { frameId: 0, url: B_URL, tab: { id: 26, url: B_URL } as browser.tabs.Tab }
+        );
+      } finally {
+        vi.doUnmock("@/background/page-payload");
+      }
+
+      expect(seen).toEqual([
+        { prerendering: true, withoutSiteLocation: false, engineTimezoneSettled: true },
+        { prerendering: false, withoutSiteLocation: false, engineTimezoneSettled: true },
+      ]);
+    });
+
+    // The reverse case: visible A owns an entry, and hidden prerendered B
+    // doesn't. B's subframe is judged by A (its sender names no parent), so it
+    // follows A's Filters decision and gets the main location, never A's
+    // entry. Once B is shown the subframe asks again and gets B's own values.
+    describe("visible A owns a site location; a subframe of prerendered B", () => {
+      const settingsForA = (overrides: Partial<Settings> = {}): Settings =>
+        makeSettings({
+          localeSpoofing: { mode: "match" },
+          siteLocations: [
+            makeSiteLocation({
+              patterns: ["a.test"],
+              location: TOKYO,
+              timezone: TOKYO_TZ,
+              locationName: TOKYO_NAME,
+            }),
+          ],
+          ...overrides,
+        });
+      const subframe = (tabId: number, lifecycle: string, tabUrl: string) =>
+        ({
+          frameId: 8,
+          documentLifecycle: lifecycle,
+          url: "https://b.test/frame",
+          tab: { id: tabId, url: tabUrl } as browser.tabs.Tab,
+        }) as browser.runtime.MessageSender;
+      const ask = (
+        handleMessage: Awaited<ReturnType<typeof importBackgroundWith>>["handleMessage"],
+        sender: browser.runtime.MessageSender
+      ) =>
+        handleMessage(
+          { type: "GET_SETTINGS", payload: { topFrame: false } },
+          sender
+        ) as Promise<UpdateSettingsPayload>;
+      const expectNoTokyo = (payload: UpdateSettingsPayload): void => {
+        expect(payload.location?.latitude).not.toBe(TOKYO.latitude);
+        expect(payload.location?.longitude).not.toBe(TOKYO.longitude);
+        expect(payload.timezone?.identifier).not.toBe("Asia/Tokyo");
+        expect(payload.locale?.tag).not.toMatch(/^ja/);
+      };
+
+      test("unmatched B: the main location before and after it's shown", async () => {
+        const s = settingsForA();
+        const { handleMessage } = await importBackgroundWith(s);
+
+        const before = await ask(handleMessage, subframe(31, "prerender", A_URL));
+        expectNoTokyo(before);
+        expect(before.enabled).toBe(true);
+        expect(before.location?.latitude).toBe(s.location!.latitude);
+        expect(before.timezone?.identifier).toBe("America/Los_Angeles");
+        expect(before.locale?.tag).toBe("en-US");
+
+        const after = await ask(handleMessage, subframe(31, "active", B_URL));
+        expect(after.enabled).toBe(true);
+        expect(after.location?.latitude).toBe(s.location!.latitude);
+        expect(after.timezone?.identifier).toBe("America/Los_Angeles");
+      });
+
+      test("out-of-scope B: never A's entry, and off once it's shown", async () => {
+        const { handleMessage } = await importBackgroundWith(
+          settingsForA({ scopeMode: "denylist", denylist: ["b.test"] })
+        );
+
+        // Filters still follow the page being left until B is shown.
+        const before = await ask(handleMessage, subframe(32, "prerender", A_URL));
+        expectNoTokyo(before);
+        expect(before.timezone?.identifier).toBe("America/Los_Angeles");
+
+        const after = await ask(handleMessage, subframe(32, "active", B_URL));
+        expect(after.enabled).toBe(false);
+        expectNoTokyo(after);
+      });
+
+      test("A's own active subframe still gets A's entry", async () => {
+        const { handleMessage } = await importBackgroundWith(settingsForA());
+        const own = await ask(handleMessage, {
+          frameId: 3,
+          documentLifecycle: "active",
+          url: "https://embed.test/",
+          tab: { id: 33, url: A_URL } as browser.tabs.Tab,
+        } as browser.runtime.MessageSender);
+        expect(own.timezone?.identifier).toBe("Asia/Tokyo");
+      });
+    });
+
+    test("an active top frame whose own URL is B while tab.url is A resolves B", async () => {
+      const { handleMessage } = await importBackgroundWith(settingsForB());
+
+      const response = (await handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: true } },
+        { frameId: 0, url: B_URL, tab: { id: 24, url: A_URL } as browser.tabs.Tab }
+      )) as UpdateSettingsPayload;
+
+      expect(response.enabled).toBe(true);
+      expect(response.timezone?.identifier).toBe("Asia/Tokyo");
     });
   });
 

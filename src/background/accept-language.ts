@@ -73,6 +73,7 @@ import { resolveLocale, computeEffectiveLocaleSpoofing } from "@/shared/locale/r
 import { computeEffectiveSiteLocations } from "@/shared/utils/scope";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 import { isRestrictedUrl } from "./tabs";
 import { tabPageUrlCache } from "./worker-request-filter";
 
@@ -89,6 +90,12 @@ const RULE_ID = 8801;
  * `worker-request-filter`'s cached snapshot.
  */
 let cachedSettings: Settings | null = null;
+
+/**
+ * The settings revision of `cachedSettings`, when it carries one. Defined only
+ * once `cachedSettings` is set; an older snapshot never replaces it.
+ */
+let cachedRevision: number | undefined;
 
 let beforeSendHeadersListener:
   ((details: AcceptLanguageRequestDetails) => BlockingResponse | undefined) | null = null;
@@ -353,13 +360,24 @@ export function planAcceptLanguageRules(
 }
 
 /**
+ * The rules the last successful `updateSessionRules` installed, serialized, or
+ * null when unknown (a fresh service worker, or after a failed update).
+ */
+let appliedDnrRules: string | null = null;
+
+/**
  * Rebuild the DNR rules to match the current settings and tabs.
  *
  * One `updateSessionRules` call removes every id this module owns and adds the
  * new plan, so "no locale", "changed locale", and "fewer groups" share one code
  * path and a stale rule can never survive.
+ *
+ * A plan identical to the installed one is skipped. Chrome flushes every tab's
+ * back/forward cache on each `updateSessionRules` call, even one that changes
+ * nothing, and this runs on every settings change and, with per-tab rules, on
+ * every navigation. Exported for tests.
  */
-async function refreshDnrRule(settings: Settings): Promise<void> {
+export async function refreshDnrRule(settings: Settings): Promise<void> {
   const dnr = getDnr();
   if (!dnr?.updateSessionRules) return;
 
@@ -376,7 +394,11 @@ async function refreshDnrRule(settings: Settings): Promise<void> {
       condition: { ...rule.condition, resourceTypes: RESOURCE_TYPES },
     }));
 
+    const serialized = JSON.stringify(addRules);
+    if (serialized === appliedDnrRules) return;
+    appliedDnrRules = null;
     await dnr.updateSessionRules({ removeRuleIds: [...ACCEPT_LANGUAGE_RULE_IDS], addRules });
+    appliedDnrRules = serialized;
   } catch (error) {
     // Never let header alignment break settings flow. The JS overrides still
     // apply; only the header stays unmodified.
@@ -436,10 +458,18 @@ const RESOURCE_TYPES = [
  *
  * Called from `broadcastSettingsToTabs`, which every settings mutation already
  * flows through, so the header stays in step with the page payload without each
- * call site having to remember this module exists.
+ * call site having to remember this module exists. A snapshot whose settings
+ * revision is older than the cached one changes nothing: the newer snapshot
+ * already queued its DNR refresh.
  */
 export function updateAcceptLanguageSettings(settings: Settings): void {
+  const r = readRevision(settings.revision);
+  if (isOlderRevision(r, cachedRevision)) {
+    logger.debug(`[accept-language] kept settings revision ${cachedRevision} over older ${r}`);
+    return;
+  }
   cachedSettings = settings;
+  if (r !== undefined) cachedRevision = r;
   if (!__FIREFOX__) {
     queueDnrRefresh(settings);
   }
@@ -450,12 +480,19 @@ export function updateAcceptLanguageSettings(settings: Settings): void {
  * variant keys rules on tab ids, so a tab that moves to another site needs its
  * group recomputed; the global variant (and Firefox, which resolves per
  * request) needs only the snapshot. Called from both `tabs.onUpdated` branches
- * in `index.ts` (same-document URL change and `status === "loading"`).
+ * in `index.ts` (same-document URL change and `status === "loading"`). The
+ * navigation still needs its re-plan when `settings` is older than the cached
+ * snapshot, so it uses the newer of the two.
  */
 export function refreshAcceptLanguageOnNavigation(settings: Settings): void {
-  cachedSettings = settings;
-  if (!__FIREFOX__ && usesPerTabRules(settings)) {
-    queueDnrRefresh(settings);
+  const r = readRevision(settings.revision);
+  // cachedRevision defined implies cachedSettings is set.
+  const s = isOlderRevision(r, cachedRevision) ? cachedSettings! : settings;
+  cachedSettings = s;
+  const sr = readRevision(s.revision);
+  if (sr !== undefined) cachedRevision = sr;
+  if (!__FIREFOX__ && usesPerTabRules(s)) {
+    queueDnrRefresh(s);
   }
 }
 
@@ -504,6 +541,8 @@ export function uninstallAcceptLanguageRewriter(): void {
 /** Test seam: reset the cached snapshot. */
 export function _resetAcceptLanguageStateForTest(): void {
   cachedSettings = null;
+  cachedRevision = undefined;
+  appliedDnrRules = null;
   dnrPendingSettings = null;
   dnrChain = Promise.resolve();
   beforeSendHeadersListener = null;

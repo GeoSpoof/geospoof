@@ -20,6 +20,10 @@ const logger = createLogger("INJ");
  * Intl.DateTimeFormat, cached for the lifetime of the realm. Used to compute the
  * real system offset at full sub-minute precision (see computeEpochAdjustment),
  * independent of the spoofed timezone. Falls back to "UTC" if resolution fails.
+ *
+ * "Real" means the zone the engine itself uses for local time. On Chromium a
+ * CDP override can change that under the realm (one that lands, changes or is
+ * kept after this was cached), so `computeEpochAdjustment` re-checks it there.
  */
 let _realTimeZoneId: string | undefined;
 function getRealTimeZoneId(): string {
@@ -30,6 +34,27 @@ function getRealTimeZoneId(): string {
     _realTimeZoneId = "UTC";
   }
   return _realTimeZoneId;
+}
+
+/**
+ * Whether this realm's engine already reports `id` as its own zone: the native
+ * default `DateTimeFormat` resolves to the same zone as one built for `id`.
+ * Both sides go through the engine's own canonicalization, so an alias
+ * (`Asia/Calcutta` / `Asia/Kolkata`) compares equal. In Engine-level Spoofing a
+ * realm where this holds keeps native Date/Intl; one where it doesn't (a
+ * cross-site iframe in its own process, an override that hasn't landed)
+ * installs the injected overrides. False on any error.
+ */
+export function engineReportsZone(id: string): boolean {
+  try {
+    const own = originalResolvedOptions.call(new OriginalDateTimeFormat()).timeZone;
+    const wanted = originalResolvedOptions.call(
+      new OriginalDateTimeFormat("en-US", { timeZone: id })
+    ).timeZone;
+    return own === wanted;
+  } catch {
+    return false;
+  }
 }
 
 /** Validate that an unknown value conforms to the TimezoneData interface. */
@@ -302,12 +327,15 @@ export function getLocalDateViaOffset(
   return new OriginalDate(date.getTime() + offsetMinutes * 60000);
 }
 
-/** Convert an offset in minutes from UTC to a `GMT±HHMM` string.
- *  Rounds fractional minutes to the nearest whole minute for display,
- *  matching native toString() behavior for sub-minute historical offsets. */
+/** Convert an offset in minutes east of UTC to a `GMT±HHMM` string.
+ *  Prints whole minutes truncated toward zero, with the sign of the truncated
+ *  value, as every engine's native toString() does (V8 date.cc, SpiderMonkey
+ *  jsdate.cpp, JavaScriptCore DateConversion.cpp): 1879 Tokyo, +9:18:59, prints
+ *  GMT+0918, even on engines whose getTimezoneOffset keeps the seconds. */
 export function formatGMTOffset(offsetMinutes: number): string {
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const abs = Math.round(Math.abs(offsetMinutes));
+  const whole = Math.trunc(offsetMinutes);
+  const sign = whole < 0 ? "-" : "+";
+  const abs = Math.abs(whole);
   const hours = Math.floor(abs / 60);
   const minutes = abs % 60;
   return `GMT${sign}${String(hours).padStart(2, "0")}${String(minutes).padStart(2, "0")}`;
@@ -382,16 +410,28 @@ export function computeEpochAdjustment(
   // (a) Real system offset in minutes (positive = west of UTC, getTimezoneOffset
   //     convention), resolved at FULL sub-minute precision.
   //
-  //     We cannot use getTimezoneOffset() here: on V8 it truncates sub-minute
-  //     historical LMT offsets to a whole minute, while the native Date
-  //     constructor (which produced parsedDate.getTime()) uses the full-precision
-  //     offset. Mixing the two leaks the dropped fraction into the adjustment —
+  //     We cannot use getTimezoneOffset() here: V8 before Chrome 156 and
+  //     JavaScriptCore truncate sub-minute historical LMT offsets to a whole
+  //     minute in it, while the native Date constructor (which produced
+  //     parsedDate.getTime()) uses the full-precision offset. Mixing the two
+  //     leaks the dropped fraction into the adjustment —
   //     e.g. spoofing America/Sao_Paulo (LMT -3:06:28) from a machine also in
   //     Sao_Paulo produced 186.9333 instead of the native 186.4667. Resolving the
   //     real offset via Intl (same shortOffset path as the spoofed offset) keeps
   //     both sides at the same precision so the fraction cancels correctly.
   const realEastFallback = -originalGetTimezoneOffset.call(parsedDate);
-  const realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
+  let realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
+  // On Chromium the engine's zone can change after the realm cached it (a CDP
+  // override that lands after this realm installed the injected overrides, or
+  // one Chrome keeps after Engine-level Spoofing is turned off), whatever the
+  // payload says now. Native getTimezoneOffset always follows the engine, and
+  // it differs from the cached zone's offset by under a minute only through
+  // truncation, so a gap of a minute or more means the cache is stale.
+  // (`realOffset` is positive-west, `realEastFallback` positive-east.)
+  if (__CHROMIUM__ && Math.abs(realOffset + realEastFallback) >= 1) {
+    _realTimeZoneId = undefined;
+    realOffset = -getIntlBasedOffset(parsedDate, getRealTimeZoneId(), realEastFallback);
+  }
 
   // (b) Compute the wall-clock time as a UTC epoch.
   //     parsedDate.getTime() is the UTC instant the browser chose when parsing
@@ -426,9 +466,9 @@ export function computeEpochAdjustment(
       logger.debug("computeEpochAdjustment: DST refinement", originalOffset, spoofedOffset);
     }
 
-    // (f) Both engines' native Date constructors interpret ambiguous local-time
-    //     inputs using the FULL sub-minute offset (only getTimezoneOffset() rounds,
-    //     and it does so on a separate code path). Keeping full precision here makes
+    // (f) Every engine's native Date constructor interprets ambiguous local-time
+    //     inputs using the FULL sub-minute offset (only getTimezoneOffset() may
+    //     truncate, on a separate code path). Keeping full precision here makes
     //     the epoch — and therefore getTime/valueOf/Date.parse/component arithmetic —
     //     match what a real browser in the spoofed zone reports (e.g. Asia/Tokyo 1879
     //     resolves to -558.9833, not -558 or -560). getTimezoneOffset's per-engine

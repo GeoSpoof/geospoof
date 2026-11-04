@@ -1,6 +1,7 @@
 /**
- * Safari app bridge, inbound: adoption step 9 (`siteLocations`), plus the
- * literal shapes a future geospoof-ios parity test regex-reads.
+ * Safari app bridge, inbound: adoption step 9 (`siteLocations`), step 1c's
+ * delivery of a Pro status change, plus the literal shapes a future
+ * geospoof-ios parity test regex-reads.
  *
  * Vitest compiles `__SAFARI__` to `false`, which removes the native fetch in
  * adoptPendingSettingsFromApp, so these tests drive the exported
@@ -21,6 +22,20 @@ import { computeOffsets } from "@/background/timezone";
 import { storageData } from "../../setup";
 import { flush, makeCadenceSettings, mocks } from "../../helpers/cadence";
 import { ENTRY_DUBLIN, ENTRY_MEXICO_CITY, makeSiteLocation } from "../../helpers/site-locations";
+
+/**
+ * Vitest compiles `__SAFARI__` to false, so the real site-location Pro gate is
+ * a no-op. Swap in the Safari behavior: a Pro-blocked user's effective list is
+ * empty. No other test here sets `proFeaturesBlocked`, so they're unaffected.
+ */
+vi.mock("@/shared/utils/scope", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/shared/utils/scope")>();
+  return {
+    ...actual,
+    computeEffectiveSiteLocations: (list: unknown, proFeaturesBlocked?: boolean) =>
+      proFeaturesBlocked === true ? [] : actual.computeEffectiveSiteLocations(list),
+  };
+});
 
 type AppBridge = typeof import("@/background/app-bridge");
 
@@ -147,6 +162,26 @@ describe("adopting site locations from the app", () => {
     ]);
   });
 
+  // Zones the format check used to refuse, so step 9 dropped these entries.
+  // Each arrives once bare (repaired with offsets) and once as a full object
+  // (passed through).
+  test.each([
+    "America/Port-au-Prince",
+    "Africa/Porto-Novo",
+    "America/Blanc-Sablon",
+    "Asia/Ust-Nera",
+    "GMT",
+  ])("a %s zone is adopted, bare or as an object", async (identifier) => {
+    await boot(base());
+    const timezone = { identifier, ...computeOffsets(identifier) };
+    const bare = makeSiteLocation({ id: "bare", patterns: ["a.com"] });
+    const full = makeSiteLocation({ id: "full", patterns: ["b.com"], timezone });
+
+    await adopt({ siteLocations: JSON.stringify([{ ...bare, timezone: identifier }, full]) });
+
+    expect(stored().siteLocations).toEqual([{ ...bare, timezone }, full]);
+  });
+
   test("a zone object with non-finite offsets is recomputed", async () => {
     await boot(base());
     const partial = { ...ENTRY_DUBLIN, timezone: { identifier: "Europe/Dublin" } };
@@ -157,6 +192,47 @@ describe("adopting site locations from the app", () => {
       identifier: "Europe/Dublin",
       ...computeOffsets("Europe/Dublin"),
     });
+  });
+
+  test("a zone object with finite offsets the engine can't resolve is dropped", async () => {
+    await boot(base());
+    const unknownZone = {
+      ...makeSiteLocation({ id: "unknown-zone", patterns: ["b.com"] }),
+      timezone: { identifier: "Not/AZone", offset: 0, dstOffset: 0 },
+    };
+
+    await adopt({ siteLocations: JSON.stringify([ENTRY_DUBLIN, unknownZone]) });
+
+    expect(stored().siteLocations).toEqual([ENTRY_DUBLIN]);
+  });
+
+  test("a zone marked fallback is dropped, with or without offsets", async () => {
+    await boot(base());
+    const withOffsets = {
+      ...makeSiteLocation({ id: "fallback-full", patterns: ["a.com"] }),
+      timezone: { identifier: "Etc/GMT+5", offset: 300, dstOffset: 0, fallback: true },
+    };
+    const withoutOffsets = {
+      ...makeSiteLocation({ id: "fallback-bare", patterns: ["b.com"] }),
+      timezone: { identifier: "Etc/GMT+5", fallback: true },
+    };
+
+    await adopt({ siteLocations: JSON.stringify([withOffsets, withoutOffsets, ENTRY_DUBLIN]) });
+
+    expect(stored().siteLocations).toEqual([ENTRY_DUBLIN]);
+  });
+
+  test("an unmarked Etc/GMT zone is kept, as the extension's own save path keeps it", async () => {
+    await boot(base());
+    // geo-tz returns Etc/GMT±N, unmarked, for open ocean.
+    const ocean = {
+      ...makeSiteLocation({ id: "ocean", patterns: ["a.com"] }),
+      timezone: { identifier: "Etc/GMT+5", offset: 300, dstOffset: 0 },
+    };
+
+    await adopt({ siteLocations: JSON.stringify([ocean]) });
+
+    expect(stored().siteLocations).toEqual([ocean]);
   });
 
   test("invalid entries are dropped and valid ones kept", async () => {
@@ -194,6 +270,52 @@ describe("adopting site locations from the app", () => {
 
     expect(mocks.localSet()).not.toHaveBeenCalled();
     expect(stored().siteLocations).toEqual([]);
+  });
+});
+
+describe("a Pro status change reaches open pages", () => {
+  /** The zone in the newest UPDATE_SETTINGS sent to tab 1. */
+  function lastDeliveredZone(): string | undefined {
+    const updates = mocks
+      .tabsSendMessage()
+      .mock.calls.filter(
+        ([tabId, message]) =>
+          tabId === 1 && (message as { type?: string }).type === "UPDATE_SETTINGS"
+      );
+    const payload = (updates.at(-1)?.[1] as { payload?: { timezone?: { identifier?: string } } })
+      ?.payload;
+    return payload?.timezone?.identifier;
+  }
+
+  test("with the list unchanged, a lapse and a renewal are each delivered and badged", async () => {
+    const list = JSON.stringify([ENTRY_MEXICO_CITY]);
+    await boot(base({ siteLocations: [ENTRY_MEXICO_CITY] }));
+
+    // Lapse: the open twitch.tv page drops Mexico City for the main location.
+    await adopt({ proFeaturesBlocked: true, siteLocations: list });
+    expect(stored().proFeaturesBlocked).toBe(true);
+    expect(stored().siteLocations).toEqual([ENTRY_MEXICO_CITY]);
+    expect(lastDeliveredZone()).toBe("America/Los_Angeles");
+    expect(browser.action.setTitle).toHaveBeenLastCalledWith({ tabId: 1, title: "GeoSpoof" });
+
+    // Renewal: it gets Mexico City back.
+    mocks.tabsSendMessage().mockClear();
+    vi.mocked(browser.action.setTitle).mockClear();
+    await adopt({ proFeaturesBlocked: false, siteLocations: list });
+    expect(stored().proFeaturesBlocked).toBe(false);
+    expect(lastDeliveredZone()).toBe("America/Mexico_City");
+    expect(browser.action.setTitle).toHaveBeenLastCalledWith({
+      tabId: 1,
+      title: "GeoSpoof: Mexico City on www.twitch.tv",
+    });
+  });
+
+  test("an unchanged Pro status sends nothing", async () => {
+    await boot(base({ siteLocations: [ENTRY_MEXICO_CITY] }));
+
+    await adopt({ proFeaturesBlocked: false, siteLocations: JSON.stringify([ENTRY_MEXICO_CITY]) });
+
+    expect(mocks.tabsSendMessage()).not.toHaveBeenCalled();
   });
 });
 

@@ -14,7 +14,7 @@
 import { describe, test, expect, vi } from "vitest";
 import type { Settings } from "@/shared/types/settings";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
-import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
+import type { ContentSettingsReply, Message, UpdateSettingsPayload } from "@/shared/types/messages";
 import { resolveLocale, resolvePageLocale } from "@/shared/locale/resolver";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { mocks } from "../../helpers/cadence";
@@ -127,18 +127,21 @@ async function collectPayloads(url: string): Promise<UpdateSettingsPayload[]> {
   await bg.broadcastSettingsToTabs(SETTINGS);
   payloads.push(sent.find((m) => m.tabId === 1)!.payload);
 
-  // 2. Content-script GET_SETTINGS.
-  payloads.push(
-    (await bg.handleMessage(
-      { type: "GET_SETTINGS" },
-      { tab: { id: 2, url } as browser.tabs.Tab }
-    )) as UpdateSettingsPayload
-  );
+  // 2. Content-script GET_SETTINGS. The reply also carries the settings
+  // revision it was built from (pushes carry it on the envelope instead), so
+  // the payload is the rest.
+  const { revision, ...reply } = (await bg.handleMessage(
+    { type: "GET_SETTINGS" },
+    { tab: { id: 2, url } as browser.tabs.Tab }
+  )) as ContentSettingsReply;
+  expect(typeof revision).toBe("number");
+  payloads.push(reply);
 
   // 3. tabs.onCreated, sent after its 100ms delay.
   const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
     ((tab: { id?: number; url?: string }) => void) | undefined;
   expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+  browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url });
   vi.useFakeTimers();
   try {
     onCreated!({ id: 42, url });
@@ -168,6 +171,8 @@ describe("Site locations: all consumers agree", () => {
     const payload = payloads[0];
     expect(payload.enabled).toBe(row.enabled);
     expect(payload.timezone?.identifier).toBe(row.zone);
+    // Not a Chromium build: Engine-level Spoofing never owns the zone here.
+    expect(payload.engineTimezone).toBe(false);
     expect(payload.locale).toEqual(resolvePageLocale({ mode: "match" }, row.zone));
     // Within the 2 km radius of the row's anchor (0.05° is ~5 km): precision
     // applies to a site location's point with the global seed and cadence.
@@ -205,8 +210,12 @@ describe("Site locations: all consumers agree", () => {
       expect(group).toBeUndefined();
     }
 
-    // Worker payload embeds the same zone.
-    expect(workerPayloadFor(SETTINGS, row.url)).toContain(JSON.stringify(zone));
+    // Worker payload embeds the same zone, or is empty (script unmodified) out of scope.
+    if (payload.enabled) {
+      expect(workerPayloadFor(SETTINGS, row.url)).toContain(JSON.stringify(zone));
+    } else {
+      expect(workerPayloadFor(SETTINGS, row.url)).toBe("");
+    }
 
     // CDP overrides (debugger mode on) apply the same zone, or none out of scope.
     const overrides = buildOverridesForTab({ ...SETTINGS, debuggerModeEnabled: true }, row.url);

@@ -32,6 +32,8 @@ import type {
   SaveSiteLocationPayload,
   RemoveSiteLocationPayload,
   SiteLocationResponse,
+  GetSettingsPayload,
+  ContentSettingsReply,
 } from "@/shared/types/messages";
 import type {
   LocationName,
@@ -49,6 +51,7 @@ import {
   normalizeSiteLocationLabel,
   normalizeSiteLocationName,
   parseSiteLocationPattern,
+  siteLocationPatternKey,
 } from "@/shared/utils/site-locations";
 import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { resolveAccuracy } from "@/shared/accuracy/resolver";
@@ -60,6 +63,7 @@ import {
   ensureValidPrecisionSeed,
   loadSettings,
   updateSettings,
+  updateSettingsWith,
   validateAccuracySetting,
   validateLocationPrecision,
   validateLocaleSpoofing,
@@ -75,14 +79,26 @@ import {
   broadcastSettingsToTabs,
   injectContentScriptIntoExistingTabs,
   checkTabInjection,
+  revisionField,
 } from "./tabs";
 import { buildPagePayload } from "./page-payload";
+import {
+  isPrerendering,
+  isUndeterminedPrerenderedFrame,
+  topLevelUrlForSender,
+} from "./sender-page-url";
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
-import { syncDebuggerSpoofing } from "./debugger-spoof";
+import { beforePageDelivery, syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
 import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
+import {
+  isSiteLocationEntrySuperseded,
+  noteLocalSiteLocationEdit,
+  runSiteLocationJob,
+  stampSiteLocationRequest,
+} from "./site-location-queue";
 
 export async function handleMessage(
   message: Message,
@@ -145,11 +161,33 @@ export async function handleMessage(
 
         const senderTabId = _sender.tab.id;
 
+        // The page is judged by its top-level URL: the document's own URL for
+        // a top-level document (a page Chrome is prerendering isn't the one
+        // `tab.url` shows yet), the tab's for a subframe. See sender-page-url.
+        const claimsTopFrame =
+          (message.payload as GetSettingsPayload | undefined)?.topFrame === true;
+        const pageUrl = topLevelUrlForSender(_sender, claimsTopFrame);
+
+        // Chromium Engine-level, as for a push (sendSettingsToTab). Not for a
+        // prerendering document: the tab's session doesn't reach it.
+        const engineTimezoneSettled =
+          !__CHROMIUM__ ||
+          senderTabId == null ||
+          isPrerendering(_sender) ||
+          (await beforePageDelivery(senderTabId, settings, pageUrl));
+
         // Effective_Enabled resolves to false when the URL is missing,
         // unparseable, restricted, or out of scope (Req 8.7). The shared
-        // builder also withholds the timezone in Chromium debugger mode, as the
-        // broadcast path does.
-        const payload = await buildPagePayload(settings, _sender.tab.url);
+        // builder also sets `engineTimezone` in Chromium debugger mode, as the
+        // broadcast path does, except for a prerendering document, which the
+        // tab's debugger session doesn't reach. A prerendered subframe is
+        // judged by the page being left, so it gets that page's Filters
+        // decision and the main location, never its per-site location.
+        const payload = await buildPagePayload(settings, pageUrl, {
+          prerendering: isPrerendering(_sender),
+          withoutSiteLocation: isUndeterminedPrerenderedFrame(_sender, claimsTopFrame),
+          engineTimezoneSettled,
+        });
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
         // alive. Reflect the per-tab decision via the shared three-state badge
@@ -159,11 +197,20 @@ export async function handleMessage(
         // `applyTabIndicator` resolves through the same `resolveSiteSettings`
         // as the payload, so its badge agrees with `payload.enabled`, and it
         // also sets the title that names an applied site location.
+        //
+        // It deliberately reads `tab.url`, not `pageUrl`: the badge describes
+        // the page the user sees, and a prerendered document must not repaint
+        // it for a page that isn't showing. The content script asks again when
+        // a prerendered page is shown, and that request repaints the badge.
         if (senderTabId != null) {
           applyTabIndicator(senderTabId, settings, _sender.tab.url);
         }
 
-        return payload;
+        // Stamped with the revision of the snapshot the payload was built
+        // from, so the content script can drop a reply built from settings
+        // older than a push it has already applied.
+        const reply: ContentSettingsReply = { ...payload, ...revisionField(settings) };
+        return reply;
       }
 
       case "SET_LOCATION":
@@ -234,11 +281,14 @@ export async function handleMessage(
 
         logger.debug("[MSG] SYNC_VPN result:", result);
         const setLocStart = Date.now();
-        // Pass city/country from freeipapi directly — no need for separate Nominatim call
+        // Pass city/country from freeipapi directly — no need for separate Nominatim call.
+        // enableVpnSync stores vpnSyncEnabled: true in the same write as the
+        // location, so a manual location can't land between the two.
         await handleSetLocation(
           { latitude: result.latitude, longitude: result.longitude },
           {
             fromVpnSync: true,
+            enableVpnSync: true,
             timezoneHint: result.timezone,
             locationName: {
               city: result.city,
@@ -253,7 +303,6 @@ export async function handleMessage(
           }
         );
         logger.debug("[MSG] handleSetLocation completed in", Date.now() - setLocStart, "ms");
-        await updateSettings({ vpnSyncEnabled: true });
 
         logger.info("[MSG] SYNC_VPN total time:", Date.now() - syncMsgStart, "ms");
         return result;
@@ -375,10 +424,30 @@ export async function handleMessage(
   }
 }
 
+/**
+ * Set the main location: resolve the time zone and the place name, then store
+ * the location, its accuracy, and any VPN-sync change in one settings write.
+ * Resolves true when it wrote, and false only when `onlyWhileVpnSync` found VPN
+ * sync off by the time the write ran.
+ */
 export async function handleSetLocation(
   payload: SetLocationPayload,
-  options?: { fromVpnSync?: boolean; locationName?: LocationName; timezoneHint?: string }
-): Promise<void> {
+  options?: {
+    fromVpnSync?: boolean;
+    locationName?: LocationName;
+    timezoneHint?: string;
+    /**
+     * Automatic syncs only (startup, auto-resync): write nothing unless VPN
+     * sync is still on when the write runs.
+     */
+    onlyWhileVpnSync?: boolean;
+    /**
+     * Explicit syncs only (SYNC_VPN, the app's VPN snapshot): store
+     * `vpnSyncEnabled: true` in the same write.
+     */
+    enableVpnSync?: boolean;
+  }
+): Promise<boolean> {
   const { latitude, longitude } = payload;
 
   logger.debug("Resolving timezone for coordinates:", { latitude, longitude });
@@ -391,65 +460,61 @@ export async function handleSetLocation(
   // the real lookup rather than loading a wrong timezone from storage.
   const timezoneToSave = timezone.fallback ? null : timezone;
 
-  const currentSettings = await loadSettings();
+  // A provided locationName (e.g., from VPN sync) is used directly. Otherwise
+  // reverse geocode, blocking so the popup shows the name immediately.
+  const locationName = options?.locationName ?? (await reverseGeocodeOrNull(latitude, longitude));
 
-  // If VPN sync was active and a manual location is being set,
-  // disable VPN sync and clear the IP geolocation cache (Req 9.3).
-  // Skip this when the call originates from VPN sync itself.
-  const vpnUpdates: Record<string, unknown> = {};
-  if (currentSettings.vpnSyncEnabled && !options?.fromVpnSync) {
-    await clearIpGeoCache();
-    vpnUpdates.vpnSyncEnabled = false;
-  }
-
-  // If locationName was provided (e.g., from VPN sync), use it directly
-  if (options?.locationName) {
+  // Everything derived from stored settings is decided inside the write, from
+  // the settings as stored when it runs: the accuracy, whether a manual
+  // location turns VPN sync off (Req 9.3; a call from VPN sync itself
+  // doesn't), and whether an automatic sync still applies.
+  let disabledVpnSync = false;
+  const updated = await updateSettingsWith((current) => {
+    if (options?.onlyWhileVpnSync && !current.vpnSyncEnabled) return null;
+    disabledVpnSync = current.vpnSyncEnabled && !options?.fromVpnSync;
     const accuracy = resolveAccuracy({
-      setting: currentSettings.accuracySetting,
+      setting: current.accuracySetting,
       deviceClass: detectDeviceClass(),
-      seed: currentSettings.accuracySeed,
+      seed: current.accuracySeed,
       latitude,
       longitude,
     });
-    const settings = await updateSettings({
+    return {
       location: { latitude, longitude, accuracy },
       timezone: timezoneToSave,
-      locationName: options.locationName,
-      ...vpnUpdates,
-    });
-    logger.debug("Settings updated with provided locationName:", settings);
-    await broadcastSettingsToTabs(settings);
-    await syncDebuggerSpoofing(settings);
-    return;
+      locationName,
+      ...(disabledVpnSync ? { vpnSyncEnabled: false } : {}),
+      ...(options?.enableVpnSync ? { vpnSyncEnabled: true } : {}),
+    };
+  });
+
+  if (updated === null) {
+    logger.debug("[RESYNC] VPN sync was turned off during the check; not writing its location");
+    return false;
   }
 
-  // Reverse geocode to get the location name (blocking so popup shows it immediately)
-  let locationName = null;
+  // After the write, so it follows the stored decision. Never rejects.
+  if (disabledVpnSync) await clearIpGeoCache();
+
+  logger.debug("Settings updated after SET_LOCATION:", updated);
+  await broadcastSettingsToTabs(updated);
+  await syncDebuggerSpoofing(updated);
+  return true;
+}
+
+/** The reverse-geocoded place name, or null when the lookup fails. */
+async function reverseGeocodeOrNull(
+  latitude: number,
+  longitude: number
+): Promise<LocationName | null> {
   try {
-    locationName = await reverseGeocode(latitude, longitude);
+    const locationName = await reverseGeocode(latitude, longitude);
     logger.debug("Reverse geocode result:", locationName);
+    return locationName;
   } catch (error) {
     logger.warn("Reverse geocoding failed:", error);
+    return null;
   }
-
-  const accuracy = resolveAccuracy({
-    setting: currentSettings.accuracySetting,
-    deviceClass: detectDeviceClass(),
-    seed: currentSettings.accuracySeed,
-    latitude,
-    longitude,
-  });
-
-  const settings = await updateSettings({
-    location: { latitude, longitude, accuracy },
-    timezone: timezoneToSave,
-    locationName,
-    ...vpnUpdates,
-  });
-
-  logger.debug("Settings updated after SET_LOCATION:", settings);
-  await broadcastSettingsToTabs(settings);
-  await syncDebuggerSpoofing(settings);
 }
 
 export async function handleSetProtectionStatus(
@@ -471,11 +536,12 @@ export async function handleSetProtectionStatus(
 }
 
 /**
- * Toggle browser-level (chrome.debugger / CDP) spoofing. Persists the flag,
- * reconciles the live debugger state (attach + apply when turning on, detach
- * when turning off), then re-broadcasts so the content-script geo/timezone
- * injection is suppressed/restored to match (WebRTC injection is unaffected).
- * Chromium-only in effect; a no-op spoof sync on other engines.
+ * Toggle Engine-level (chrome.debugger / CDP) timezone spoofing. Persists the
+ * flag, reconciles the live debugger state (attach + apply when turning on,
+ * detach when turning off), then re-broadcasts so every frame gets the new
+ * `engineTimezone` flag and re-checks whether its engine reports its zone
+ * (geolocation and WebRTC injection are unaffected). Chromium-only in effect;
+ * a no-op spoof sync on other engines.
  */
 export async function handleSetDebuggerMode(payload: SetDebuggerModePayload): Promise<void> {
   const { enabled } = payload;
@@ -536,55 +602,66 @@ export async function handleCompleteOnboarding(): Promise<void> {
   logger.info("Onboarding completed");
 }
 
+/**
+ * SAVE_FAVORITE handler. The capacity check, the duplicate check, and the
+ * append run inside one settings write, against the list as stored when it
+ * runs, so overlapping favorites changes can't erase each other.
+ */
 export async function handleSaveFavorite(payload: SaveFavoritePayload): Promise<FavoriteResponse> {
-  const settings = await loadSettings();
-
-  // Capacity check (Req 2.6, 8.5)
-  if (settings.favorites.length >= MAX_FAVORITES) {
-    return { error: "AT_CAPACITY" };
+  // Checked before the write, so a bad payload can't surface as STORAGE_ERROR.
+  // handleMessage returns the TypeError as { error }.
+  if (typeof payload?.displayName !== "string") {
+    throw new TypeError("SAVE_FAVORITE needs a string displayName");
   }
 
-  // Deduplication by coordinates rounded to 4dp (Req 10.1)
-  const roundCoord = (v: number) => Math.round(v * 10000) / 10000;
-  const roundedLat = roundCoord(payload.latitude);
-  const roundedLon = roundCoord(payload.longitude);
-  const isDuplicate = settings.favorites.some(
-    (f) => roundCoord(f.latitude) === roundedLat && roundCoord(f.longitude) === roundedLon
-  );
-  if (isDuplicate) {
-    return { success: true };
-  }
-
-  // Append new favorite (Req 2.2, 8.4)
-  const newFavorite = {
-    id: payload.id,
-    latitude: payload.latitude,
-    longitude: payload.longitude,
-    city: payload.city,
-    country: payload.country,
-    displayName: payload.displayName.slice(0, 100),
-    label: payload.label,
-  };
-
+  let outcome: FavoriteResponse = { success: true };
   try {
-    await updateSettings({ favorites: [...settings.favorites, newFavorite] });
+    await updateSettingsWith((current) => {
+      // Capacity check (Req 2.6, 8.5)
+      if (current.favorites.length >= MAX_FAVORITES) {
+        outcome = { error: "AT_CAPACITY" };
+        return null;
+      }
+
+      // Deduplication by coordinates rounded to 4dp (Req 10.1)
+      const roundCoord = (v: number) => Math.round(v * 10000) / 10000;
+      const roundedLat = roundCoord(payload.latitude);
+      const roundedLon = roundCoord(payload.longitude);
+      const isDuplicate = current.favorites.some(
+        (f) => roundCoord(f.latitude) === roundedLat && roundCoord(f.longitude) === roundedLon
+      );
+      if (isDuplicate) {
+        return null;
+      }
+
+      // Append new favorite (Req 2.2, 8.4)
+      const newFavorite = {
+        id: payload.id,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        city: payload.city,
+        country: payload.country,
+        displayName: payload.displayName.slice(0, 100),
+        label: payload.label,
+      };
+      return { favorites: [...current.favorites, newFavorite] };
+    });
   } catch {
     return { error: "STORAGE_ERROR" };
   }
 
-  return { success: true };
+  return outcome;
 }
 
+/** REMOVE_FAVORITE handler. Filters the list as stored when its write runs. */
 export async function handleRemoveFavorite(
   payload: RemoveFavoritePayload
 ): Promise<FavoriteResponse> {
-  const settings = await loadSettings();
-
-  // Filter out matching id — no-op if not found (Req 2.3, 2.4, 8.6, 8.7)
-  const filtered = settings.favorites.filter((f) => f.id !== payload.id);
-
   try {
-    await updateSettings({ favorites: filtered });
+    // Filter out matching id — no-op if not found (Req 2.3, 2.4, 8.6, 8.7)
+    await updateSettingsWith((current) => ({
+      favorites: current.favorites.filter((f) => f.id !== payload.id),
+    }));
   } catch {
     return { error: "STORAGE_ERROR" };
   }
@@ -592,23 +669,22 @@ export async function handleRemoveFavorite(
   return { success: true };
 }
 
+/** RENAME_FAVORITE handler. Relabels the entry as stored when its write runs. */
 export async function handleRenameFavorite(
   payload: RenameFavoritePayload
 ): Promise<FavoriteResponse> {
-  const settings = await loadSettings();
-
-  // No-op if id not found (Req 8.8)
-  const match = settings.favorites.find((f) => f.id === payload.id);
-  if (!match) {
-    return { success: true };
-  }
-
-  const updated = settings.favorites.map((f) =>
-    f.id === payload.id ? { ...f, label: payload.label } : f
-  );
-
   try {
-    await updateSettings({ favorites: updated });
+    await updateSettingsWith((current) => {
+      // No-op if id not found (Req 8.8)
+      if (!current.favorites.some((f) => f.id === payload.id)) {
+        return null;
+      }
+      return {
+        favorites: current.favorites.map((f) =>
+          f.id === payload.id ? { ...f, label: payload.label } : f
+        ),
+      };
+    });
   } catch {
     return { error: "STORAGE_ERROR" };
   }
@@ -644,25 +720,33 @@ export async function handleSetScopeMode(payload: SetScopeModePayload): Promise<
  * persistence failure.
  */
 export async function handleAddScopeSite(payload: ScopeSitePayload): Promise<ScopeResponse> {
+  // Checked before the write: an unknown list would otherwise throw inside it
+  // and surface as a misleading STORAGE_ERROR.
+  if (payload?.list !== "allowlist" && payload?.list !== "denylist") {
+    return { error: "INVALID_PATTERN" };
+  }
+  const list = payload.list;
+
   const canonical = parsePattern(payload.pattern);
   if (canonical === null) {
     return { error: "INVALID_PATTERN" };
   }
 
-  const settings = await loadSettings();
-  const list = settings[payload.list];
+  // The duplicate check and the append run inside one settings write, against
+  // the list as stored when it runs.
+  let updated;
+  try {
+    updated = await updateSettingsWith((current) =>
+      current[list].includes(canonical) ? null : { [list]: [...current[list], canonical] }
+    );
+  } catch {
+    return { error: "STORAGE_ERROR" };
+  }
 
   // Idempotent: a duplicate add reports success without re-persisting (Req
   // 14.2).
-  if (list.includes(canonical)) {
+  if (updated === null) {
     return { success: true };
-  }
-
-  let updated;
-  try {
-    updated = await updateSettings({ [payload.list]: [...list, canonical] });
-  } catch {
-    return { error: "STORAGE_ERROR" };
   }
 
   await broadcastSettingsToTabs(updated);
@@ -678,15 +762,25 @@ export async function handleAddScopeSite(payload: ScopeSitePayload): Promise<Sco
  * Returns STORAGE_ERROR on persistence failure.
  */
 export async function handleRemoveScopeSite(payload: ScopeSitePayload): Promise<ScopeResponse> {
+  // Same list guard as ADD_SCOPE_SITE.
+  if (payload?.list !== "allowlist" && payload?.list !== "denylist") {
+    return { error: "INVALID_PATTERN" };
+  }
+  const list = payload.list;
+
   const canonical = parsePattern(payload.pattern) ?? payload.pattern;
 
-  const settings = await loadSettings();
-  const filtered = settings[payload.list].filter((entry) => entry !== canonical);
-
+  // Filters the list as stored when the write runs.
   let updated;
   try {
-    updated = await updateSettings({ [payload.list]: filtered });
+    updated = await updateSettingsWith((current) => ({
+      [list]: current[list].filter((entry) => entry !== canonical),
+    }));
   } catch {
+    return { error: "STORAGE_ERROR" };
+  }
+  // derive never returns null; the check only narrows the type.
+  if (updated === null) {
     return { error: "STORAGE_ERROR" };
   }
 
@@ -769,16 +863,24 @@ export async function applyPrecisionCadence(
   // Repair, never reject.
   const precisionCadence = validatePrecisionCadence(cadence);
 
-  let previous: PrecisionCadence;
+  // The previous cadence and the seed come from the settings as stored when the
+  // write runs, so two overlapping switches persist one seed and only the first
+  // adopts the clock bucket.
+  // Initialized so it's definitely assigned (TS2454); derive overwrites it with the stored cadence.
+  let previous: PrecisionCadence = precisionCadence;
   let settings: Settings;
   try {
-    const current = await loadSettings();
-    previous = current.precisionCadence;
-    const updates: Partial<Settings> = { precisionCadence };
-    if (precisionCadence !== "never") {
-      updates.precisionSeed = ensureValidPrecisionSeed(current.precisionSeed);
-    }
-    settings = await updateSettings(updates);
+    const updated = await updateSettingsWith((current) => {
+      previous = current.precisionCadence;
+      const updates: Partial<Settings> = { precisionCadence };
+      if (precisionCadence !== "never") {
+        updates.precisionSeed = ensureValidPrecisionSeed(current.precisionSeed);
+      }
+      return updates;
+    });
+    // derive never returns null; the check only narrows the type.
+    if (updated === null) return { error: "STORAGE_ERROR" };
+    settings = updated;
   } catch {
     // The held period is untouched, so open tabs and new requests still agree.
     return { error: "STORAGE_ERROR" };
@@ -842,7 +944,9 @@ export async function handleSetLocaleSpoofing(
 
 /**
  * The first pattern in `patterns` that an entry other than `selfId` already
- * owns, as a PATTERN_IN_USE response naming that entry, or null.
+ * owns, as a PATTERN_IN_USE response naming that entry, or null. Patterns are
+ * compared by `siteLocationPatternKey`, so `münchen.de` conflicts with a
+ * stored `xn--mnchen-3ya.de`.
  */
 function findPatternConflict(
   list: readonly SiteLocation[],
@@ -850,7 +954,10 @@ function findPatternConflict(
   selfId: string | undefined
 ): SiteLocationResponse | null {
   for (const pattern of patterns) {
-    const owner = list.find((e) => e.id !== selfId && e.patterns.includes(pattern));
+    const key = siteLocationPatternKey(pattern);
+    const owner = list.find(
+      (e) => e.id !== selfId && e.patterns.some((p) => siteLocationPatternKey(p) === key)
+    );
     if (owner) {
       return { error: "PATTERN_IN_USE", pattern, ownerId: owner.id };
     }
@@ -875,7 +982,11 @@ function newSiteLocationId(list: readonly SiteLocation[]): string {
  * before writing, because a concurrent save, VPN resync, or app adoption may
  * have landed during the awaits. Broadcasts, re-badges, and re-syncs CDP after
  * a successful save (`saveSettings` already pushes REGION_UPDATE and the
- * bootstrap).
+ * bootstrap). The re-load through delivery runs in the site-location queue
+ * (`site-location-queue.ts`), so overlapping list changes can't erase each
+ * other. An edit whose entry was written meanwhile by a remove or save that
+ * arrived after it, or changed or removed by an app action newer than it,
+ * writes nothing and returns SUPERSEDED, so the later user action wins.
  */
 export async function handleSaveSiteLocation(
   payload: SaveSiteLocationPayload
@@ -900,13 +1011,20 @@ export async function handleSaveSiteLocation(
   if (!Array.isArray(payload.patterns)) {
     return { error: "INVALID_PATTERN" };
   }
+  // A host with no A-label form has no key and could never match, so it's
+  // invalid too. Two spellings of one host (Unicode and A-label) keep the first.
   const patterns: string[] = [];
+  const keys = new Set<string>();
   for (const raw of payload.patterns as unknown[]) {
     const canonical = typeof raw === "string" ? parseSiteLocationPattern(raw) : null;
-    if (canonical === null) {
+    const key = canonical === null ? null : siteLocationPatternKey(canonical);
+    if (canonical === null || key === null) {
       return { error: "INVALID_PATTERN", pattern: String(raw) };
     }
-    if (!patterns.includes(canonical)) patterns.push(canonical);
+    if (!keys.has(key)) {
+      keys.add(key);
+      patterns.push(canonical);
+    }
   }
   if (patterns.length === 0) {
     return { error: "INVALID_PATTERN" };
@@ -914,6 +1032,11 @@ export async function handleSaveSiteLocation(
   if (patterns.length > MAX_PATTERNS_PER_SITE_LOCATION) {
     return { error: "TOO_MANY_PATTERNS" };
   }
+
+  // Before the first await: a remove or save of this entry that arrives while
+  // the lookups below run is later than this save, even though it reaches the
+  // queue first.
+  const stamp = stampSiteLocationRequest();
 
   // 3. The entry being edited, if any. An unknown id is saved as a new entry.
   const settings = await loadSettings();
@@ -972,55 +1095,90 @@ export async function handleSaveSiteLocation(
     }
   }
 
-  // 8. Accuracy, as for the main location.
-  const accuracy = resolveAccuracy({
-    setting: settings.accuracySetting,
-    deviceClass: detectDeviceClass(),
-    seed: settings.accuracySeed,
-    latitude,
-    longitude,
+  // 8, 10–11 run in the site-location queue, so no other save, remove, or app
+  // adoption can write between this re-load and this write.
+  return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+    // A remove or save of this entry that arrived after this save has already
+    // written it. Writing this older edit now would undo that. Checked by the
+    // requested id, not `existing`, because a remove that landed before the
+    // first load above leaves `existing` undefined. An id nothing later wrote
+    // still creates a new entry.
+    if (typeof payload.id === "string" && isSiteLocationEntrySuperseded(payload.id, stamp)) {
+      return { error: "SUPERSEDED" };
+    }
+
+    // 10. Re-load after the awaits and re-check against the latest list.
+    const latest = await loadSettings();
+    const list = latest.siteLocations;
+    const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
+    const lateConflict = findPatternConflict(list, patterns, existing?.id);
+    if (lateConflict) return lateConflict;
+    if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
+      return { error: "AT_CAPACITY" };
+    }
+
+    // 8. Accuracy, as for the main location, from the settings as re-loaded.
+    const accuracy = resolveAccuracy({
+      setting: latest.accuracySetting,
+      deviceClass: detectDeviceClass(),
+      seed: latest.accuracySeed,
+      latitude,
+      longitude,
+    });
+
+    // 9. The entry. An edited entry whose original vanished meanwhile (removed
+    // by a request that arrived before this save, or by an app action older
+    // than this save) keeps its id (it's unused now) and is appended.
+    const id = existing?.id ?? newSiteLocationId(list);
+    const entry: SiteLocation = {
+      id,
+      kind: "location",
+      patterns,
+      location: { latitude, longitude, accuracy },
+      timezone,
+      locationName,
+      label:
+        payload.label !== undefined
+          ? normalizeSiteLocationLabel(payload.label)
+          : (existing?.label ?? null),
+      updatedAt: Date.now(),
+    };
+    const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
+
+    let updated: Settings;
+    try {
+      updated = await updateSettings({ siteLocations: next });
+    } catch {
+      return { error: "STORAGE_ERROR" };
+    }
+    noteLocalSiteLocationEdit(id, stamp);
+
+    // 11. Deliver, inside the queue so broadcasts go out in write order.
+    await deliverSiteLocationChange(updated);
+    return { success: true, id };
   });
+}
 
-  // 10. Re-load after the awaits and re-check against the latest list.
-  const latest = await loadSettings();
-  const list = latest.siteLocations;
-  const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
-  const lateConflict = findPatternConflict(list, patterns, existing?.id);
-  if (lateConflict) return lateConflict;
-  if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
-    return { error: "AT_CAPACITY" };
+/**
+ * Broadcast, re-badge, and re-sync CDP after a site-location write. The change
+ * is already stored (and pushed to the app), so a failed step is logged, the
+ * rest still run, and the handler still reports success. Reporting "not saved"
+ * for a stored change would have the user retry a create (and meet
+ * PATTERN_IN_USE from it) or see a removed entry come back until the next load.
+ */
+async function deliverSiteLocationChange(updated: Settings): Promise<void> {
+  const steps: Array<[string, () => Promise<void>]> = [
+    ["broadcast", () => broadcastSettingsToTabs(updated)],
+    ["badge", () => updateBadge()],
+    ["engine-level sync", () => syncDebuggerSpoofing(updated)],
+  ];
+  for (const [name, step] of steps) {
+    try {
+      await step();
+    } catch (error) {
+      logger.error(`Site location saved, but its ${name} failed:`, error);
+    }
   }
-
-  // 9. The entry. An edited entry whose original vanished meanwhile keeps its
-  // id (it's unused now) and is appended.
-  const id = existing?.id ?? newSiteLocationId(list);
-  const entry: SiteLocation = {
-    id,
-    kind: "location",
-    patterns,
-    location: { latitude, longitude, accuracy },
-    timezone,
-    locationName,
-    label:
-      payload.label !== undefined
-        ? normalizeSiteLocationLabel(payload.label)
-        : (existing?.label ?? null),
-    updatedAt: Date.now(),
-  };
-  const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
-
-  let updated: Settings;
-  try {
-    updated = await updateSettings({ siteLocations: next });
-  } catch {
-    return { error: "STORAGE_ERROR" };
-  }
-
-  // 11. Deliver.
-  await broadcastSettingsToTabs(updated);
-  await updateBadge();
-  await syncDebuggerSpoofing(updated);
-  return { success: true, id };
 }
 
 /**
@@ -1028,43 +1186,48 @@ export async function handleSaveSiteLocation(
  * (this backs "Use main location" for one site of a multi-site entry) and the
  * entry with it when it was the last. Without one, removes the entry. An
  * unknown id or pattern is a no-op success. Broadcasts, re-badges, and
- * re-syncs CDP after a successful save.
+ * re-syncs CDP after a successful save. Runs entirely in the site-location
+ * queue, like the final step of a save, and is stamped on arrival, so an
+ * earlier save of the same entry still waiting on its lookups won't write it
+ * back.
  */
-export async function handleRemoveSiteLocation(
+export function handleRemoveSiteLocation(
   payload: RemoveSiteLocationPayload
 ): Promise<SiteLocationResponse> {
-  const id = payload?.id;
-  const settings = await loadSettings();
-  const list = settings.siteLocations;
-  const entry = list.find((e) => e.id === id);
-  if (!entry) {
-    return { success: true, id };
-  }
-
-  let next: SiteLocation[];
-  if (typeof payload.pattern === "string") {
-    const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
-    if (!entry.patterns.includes(canonical)) {
+  const stamp = stampSiteLocationRequest();
+  return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+    const id = payload?.id;
+    const settings = await loadSettings();
+    const list = settings.siteLocations;
+    const entry = list.find((e) => e.id === id);
+    if (!entry) {
       return { success: true, id };
     }
-    const remaining = entry.patterns.filter((p) => p !== canonical);
-    next =
-      remaining.length === 0
-        ? list.filter((e) => e.id !== id)
-        : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
-  } else {
-    next = list.filter((e) => e.id !== id);
-  }
 
-  let updated: Settings;
-  try {
-    updated = await updateSettings({ siteLocations: next });
-  } catch {
-    return { error: "STORAGE_ERROR" };
-  }
+    let next: SiteLocation[];
+    if (typeof payload.pattern === "string") {
+      const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
+      if (!entry.patterns.includes(canonical)) {
+        return { success: true, id };
+      }
+      const remaining = entry.patterns.filter((p) => p !== canonical);
+      next =
+        remaining.length === 0
+          ? list.filter((e) => e.id !== id)
+          : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
+    } else {
+      next = list.filter((e) => e.id !== id);
+    }
 
-  await broadcastSettingsToTabs(updated);
-  await updateBadge();
-  await syncDebuggerSpoofing(updated);
-  return { success: true, id };
+    let updated: Settings;
+    try {
+      updated = await updateSettings({ siteLocations: next });
+    } catch {
+      return { error: "STORAGE_ERROR" };
+    }
+    noteLocalSiteLocationEdit(entry.id, stamp);
+
+    await deliverSiteLocationChange(updated);
+    return { success: true, id };
+  });
 }

@@ -95,7 +95,7 @@ Sequence of a check:
 5. One cheap `detectPublicIp()`. On a `429`/`403` here, trip the circuit breaker and back off the automatic path. On any other failure (e.g. the kill-switch window mid-switch), log at debug and let the next trigger retry.
 6. **IP-diff gate** — if the IP equals `getLastSyncedIp()`, stop: no geolocation request, no location change.
 7. **Switch-settle guard** `SWITCH_SETTLE_MS` (2.5s) — on a _changed_ IP, wait and re-detect; require the same value twice before applying. During an exit-node switch the real ISP IP can briefly surface (the kill-switch window), and this prevents ever syncing the spoofed location to the user's _real_ location mid-switch.
-8. Only on a confirmed, genuinely-changed exit IP: `syncVpnLocation(true)` (cache-first via the 30-day persistent cache) + `handleSetLocation({ fromVpnSync: true, timezoneHint })`, identical to the startup/manual path.
+8. Only on a confirmed, genuinely-changed exit IP: `syncVpnLocation(true)` (cache-first via the 30-day persistent cache) + `handleSetLocation({ fromVpnSync: true, onlyWhileVpnSync: true, timezoneHint, locationName })`. The write re-checks `vpnSyncEnabled`, so a manual location or Disable set during the check is kept and the check writes nothing.
 9. If the sync returns `IP_BLOCKED` or looks rate-limited, trip the circuit breaker too.
 
 The circuit breaker is the **last line only** — the per-endpoint cooldowns absorb a single endpoint throttling; the breaker trips only on a _total_ failure (every IP-echo provider rate-limited, or a sync returning `IP_BLOCKED`). It's kept short because it's exit-IP-specific: a VPN switch to a fresh IP should resume syncing quickly. Manual and startup syncs bypass the gate entirely.
@@ -159,11 +159,11 @@ For how the boundary data is hosted, version-scoped, and updated, see [TIMEZONE_
 | **Manual sync**       | `SYNC_VPN` message (popup "Sync Now" / Re-sync)                   | `forceRefresh` per payload                                        | bypasses the resync gate                                     | cleared first (`clearEndpointCooldowns()`) |
 | **Auto-resync**       | proxy-change / tab-nav / idle→active                              | `syncVpnLocation(true)` — cache-first via 30-day persistent cache | full gate (debounce, floor, IP-diff, switch-settle, breaker) | respected                                  |
 
-All three apply the result through the same `handleSetLocation({ fromVpnSync: true, timezoneHint, locationName })`, which resolves timezone (with the hint), persists settings, and broadcasts to content scripts.
+All three apply the result through `handleSetLocation({ fromVpnSync: true, … })`, which resolves the timezone (with the hint), persists settings, and broadcasts to content scripts. The startup sync and the auto-resync add `onlyWhileVpnSync`, so they write only if VPN sync is still on when the write runs. `SYNC_VPN` adds `enableVpnSync`, which stores the location and `vpnSyncEnabled: true` in one write.
 
 ## Settings Interaction
 
-- `SYNC_VPN` success sets `vpnSyncEnabled: true`.
+- `SYNC_VPN` success stores the location and `vpnSyncEnabled: true` in one write (so does the app's VPN snapshot on Safari). The startup sync and the auto-resync store their location only if `vpnSyncEnabled` is still true when the write runs, so a manual location or a Disable made during their network calls is never overwritten.
 - Setting a **manual** location while sync is active disables sync (`vpnSyncEnabled: false`) and clears the IP-geo cache — `handleSetLocation` skips this only when called with `fromVpnSync: true`.
 - `DISABLE_VPN_SYNC` clears the IP-geo cache and `lastSyncedIp`, and nulls `location` / `timezone` / `locationName`.
 

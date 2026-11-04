@@ -23,8 +23,9 @@ import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import { createLogger } from "@/shared/utils/debug-logger";
 import { parsePattern } from "@/shared/utils/scope";
 import { validateSiteLocations } from "@/shared/utils/site-locations";
+import { MAX_SETTINGS_REVISION, readRevision } from "@/shared/settings-revision";
 import { getLastSyncedIp } from "./vpn-sync";
-import { updateBootstrapRegistration } from "./bootstrap-register";
+import { openBootstrapWriteWindow } from "./bootstrap-register";
 
 /**
  * Re-exported so the settings module remains the one import site for settings
@@ -214,31 +215,69 @@ export function ensureValidPrecisionSeed(v: unknown): number {
 }
 
 /**
+ * The highest revision this background has loaded from storage or issued since
+ * it started. Module memory, so a restart resets it to 0; storage is the floor
+ * then.
+ */
+let highestKnownRevision = 0;
+
+/**
+ * min(MAX_SETTINGS_REVISION, max(Date.now(), max(readRevision(previous) ?? 0, highestKnownRevision) + 1)).
+ * Records the result in highestKnownRevision. Exported for tests.
+ */
+export function nextSettingsRevision(previous: unknown): number {
+  const floor = Math.max(readRevision(previous) ?? 0, highestKnownRevision);
+  const next = Math.min(MAX_SETTINGS_REVISION, Math.max(Date.now(), floor + 1));
+  highestKnownRevision = next;
+  return next;
+}
+
+/**
  * Load settings from storage with validation and corruption handling
  */
 export async function loadSettings(): Promise<Settings> {
   try {
     const result = await browser.storage.local.get("settings");
-    const settings: unknown = result.settings;
-
-    if (!settings || typeof settings !== "object") {
-      logger.warn("Settings not found or invalid, using defaults");
-      return { ...DEFAULT_SETTINGS };
-    }
-
-    const validated = validateSettings(settings);
-
-    // NOTE: a freshly assigned per-install accuracy seed (Req 5.5) is returned
-    // in-memory here but intentionally NOT written from this read path —
-    // loadSettings does not persist (see initialize() in index.ts, which owns
-    // the one-time startup persistence for migrated settings). The assigned
-    // seed is durably written on the next save (startup migration persistence
-    // for upgraded installs, or any subsequent settings update).
-    return validated;
+    return settingsFromStorage(result.settings);
   } catch (error) {
     logger.error("Failed to load settings:", error);
     return { ...DEFAULT_SETTINGS };
   }
+}
+
+/**
+ * loadSettings without the read-failure fallback: a storage read that throws
+ * propagates instead of becoming DEFAULT_SETTINGS. Nothing stored, or a stored
+ * value that isn't an object, still returns the defaults, because then the
+ * defaults are what the extension has. Only the app bridge's region request
+ * (adoptPendingResponse) calls it, so a failed read can't send the app the
+ * defaults' empty site list as the extension's own.
+ */
+export async function loadSettingsOrThrow(): Promise<Settings> {
+  const result = await browser.storage.local.get("settings");
+  return settingsFromStorage(result.settings);
+}
+
+/** The stored `settings` value, validated, or the defaults when it's absent or not an object. */
+function settingsFromStorage(settings: unknown): Settings {
+  if (!settings || typeof settings !== "object") {
+    logger.warn("Settings not found or invalid, using defaults");
+    return { ...DEFAULT_SETTINGS };
+  }
+
+  const validated = validateSettings(settings);
+  // Every successful read raises the floor, so a write whose own read fails
+  // (and merges into the defaults' revision 0) still issues more than any
+  // revision this background has seen.
+  highestKnownRevision = Math.max(highestKnownRevision, validated.revision ?? 0);
+
+  // NOTE: a freshly assigned per-install accuracy seed (Req 5.5) is returned
+  // in-memory here but intentionally NOT written from this read path —
+  // loadSettings does not persist (see initialize() in index.ts, which owns
+  // the one-time startup persistence for migrated settings). The assigned
+  // seed is durably written on the next save (startup migration persistence
+  // for upgraded installs, or any subsequent settings update).
+  return validated;
 }
 
 /**
@@ -341,6 +380,8 @@ export function validateSettings(settings: Partial<Settings>): Settings {
   if (typeof settings.lastUpdated === "number") {
     validated.lastUpdated = settings.lastUpdated;
   }
+
+  validated.revision = readRevision(settings.revision) ?? 0;
 
   if (typeof settings.vpnSyncEnabled === "boolean") {
     validated.vpnSyncEnabled = settings.vpnSyncEnabled;
@@ -463,7 +504,59 @@ export function validateSettings(settings: Partial<Settings>): Settings {
 }
 
 /**
- * Save settings to storage with quota exceeded handling.
+ * Save settings to storage, stamping `lastUpdated` and a new `revision`
+ * (see {@link writeSettingsWithQuotaRetry} for the Safari quota workaround).
+ *
+ * Call only inside a settings write job (`runSettingsWrite`). On failure the
+ * object's `revision` is restored, so a caller that keeps it never holds a
+ * revision that wasn't stored.
+ *
+ * Firefox: the document_start bootstrap scripts built from the previous
+ * settings are removed before the write (waiting at most
+ * BOOTSTRAP_INVALIDATION_TIMEOUT_MS), and the scripts for the stored settings
+ * are registered after it, so the next page load can apply the timezone
+ * synchronously and a page loading in between gets no early value rather
+ * than an old one. Compiled out on Chromium / Safari.
+ */
+export async function saveSettings(settings: Settings): Promise<void> {
+  // No statement between opening the window and the try can throw (an await
+  // that never rejects, two assignments and a call that can't throw), so the
+  // window is always closed by stored() or failed(), and nothing can leave the
+  // object holding an unstored revision.
+  const bootstrapWrite = __FIREFOX__ ? openBootstrapWriteWindow() : null;
+  if (bootstrapWrite?.removed) await bootstrapWrite.removed; // bounded, never rejects
+  // Stamped after the wait, so a slow userScripts can't make lastUpdated
+  // older than the actual write.
+  const previousRevision = settings.revision;
+  settings.lastUpdated = Date.now();
+  settings.revision = nextSettingsRevision(previousRevision);
+  try {
+    await writeSettingsWithQuotaRetry(settings);
+  } catch (error) {
+    // Callers may keep the object (initialize does after a failed migration
+    // save). It must never carry a revision that isn't stored, or pages that
+    // applied it would drop every later delivery.
+    settings.revision = previousRevision;
+    // Re-register what's still stored. loadSettings never rejects.
+    if (bootstrapWrite) await bootstrapWrite.failed(loadSettings);
+    throw error;
+  }
+
+  // Close the window and register the stored settings; fire-and-forget, so
+  // the save never waits on a registration.
+  bootstrapWrite?.stored(settings);
+
+  // Push the current region to the native host (Safari only) so the
+  // containing app can display the active spoofed location without needing
+  // to read browser.storage.local directly. Fire-and-forget — a failure
+  // here must never block saving the actual settings.
+  if (__SAFARI__) {
+    void pushRegionToNativeHost(settings);
+  }
+}
+
+/**
+ * Write the settings object to storage with quota exceeded handling.
  *
  * Safari (with unsigned/development extensions) has a bug where it rejects
  * browser.storage.local.set() with a spurious "Exceeded storage quota" error
@@ -472,9 +565,7 @@ export function validateSettings(settings: Partial<Settings>): Settings {
  * This is safe because loadSettings() falls back to DEFAULT_SETTINGS on any
  * read failure, so a crash between remove and set is recoverable.
  */
-export async function saveSettings(settings: Settings): Promise<void> {
-  settings.lastUpdated = Date.now();
-
+async function writeSettingsWithQuotaRetry(settings: Settings): Promise<void> {
   try {
     await browser.storage.local.set({ settings });
   } catch (error) {
@@ -500,22 +591,6 @@ export async function saveSettings(settings: Settings): Promise<void> {
       throw error;
     }
   }
-
-  // Push the current region to the native host (Safari only) so the
-  // containing app can display the active spoofed location without needing
-  // to read browser.storage.local directly. Fire-and-forget — a failure
-  // here must never block saving the actual settings.
-  if (__SAFARI__) {
-    void pushRegionToNativeHost(settings);
-  }
-
-  // Refresh the Firefox document_start bootstrap user script so the next page
-  // load can apply the timezone synchronously (closing the cold-start race for
-  // Date/Intl). Firefox-only and fully guarded; fire-and-forget so it never
-  // blocks or fails the save. Compiled out on Chromium / Safari.
-  if (__FIREFOX__) {
-    void updateBootstrapRegistration(settings);
-  }
 }
 
 /**
@@ -523,7 +598,8 @@ export async function saveSettings(settings: Settings): Promise<void> {
  * browser.runtime.sendNativeMessage → SafariWebExtensionHandler →
  * UserDefaults(suiteName: "group.com.moonloaf.geospoof").
  *
- * Called after every successful settings save. Non-throwing.
+ * Called after every successful settings save, and without a save through
+ * pushRegionNow when the app asks for the region. Non-throwing.
  */
 async function pushRegionToNativeHost(settings: Settings): Promise<void> {
   try {
@@ -587,18 +663,67 @@ async function pushRegionToNativeHost(settings: Settings): Promise<void> {
 }
 
 /**
+ * The same push without a save, for the app bridge's one-time region request
+ * (`regionWanted`, see adoptPendingResponse in app-bridge.ts). Non-throwing.
+ */
+export const pushRegionNow = pushRegionToNativeHost;
+
+/**
  * Get current settings (alias for loadSettings for consistency)
  */
 export async function getSettings(): Promise<Settings> {
   return await loadSettings();
 }
 
+let settingsWrites: Promise<unknown> = Promise.resolve();
+
+/**
+ * Run a load, change, and save of the whole settings object as one step,
+ * after every step queued before it. Each save writes the complete object, so
+ * two overlapping steps that loaded the same old object would otherwise have
+ * the later save erase the earlier one's field. A failed step doesn't wedge
+ * the queue, and its caller still gets the error.
+ *
+ * `job` must not await `updateSettings` or another queued step: it would wait
+ * on itself. The site-location queue's jobs may call `updateSettings`, because
+ * no step here waits on that queue.
+ */
+export function runSettingsWrite<T>(job: () => Promise<T>): Promise<T> {
+  const run = settingsWrites.then(job);
+  settingsWrites = run.catch(() => undefined);
+  return run;
+}
+
 /**
  * Update settings with partial updates
  */
-export async function updateSettings(updates: Partial<Settings>): Promise<Settings> {
-  const current = await loadSettings();
-  const updated: Settings = { ...current, ...updates };
-  await saveSettings(updated);
-  return updated;
+export function updateSettings(updates: Partial<Settings>): Promise<Settings> {
+  return runSettingsWrite(async () => {
+    const current = await loadSettings();
+    // The revision is background-owned: an update can't supply it.
+    const updated: Settings = { ...current, ...updates, revision: current.revision };
+    await saveSettings(updated);
+    return updated;
+  });
+}
+
+/**
+ * Load, change, and save as one settings write, with the change computed from
+ * the settings as stored when the write runs. `derive` is synchronous and must
+ * not call updateSettings or runSettingsWrite. It returns the fields to write,
+ * or null to write nothing. Resolves the saved settings, or null when nothing
+ * was written. Rejects when `derive` throws or the save fails; nothing is
+ * written then.
+ */
+export function updateSettingsWith(
+  derive: (current: Settings) => Partial<Settings> | null
+): Promise<Settings | null> {
+  return runSettingsWrite(async () => {
+    const current = await loadSettings();
+    const u = derive(current);
+    if (u === null) return null;
+    const updated: Settings = { ...current, ...u, revision: current.revision };
+    await saveSettings(updated);
+    return updated;
+  });
 }

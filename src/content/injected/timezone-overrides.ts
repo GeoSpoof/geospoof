@@ -8,8 +8,9 @@
  * Exposes the getTimezoneOffset installer in two flavors:
  *   - `installTimezoneOverrides()` — installs everything on the top-level
  *     realm.
- *   - `installGetTimezoneOffsetOverrideOn(proto, original)` — installs
- *     just the getTimezoneOffset override on an arbitrary Date.prototype.
+ *   - `installGetTimezoneOffsetOverrideOn(proto, original, fractional?)` —
+ *     installs just the getTimezoneOffset override on an arbitrary
+ *     Date.prototype.
  *   - `installDateTimeFormatOverridesOn(intl, opts)` — installs the
  *     Intl.DateTimeFormat constructor + resolvedOptions overrides on an
  *     arbitrary `Intl` object.
@@ -24,7 +25,7 @@ import {
   timezoneData,
   explicitTimezoneInstances,
   originalGetTimezoneOffset,
-  engineTruncatesOffset,
+  nativeFractionalOffset,
 } from "./state";
 import {
   registerOverride,
@@ -44,15 +45,30 @@ import { createLogger } from "@/shared/utils/debug-logger";
 const logger = createLogger("INJ");
 
 /**
+ * Native `getTimezoneOffset` returns +0 for a zero offset (UTC, London in
+ * winter). Negating a zero offset gives -0, which `Object.is` tells apart and
+ * which the worker payload doesn't return, so normalize it.
+ */
+function zeroAsPositive(minutes: number): number {
+  return minutes === 0 ? 0 : minutes;
+}
+
+/**
  * Install the `getTimezoneOffset` override on the supplied Date.prototype.
  *
  * `originalGetTimezoneOffset` is passed in rather than closed over so the
  * iframe patcher can supply the iframe's own native method for the
  * fallback path, keeping each realm self-contained.
+ *
+ * `fractional` says whether to keep the seconds of a pre-standard-time
+ * offset the way this engine's native method does. It defaults to the
+ * decision `state.ts` probed at load; same-origin iframes share it (same
+ * engine). Tests pass it explicitly to exercise both behaviors.
  */
 export function installGetTimezoneOffsetOverrideOn(
   proto: object,
-  originalGetTzOffset: (this: Date) => number
+  originalGetTzOffset: (this: Date) => number,
+  fractional: boolean = nativeFractionalOffset
 ): void {
   try {
     installOverride(proto, "getTimezoneOffset", function (this: Date): number {
@@ -65,16 +81,16 @@ export function installGetTimezoneOffsetOverrideOn(
           const epoch = this.getTime();
           if (isNaN(epoch)) return originalGetTzOffset.call(this);
 
-          if (engineTruncatesOffset) {
-            // Chrome/V8: truncates sub-minute LMT offsets to integers natively.
-            // deriveOffsetFromParts uses formatToParts (whole-second precision) which
-            // already loses sub-minute detail, so it agrees with Chrome's truncated
-            // native value. Use it here for consistency with the component getters.
+          if (!fractional) {
+            // V8 before Chrome 156 and JavaScriptCore truncate sub-minute LMT
+            // offsets toward zero natively. deriveOffsetFromParts uses
+            // formatToParts (whole-second precision), the same wall clock the
+            // component getters read; truncating it gives the native value.
             const offsetMinutes = deriveOffsetFromParts(this, timezoneData.identifier);
             if (offsetMinutes !== undefined) {
-              const result = Math.trunc(-offsetMinutes);
+              const result = zeroAsPositive(Math.trunc(-offsetMinutes));
               logger.trace(
-                "getTimezoneOffset (chrome): epoch",
+                "getTimezoneOffset (truncated): epoch",
                 epoch,
                 "rawOffset",
                 offsetMinutes,
@@ -84,18 +100,18 @@ export function installGetTimezoneOffsetOverrideOn(
               return result;
             }
           } else {
-            // Firefox: preserves fractional sub-minute LMT offsets natively.
+            // SpiderMonkey and V8 from Chrome 156 keep the fraction natively.
             // getIntlBasedOffset reads the shortOffset string directly (e.g.
             // "GMT-9:59:36") and parses it to the full fractional value, matching
-            // what offsetNanoseconds and timeZoneName see.
+            // what offsetNanoseconds, timeZoneName and the getters see.
             const offsetMinutes = getIntlBasedOffset(
               this,
               timezoneData.identifier,
               timezoneData.offset
             );
-            const result = -offsetMinutes;
+            const result = zeroAsPositive(-offsetMinutes);
             logger.trace(
-              "getTimezoneOffset (firefox): epoch",
+              "getTimezoneOffset (fractional): epoch",
               epoch,
               "rawOffset",
               offsetMinutes,

@@ -5,20 +5,29 @@ import type { Location, Timezone, Settings } from "@/shared/types/settings";
  *
  * Accepts standard Area/Location patterns (e.g. "America/Los_Angeles"),
  * Area/Location/Sublocation (e.g. "America/Argentina/Buenos_Aires"),
- * "UTC", and Etc/GMT offset patterns (e.g. "Etc/GMT", "Etc/GMT+5", "Etc/GMT-5").
+ * hyphenated locations (e.g. "America/Port-au-Prince", "Africa/Porto-Novo"),
+ * "UTC", "GMT", and Etc/GMT offset patterns (e.g. "Etc/GMT", "Etc/GMT+5", "Etc/GMT-5").
  */
 export function isValidIANATimezone(identifier: unknown): boolean {
   if (!identifier || typeof identifier !== "string") {
     return false;
   }
 
-  // Standard IANA: Area/Location or Area/Location/Sublocation
-  const ianaPattern = /^[A-Z][a-zA-Z_]+\/[A-Z][a-zA-Z_]+(?:\/[A-Z][a-zA-Z_]+)?$/;
+  // Standard IANA: Area/Location or Area/Location/Sublocation. A location may
+  // join words with single hyphens, as tzdata does for Haiti, Benin,
+  // Blanc-Sablon and Ust-Nera; it can't start or end with one.
+  const ianaPattern =
+    /^[A-Z][a-zA-Z_]+\/[A-Z][a-zA-Z_]+(?:-[a-zA-Z_]+)*(?:\/[A-Z][a-zA-Z_]+(?:-[a-zA-Z_]+)*)?$/;
 
   // Etc/GMT offset patterns: Etc/GMT, Etc/GMT+N, Etc/GMT-N
   const etcGmtPattern = /^Etc\/GMT([+-]\d{1,2})?$/;
 
-  return ianaPattern.test(identifier) || identifier === "UTC" || etcGmtPattern.test(identifier);
+  return (
+    ianaPattern.test(identifier) ||
+    identifier === "UTC" ||
+    identifier === "GMT" ||
+    etcGmtPattern.test(identifier)
+  );
 }
 
 /**

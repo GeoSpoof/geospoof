@@ -5,7 +5,9 @@
  * Three surfaces onto `settings.siteLocations`:
  *   - the Main tab's one-line note (`#siteLocationLine`), rendered only when a
  *     site location applies to the active tab: "On twitch.tv: Mexico City",
- *     with Edit and Use main location. Nothing renders anywhere else;
+ *     with Edit, and Use main location when a main location is set and
+ *     removing this site's own rule leaves it there. Nothing renders anywhere
+ *     else;
  *   - the Filters tab's collapsed "Per-site locations" disclosure at the
  *     bottom: every entry, with edit and remove (optimistic, reverted on failure
  *     like the scope list), and the one editor;
@@ -37,6 +39,7 @@ import {
   parseSiteLocationPattern,
   resolveSiteSettings,
   siteLocationDisplayName,
+  siteLocationPatternKey,
   suggestSiteLocationPattern,
 } from "@/shared/utils/site-locations";
 import { getChipDisplayText } from "./favorites";
@@ -51,8 +54,12 @@ const SEARCH_DEBOUNCE_MS = 300;
 /** What the Main-tab line shows for the active tab. */
 export type SiteLocationLineState =
   | { kind: "none" }
-  /** In scope, and a site location applies. `site` is the host without `www.`. */
-  | { kind: "applied"; site: string; entry: SiteLocation; pattern: string };
+  /**
+   * In scope, and a site location applies. `site` is the host without `www.`.
+   * `canUseMain`: "Use main location" would do exactly that here (see
+   * {@link useMainDeliversMain}); otherwise the line offers only Edit.
+   */
+  | { kind: "applied"; site: string; entry: SiteLocation; pattern: string; canUseMain: boolean };
 
 /** A location picked in the editor. `undefined` fields mean "keep the stored value". */
 interface ChosenLocation {
@@ -81,6 +88,16 @@ let current: { settings: Settings; tabUrl: string | undefined; proLocked: boolea
 let lineState: SiteLocationLineState = { kind: "none" };
 let editor: EditorState | null = null;
 /**
+ * A SAVE_SITE_LOCATION is in flight. Its payload is already built and the
+ * message can't be called back, so the editor is frozen until it settles.
+ */
+let saving = false;
+/**
+ * The entry that save edits (null for a new one). Its row ✕ and "Use main
+ * location" wait for the save too, so this popup can't remove what it's saving.
+ */
+let savingEntryId: string | null = null;
+/**
  * Where the reload hint shows after a change made from this popup (open pages
  * keep old values until reloaded): under the Main line after "Use main
  * location", or in the Filters disclosure after any change made there.
@@ -90,6 +107,7 @@ let reloadHintHost: "line" | "filters" | null = null;
 let disclosureInitialized = false;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 let searchSeq = 0;
+let announceTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -122,20 +140,30 @@ function currentSuggestion(): string | null {
   return suggestSiteLocationPattern(url);
 }
 
-/** Split the sites field on commas into canonical patterns, or report the first bad token. */
+/**
+ * Split the sites field on commas into canonical patterns, or report the first
+ * bad token. Dedupes by pattern identity as the background's save does, so
+ * `münchen.de` and `xn--mnchen-3ya.de` count once (the first spelling is
+ * kept), and a host with no A-label form is a bad token.
+ */
 export function parsePatternsField(raw: string): {
   patterns: string[];
   invalid: string | null;
 } {
   const patterns: string[] = [];
+  const keys = new Set<string>();
   const tokens = raw
     .split(",")
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
   for (const token of tokens) {
     const canonical = parseSiteLocationPattern(token);
-    if (canonical === null) return { patterns, invalid: token };
-    if (!patterns.includes(canonical)) patterns.push(canonical);
+    const key = canonical === null ? null : siteLocationPatternKey(canonical);
+    if (canonical === null || key === null) return { patterns, invalid: token };
+    if (!keys.has(key)) {
+      keys.add(key);
+      patterns.push(canonical);
+    }
   }
   return { patterns, invalid: null };
 }
@@ -194,9 +222,53 @@ export function computeSiteLocationLineState(
       site: suggestSiteLocationPattern(tabUrl) ?? host,
       entry: resolution.siteLocation,
       pattern: resolution.matchedPattern,
+      canUseMain: useMainDeliversMain(
+        effective,
+        tabUrl,
+        host,
+        resolution.siteLocation,
+        resolution.matchedPattern
+      ),
     };
   }
   return { kind: "none" };
+}
+
+/**
+ * Whether "Use main location", which removes only the winning `pattern`,
+ * gives exactly this site the main location. All must hold:
+ *   - a main location is set, so removing the rule doesn't leave the site
+ *     unspoofed;
+ *   - the pattern is this site's own: its identity is the host's or the
+ *     suggested pattern's, so `twitch.tv` on www.twitch.tv qualifies, while a
+ *     wildcard like `*.ru` or a parent domain covering other sites doesn't;
+ *   - with it removed, no other pattern gives this page a site location.
+ */
+function useMainDeliversMain(
+  effective: Settings,
+  tabUrl: string,
+  host: string,
+  entry: SiteLocation,
+  pattern: string
+): boolean {
+  if (!effective.location) return false;
+  const key = siteLocationPatternKey(pattern);
+  const ownKeys = [parseSiteLocationPattern(host), suggestSiteLocationPattern(tabUrl)].map((own) =>
+    own === null ? null : siteLocationPatternKey(own)
+  );
+  if (key === null || !ownKeys.includes(key)) return false;
+
+  const remaining = storedList(effective).flatMap((e) => {
+    if (e.id !== entry.id) return [e];
+    const patterns = e.patterns.filter((p) => p !== pattern);
+    return patterns.length > 0 ? [{ ...e, patterns }] : [];
+  });
+  const after = resolveSiteSettings(
+    { ...effective, enabled: true, siteLocations: remaining },
+    tabUrl,
+    isRestrictedUrl
+  );
+  return after.siteLocation === null;
 }
 
 /**
@@ -221,6 +293,7 @@ export function renderSiteLocationLine(
   setHidden("siteLocationLineError", true);
   setHidden("siteLocationLine", !applied && reloadHintHost !== "line");
   setHidden("siteLocationLineMain", !applied);
+  setHidden("siteLocationLineUseMain", !(lineState.kind === "applied" && lineState.canUseMain));
 
   const status = el("siteLocationLineStatus");
   const editBtn = el("siteLocationLineEdit");
@@ -242,6 +315,7 @@ export function renderSiteLocationLine(
   // VPN sync moves only the IP-derived main location; say so where one applies.
   setHidden("siteLocationLineVpnHint", !(applied && settings.vpnSyncEnabled === true));
   setHidden("siteLocationLineReloadHint", reloadHintHost !== "line");
+  syncSavingEntryLocks();
   return applied;
 }
 
@@ -290,10 +364,14 @@ function openEditorFromLine(): void {
   openEditor({ entry, opener: opener ?? el("siteLocationsAddButton") });
 }
 
-/** Drop the matched pattern only, so a multi-site entry keeps its other sites. */
+/**
+ * Drop the matched pattern only, so a multi-site entry keeps its other sites.
+ * Offered only when that leaves this site on the main location.
+ */
 async function handleUseMain(): Promise<void> {
-  if (lineState.kind !== "applied" || current?.proLocked) return;
+  if (lineState.kind !== "applied" || !lineState.canUseMain || current?.proLocked) return;
   const { entry, pattern } = lineState;
+  if (entry.id === savingEntryId) return;
   setHidden("siteLocationLineError", true);
   const payload: RemoveSiteLocationPayload = { id: entry.id, pattern };
   try {
@@ -307,6 +385,7 @@ async function handleUseMain(): Promise<void> {
       await loadSettings();
       // The re-render hid this button along with the rest of the line.
       focusReloadHint("siteLocationLineReloadHint");
+      announceReloadHint();
       return;
     }
   } catch (error: unknown) {
@@ -317,13 +396,37 @@ async function handleUseMain(): Promise<void> {
 
 /**
  * After an action whose button the re-render hides, focus the reload hint it
- * revealed. A screen reader then reads the confirmation (a live region that's
- * unhidden with its text already in place often isn't announced), and Tab
- * continues from there instead of from the top of the popup.
+ * revealed, so Tab continues from there instead of from the top of the popup.
+ * `announce` speaks the confirmation.
  */
 function focusReloadHint(id: string): void {
   const hint = el(id);
   if (isFocusable(hint)) hint.focus();
+}
+
+/** Long enough for screen readers to register the cleared region first. */
+const ANNOUNCE_DELAY_MS = 100;
+
+/**
+ * Speak a confirmation through #siteLocationAnnouncer, the popup's one polite
+ * live region for these changes. It sits outside every view, so it works from
+ * either tab and with the disclosure closed. The region is cleared first and
+ * the text set a moment later, so the same message repeated is spoken again; a
+ * newer message replaces one still pending.
+ */
+function announce(text: string): void {
+  const region = el("siteLocationAnnouncer");
+  if (!region) return;
+  clearTimeout(announceTimer);
+  region.textContent = "";
+  announceTimer = setTimeout(() => {
+    region.textContent = text;
+  }, ANNOUNCE_DELAY_MS);
+}
+
+/** The confirmation after a change: the same words as the visible reload hint. */
+function announceReloadHint(): void {
+  announce(t("siteLocation_reloadHint") || "Reload affected pages to apply the change.");
 }
 
 // ── Filters tab: the "Per-site locations" disclosure ────────────────────────
@@ -358,6 +461,7 @@ export function renderSiteLocationsSection(
   for (const entry of entries) {
     listEl.appendChild(buildSiteLocationRow(entry, proLocked));
   }
+  syncSavingEntryLocks();
   updateSectionCountFromDom();
 
   setHidden("siteLocationsError", true);
@@ -445,6 +549,25 @@ function wireSectionOnce(): void {
   });
 }
 
+/**
+ * After a remove, the focused ✕ is gone. Focus the Edit button of the row that
+ * took its place, else the row before it, else "Set a location for a site".
+ * Edit rather than the next ✕, so a repeated keypress can't remove a second
+ * entry.
+ */
+function focusAfterRemove(index: number): void {
+  const rows = el("siteLocationsList")?.children;
+  for (const i of [index, index - 1]) {
+    const edit = rows?.[i]?.querySelector<HTMLElement>(".site-location-edit") ?? null;
+    if (isFocusable(edit)) {
+      edit.focus();
+      return;
+    }
+  }
+  const addBtn = el("siteLocationsAddButton");
+  if (isFocusable(addBtn)) addBtn.focus();
+}
+
 /** Optimistic removal with revert on failure, like the scope list's handleRemove. */
 async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise<void> {
   if (current?.proLocked) return;
@@ -452,6 +575,7 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
 
   const parent = row.parentNode;
   const nextSibling = row.nextSibling;
+  const index = parent ? Array.from(parent.children).indexOf(row) : 0;
   row.remove();
   updateSectionCountFromDom();
 
@@ -465,6 +589,8 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
       if (editor?.entry?.id === entry.id) closeEditor(false);
       reloadHintHost = "filters";
       await loadSettings();
+      focusAfterRemove(index);
+      announceReloadHint();
       return;
     }
   } catch (error: unknown) {
@@ -474,6 +600,9 @@ async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise
   if (parent) parent.insertBefore(row, nextSibling);
   updateSectionCountFromDom();
   setHidden("siteLocationsError", false);
+  // The row is back; so is focus, on the ✕ that was pressed.
+  const removeBtn = row.querySelector<HTMLElement>(".scope-site-remove");
+  if (isFocusable(removeBtn)) removeBtn.focus();
 }
 
 // ── Details tab ─────────────────────────────────────────────────────────────
@@ -509,7 +638,7 @@ export function renderSiteLocationDetails(
 // ── The shared editor ───────────────────────────────────────────────────────
 
 function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | null }): void {
-  if (current?.proLocked) return;
+  if (current?.proLocked || saving) return;
   const editorEl = el("siteLocationEditor");
   if (!editorEl) return;
 
@@ -640,6 +769,7 @@ async function handleAddToAllowlist(): Promise<void> {
       reloadHintHost = "filters";
       await loadSettings();
       focusReloadHint("siteLocationsReloadHint");
+      announceReloadHint();
       return;
     }
   } catch (error: unknown) {
@@ -689,12 +819,11 @@ function updateChosen(): void {
   }
   const sites = patterns.join(", ");
   explainEl.textContent =
-    t("siteLocation_explain", [sites, chosen.name]) ||
-    `Pages on ${sites}, and everything embedded in them, will see ${chosen.name}. Other sites keep your main location.`;
+    t("siteLocation_explain", [sites, chosen.name]) || `Pages on ${sites} will see ${chosen.name}.`;
 }
 
 function choose(chosen: ChosenLocation): void {
-  if (!editor) return;
+  if (!editor || saving) return;
   editor.chosen = chosen;
   hideEditorError();
   updateChosen();
@@ -779,7 +908,8 @@ function wireEditorOnce(): void {
   editorEl.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
-      closeEditor(true);
+      // A save in flight can't be called back; the editor closes when it lands.
+      if (!saving) closeEditor(true);
     }
   });
 }
@@ -944,8 +1074,10 @@ async function handleSave(): Promise<void> {
   if (chosen.locationName !== undefined) payload.locationName = chosen.locationName;
   if (chosen.label !== undefined) payload.label = chosen.label;
 
-  const saveBtn = el<HTMLButtonElement>("siteLocationSave");
-  if (saveBtn) saveBtn.disabled = true;
+  // Results still listed, or a search reply still on its way, would offer a
+  // choice the sent payload no longer reflects.
+  clearSearchResults();
+  setEditorSaving(true, state.entry?.id ?? null);
   let result: SiteLocationResponse | null = null;
   try {
     result = (await browser.runtime.sendMessage({
@@ -955,24 +1087,89 @@ async function handleSave(): Promise<void> {
   } catch (error: unknown) {
     console.error("Failed to save the site location:", error);
   } finally {
-    if (saveBtn) saveBtn.disabled = false;
+    setEditorSaving(false);
   }
-  // The user cancelled or reopened the editor meanwhile.
-  if (editor !== state) return;
 
   if (result && "success" in result && result.success) {
-    const opener = state.opener;
     reloadHintHost = "filters";
-    closeEditor(false);
+    // Nothing in the frozen editor can close it, and the edited entry's ✕
+    // waits too, but the Pro lock still can. The list and the hint show the
+    // save anyway.
+    const stillOpen = editor === state;
+    if (stillOpen) closeEditor(false);
     await loadSettings();
-    restoreFocusAfterEditor(opener);
+    if (stillOpen) restoreFocusAfterEditor(state.opener);
+    announceReloadHint();
     return;
   }
+  // The editor closed meanwhile, so there's no error area to show.
+  if (editor !== state) return;
 
-  const { text, ownerId } = result
-    ? saveErrorText(result as Extract<SiteLocationResponse, { error: unknown }>)
+  const failure = result as Extract<SiteLocationResponse, { error: unknown }> | null;
+  const { text, ownerId } = failure
+    ? saveErrorText(failure)
     : { text: t("filters_notSaved") || "⚠ Change not saved", ownerId: null };
   showEditorError(text, ownerId);
+
+  // Disabling the focused Save can drop focus to the page. Put it back on the
+  // Sites field when the error is about a site, else on Save.
+  const active = document.activeElement;
+  if (active === null || active === document.body || active === el("siteLocationSave")) {
+    const aboutSites =
+      failure?.error === "PATTERN_IN_USE" ||
+      failure?.error === "INVALID_PATTERN" ||
+      failure?.error === "TOO_MANY_PATTERNS";
+    el(aboutSites ? "siteLocationPatterns" : "siteLocationSave")?.focus();
+  }
+}
+
+/** The editor's controls, all disabled while a save is in flight. */
+const EDITOR_CONTROL_IDS = [
+  "siteLocationPatterns",
+  "siteLocationSearch",
+  "siteLocationFavorite",
+  "siteLocationAddToAllowlist",
+  "siteLocationEditOwner",
+  "siteLocationSave",
+  "siteLocationCancel",
+] as const;
+
+/**
+ * Freeze or release the editor around SAVE_SITE_LOCATION. Cancel and Escape
+ * can't undo a save already sent, and an edit made meanwhile would be
+ * discarded when it lands, so every control is disabled and `aria-busy` tells
+ * assistive tech the editor is updating. `entryId` is the edited entry, whose
+ * removal waits for the save too.
+ */
+function setEditorSaving(on: boolean, entryId: string | null = null): void {
+  saving = on;
+  savingEntryId = on ? entryId : null;
+  const editorEl = el("siteLocationEditor");
+  if (on) editorEl?.setAttribute("aria-busy", "true");
+  else editorEl?.removeAttribute("aria-busy");
+  for (const id of EDITOR_CONTROL_IDS) {
+    const control = el<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(id);
+    if (control) control.disabled = on;
+  }
+  syncSavingEntryLocks();
+}
+
+/**
+ * Disable the row ✕ and "Use main location" of the entry a save in flight
+ * edits, and only those, so a remove from this popup can't overtake the save.
+ * Every render calls this too, so a re-render during the save keeps them off.
+ */
+function syncSavingEntryLocks(): void {
+  const proLocked = current?.proLocked === true;
+  for (const row of Array.from(el("siteLocationsList")?.children ?? [])) {
+    const remove = row.querySelector<HTMLButtonElement>(".scope-site-remove");
+    const id = (row as HTMLElement).dataset.siteLocationId;
+    if (remove) remove.disabled = proLocked || (id !== undefined && id === savingEntryId);
+  }
+  const useMain = el<HTMLButtonElement>("siteLocationLineUseMain");
+  if (useMain) {
+    useMain.disabled = lineState.kind === "applied" && lineState.entry.id === savingEntryId;
+  }
 }
 
 /** Test hook: forget popup-session state between cases. */
@@ -980,8 +1177,12 @@ export function __resetSiteLocationsForTest(): void {
   current = null;
   lineState = { kind: "none" };
   editor = null;
+  saving = false;
+  savingEntryId = null;
   reloadHintHost = null;
   disclosureInitialized = false;
   clearTimeout(searchTimer);
   searchSeq = 0;
+  clearTimeout(announceTimer);
+  announceTimer = undefined;
 }
