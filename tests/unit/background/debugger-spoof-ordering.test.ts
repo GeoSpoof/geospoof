@@ -349,6 +349,134 @@ describe("settings changes whose handlers reach the sync out of order", () => {
   });
 });
 
+describe("a newer change delivered to a page while an older sync is in flight", () => {
+  const OTHER_TAB = 8;
+  const CHILD = { tabId: TAB, sessionId: "S1" };
+  const LA_POINT = { latitude: 34.0522, longitude: -118.2437 };
+  const NAME = { city: "", country: "", displayName: "test" };
+  const LA_ID = "America/Los_Angeles";
+
+  type Sent = { tabId: number; zone: unknown };
+  let restoreTabs: () => void = () => {};
+
+  afterEach(() => restoreTabs());
+
+  /**
+   * A held tab whose engine already reports LA, with a cross-site iframe's
+   * child session; both zones cached, so no lookup goes to the network. A
+   * second tab is open. `hold(n)` makes the second tab's n-th delivery wait
+   * until the returned function is called.
+   */
+  async function heldOnLa() {
+    const mod = await load();
+    mod.installDebuggerWatchers();
+    const onEvent = fake.dbg.onEvent.addListener.mock.calls[0][0] as EventListener;
+    const messages = await import("@/background/messages");
+    const { getCacheKey } = await import("@/background/geocoding");
+    sessionStorageData[`cache:timezone:${getCacheKey(TOKYO.latitude, TOKYO.longitude)}`] = TOKYO_TZ;
+    sessionStorageData[`cache:timezone:${getCacheKey(LA_POINT.latitude, LA_POINT.longitude)}`] = LA;
+
+    const la = makeSettings({ timezone: LA, siteLocations: [] });
+    storageData.settings = la;
+    fake.state.targets = [target(MAIN_URL, false)];
+    await mod.syncDebuggerSpoofing(la);
+    onEvent(ROOT, "Target.attachedToTarget", {
+      sessionId: "S1",
+      targetInfo: { type: "iframe" },
+      waitingForDebugger: false,
+    });
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, CHILD)).toEqual([LA_ID]));
+    fake.state.targets = [target(MAIN_URL, true)];
+
+    const sent: Sent[] = [];
+    const held = new Map<number, Promise<undefined>>();
+    let otherSends = 0;
+    const { query, sendMessage } = browser.tabs;
+    browser.tabs.query = vi.fn().mockResolvedValue([
+      { id: TAB, url: MAIN_URL },
+      { id: OTHER_TAB, url: "https://other.example/" },
+    ]);
+    browser.tabs.sendMessage = vi.fn(
+      (tabId: number, message: { payload?: { timezone?: { identifier?: string } } }) => {
+        sent.push({ tabId, zone: message.payload?.timezone?.identifier });
+        if (tabId !== OTHER_TAB) return Promise.resolve(undefined);
+        return held.get(++otherSends) ?? Promise.resolve(undefined);
+      }
+    );
+    restoreTabs = () => {
+      browser.tabs.query = query;
+      browser.tabs.sendMessage = sendMessage;
+    };
+    const hold = (n: number): (() => void) => {
+      const d = deferred<undefined>();
+      held.set(n, d.promise);
+      return () => d.resolve(undefined);
+    };
+    const setLocation = (point: { latitude: number; longitude: number }): Promise<boolean> =>
+      messages.handleSetLocation(
+        { latitude: point.latitude, longitude: point.longitude },
+        { fromVpnSync: true, locationName: NAME }
+      );
+    return { sent, hold, setLocation };
+  }
+
+  const delivered = (sent: Sent[], tabId: number, zone: string): boolean =>
+    sent.some((s) => s.tabId === tabId && s.zone === zone);
+
+  test("the older sync read its settings before the newer save: no older root or child command after", async () => {
+    const { sent, hold, setLocation } = await heldOnLa();
+    const releaseTargets = fake.holdTargets();
+    // The older change (Tokyo) is delivered, then its sync reads Tokyo and
+    // waits for the tab list.
+    const older = setLocation(TOKYO);
+    await vi.waitFor(() => expect(fake.dbg.getTargets).toHaveBeenCalledTimes(2));
+    const atOlderSync = fake.calls.length;
+
+    // The newer change (LA) reaches the tab, whose engine already reports LA,
+    // so its frames keep native Date/Intl. Its handler then waits on the other
+    // tab, before its own sync starts.
+    const releaseOther = hold(2);
+    const newer = setLocation(LA_POINT);
+    await vi.waitFor(() => expect(delivered(sent, TAB, LA_ID)).toBe(true));
+    await vi.waitFor(() => expect(delivered(sent, OTHER_TAB, LA_ID)).toBe(true));
+
+    releaseTargets([target(MAIN_URL, true)]);
+    await older;
+    const olderWrites = fake.calls
+      .slice(atOlderSync)
+      .filter((c) => c.method === "Emulation.setTimezoneOverride" || c.method === "detach");
+    expect(olderWrites).toEqual([]);
+
+    releaseOther();
+    await newer;
+    expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe(LA_ID);
+    expect(zonesSentTo(fake.calls, CHILD).at(-1)).toBe(LA_ID);
+    expect(zonesSentTo(fake.calls.slice(atOlderSync), ROOT)).not.toContain("Asia/Tokyo");
+    expect(zonesSentTo(fake.calls.slice(atOlderSync), CHILD)).not.toContain("Asia/Tokyo");
+  });
+
+  test("the older sync's root command is in flight: the newer delivery waits for it, and its child pass is skipped", async () => {
+    const { sent, setLocation } = await heldOnLa();
+    const atStart = fake.calls.length;
+    const releaseRoot = fake.holdNext("Emulation.setTimezoneOverride");
+    const older = setLocation(TOKYO);
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe("Asia/Tokyo"));
+
+    const newer = setLocation(LA_POINT);
+    // The other tab has the newer payload; this tab's waits on the older command.
+    await vi.waitFor(() => expect(delivered(sent, OTHER_TAB, LA_ID)).toBe(true));
+    expect(delivered(sent, TAB, LA_ID)).toBe(false);
+
+    releaseRoot();
+    await vi.waitFor(() => expect(delivered(sent, TAB, LA_ID)).toBe(true));
+    await older;
+    await newer;
+    expect(zonesSentTo(fake.calls.slice(atStart), CHILD)).not.toContain("Asia/Tokyo");
+    expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe(LA_ID);
+    expect(zonesSentTo(fake.calls, CHILD).at(-1)).toBe(LA_ID);
+  });
+});
+
 describe("a same-document navigation finishes the reconcile it claims", () => {
   const CHILD = { tabId: TAB, sessionId: "S1" };
 

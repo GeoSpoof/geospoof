@@ -10,6 +10,7 @@ import { readRevision } from "@/shared/settings-revision";
 import { updateWorkerFilterSettings } from "./worker-request-filter";
 import { updateAcceptLanguageSettings } from "./accept-language";
 import { buildPagePayload } from "./page-payload";
+import { beforePageDelivery } from "./debugger-spoof";
 
 export { isRestrictedUrl } from "./restricted-url";
 
@@ -57,6 +58,10 @@ export async function sendSettingsToTab(
     payload,
     ...revisionField(settings),
   };
+
+  // Chromium Engine-level: from here an older settings sync can't change this
+  // tab's engine zone under the page; waits for its commands in flight.
+  if (__CHROMIUM__) await beforePageDelivery(tab.id, settings, tab.url);
 
   try {
     await browser.tabs.sendMessage(tab.id, message);

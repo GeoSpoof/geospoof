@@ -20,6 +20,7 @@
  */
 
 import { createLogger } from "@/shared/utils/debug-logger";
+import { isOlderRevision } from "@/shared/settings-revision";
 
 const logger = createLogger("BG");
 
@@ -67,6 +68,25 @@ export const CHILD_AUTO_ATTACH = {
 /** The bound on each step of setting up an attached child, before any resume. */
 export const CHILD_RESUME_TIMEOUT_MS = 1000;
 
+/** The bound on how long a page delivery waits for older zone commands to its tab. */
+export const DELIVERY_WAIT_TIMEOUT_MS = 1000;
+
+/**
+ * A zone for a tab and the settings revision it comes from (absent when
+ * unknown): what a reconcile sets on the tab's sessions, or what a page
+ * delivery's settings give the tab. A null zone is none (a revert).
+ */
+export interface TabPlan {
+  revision?: number;
+  zone: string | null;
+}
+
+/** A zone command in flight to one of a tab's sessions, and the plan it came from. */
+interface ZoneCommand {
+  plan: TabPlan;
+  done: Promise<unknown>;
+}
+
 interface TabSessions {
   /** A root command we sent succeeded, so the session is ours. */
   held: boolean;
@@ -78,6 +98,8 @@ interface TabSessions {
    * reconcile in this worker's lifetime sets one.
    */
   zone?: string | null;
+  /** The settings revision `zone` came from. */
+  zoneRevision?: number;
   /** Child session ids. Nothing else about a frame (its URL) is kept. */
   children: Set<string>;
 }
@@ -90,13 +112,24 @@ interface TabSessions {
  * ensureChildAutoAttach} rediscovers a held tab's children.
  *
  * It also numbers each tab's reconciles (see {@link TabSessionTracker.begin})
- * so the newest one is always the last to write.
+ * so the newest one is always the last to write, and records the settings
+ * revision last delivered to each tab's page (see {@link
+ * TabSessionTracker.deliver}) so a reconcile that read older settings can't
+ * change the zone under a page that has the newer ones.
  */
 export class TabSessionTracker {
   private readonly tabs = new Map<number, TabSessions>();
   /** Per tab, its newest reconcile. Kept apart from `tabs`, which `clearTab` drops. */
   private readonly generations = new Map<number, number>();
   private lastGeneration = 0;
+  /**
+   * Per tab, the newest settings revision delivered to its page and the zone
+   * those settings give the tab. Kept apart from `tabs` too: the page stays
+   * when a session ends.
+   */
+  private readonly delivered = new Map<number, TabPlan>();
+  /** Per tab, the zone commands in flight to its sessions. */
+  private readonly inFlight = new Map<number, Set<ZoneCommand>>();
 
   /**
    * Start a reconcile of the tab (a navigation, a settings change, a
@@ -142,13 +175,81 @@ export class TabSessionTracker {
     return this.generations.get(tabId) === generation;
   }
 
-  setZone(tabId: number, zone: string | null): void {
-    this.entry(tabId).zone = zone;
+  /**
+   * A page delivery to the tab is about to go out, built from settings
+   * `plan.revision` that give the tab `plan.zone`. Call it before the send:
+   * the page may keep native Date/Intl because its engine already reports
+   * that zone, so from now on a reconcile that read older settings sends
+   * nothing to the tab that would set another zone (see {@link allows}).
+   * Resolves once the commands such reconciles already have in flight to the
+   * tab settle, so the page checks its engine after they land, or after
+   * `timeoutMs`. A delivery with no revision, or an older one than the tab
+   * already had, isn't recorded. Never rejects.
+   */
+  deliver(tabId: number, plan: TabPlan, timeoutMs = DELIVERY_WAIT_TIMEOUT_MS): Promise<void> {
+    if (
+      plan.revision !== undefined &&
+      !isOlderRevision(plan.revision, this.delivered.get(tabId)?.revision)
+    ) {
+      this.delivered.set(tabId, plan);
+    }
+    const older = [...(this.inFlight.get(tabId) ?? [])]
+      .filter((c) => !this.allows(tabId, c.plan))
+      .map((c) => c.done);
+    if (older.length === 0) return Promise.resolve();
+    return withTimeout(
+      Promise.allSettled(older).then(() => undefined),
+      timeoutMs,
+      undefined
+    );
+  }
+
+  /**
+   * Whether a reconcile may still set `plan.zone` on the tab: yes unless the
+   * tab's page was delivered newer settings than `plan.revision` that give it
+   * another zone. The newer settings' own zone stays allowed, so a newer save
+   * that leaves the zone alone (a logging toggle) doesn't stop an older
+   * settings change from reaching the engine.
+   */
+  allows(tabId: number, plan: TabPlan): boolean {
+    const d = this.delivered.get(tabId);
+    return !d || !isOlderRevision(plan.revision, d.revision) || plan.zone === d.zone;
+  }
+
+  /** Keep `done`, a zone command to one of the tab's sessions, in flight until it settles. */
+  track<T>(tabId: number, plan: TabPlan, done: Promise<T>): Promise<T> {
+    let commands = this.inFlight.get(tabId);
+    if (!commands) {
+      commands = new Set();
+      this.inFlight.set(tabId, commands);
+    }
+    const command: ZoneCommand = { plan, done };
+    commands.add(command);
+    const settle = (): void => {
+      commands.delete(command);
+      if (commands.size === 0 && this.inFlight.get(tabId) === commands) {
+        this.inFlight.delete(tabId);
+      }
+    };
+    done.then(settle, settle);
+    return done;
+  }
+
+  setZone(tabId: number, zone: string | null, revision?: number): void {
+    const e = this.entry(tabId);
+    e.zone = zone;
+    e.zoneRevision = revision;
   }
 
   /** See {@link TabSessions.zone}; undefined when no reconcile has set one. */
   zone(tabId: number): string | null | undefined {
     return this.tabs.get(tabId)?.zone;
+  }
+
+  /** The tab's zone (see {@link zone}) and the settings revision it came from; undefined when no reconcile has set one. */
+  zonePlan(tabId: number): TabPlan | undefined {
+    const e = this.tabs.get(tabId);
+    return e?.zone === undefined ? undefined : { revision: e.zoneRevision, zone: e.zone };
   }
 
   private entry(tabId: number): TabSessions {
@@ -237,13 +338,16 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
  * worker's lifetime has set one (just after a restart) is it looked up with
  * `zoneForTab`, and that answer is dropped if the child detached or a newer
  * reconcile started meanwhile: that reconcile reaches this child itself.
+ * Either way it isn't sent if the tab's page has been delivered newer
+ * settings with another zone ({@link TabSessionTracker.allows}); the
+ * reconcile for those settings reaches this child in its pass.
  *
  * The child is addressed as `{ tabId, sessionId }` with the ROOT tab id, which
  * holds for a nested child too: its `source` carries its parent's session id.
  */
 export async function handleChildAttached(
   dbg: DebuggerLike,
-  zoneForTab: (tabId: number) => Promise<string | null>,
+  zoneForTab: (tabId: number) => Promise<TabPlan>,
   tracker: TabSessionTracker,
   source: ChromeDebugger.DebuggerSession,
   params: AttachedToTargetParams,
@@ -253,25 +357,30 @@ export async function handleChildAttached(
   const sessionId = params?.sessionId;
   if (tabId == null || !sessionId) return;
   const child: ChromeDebugger.DebuggerSession = { tabId, sessionId };
+  const none: TabPlan = { zone: null };
   try {
     if (params.targetInfo?.type === "iframe") {
       tracker.addChild(tabId, sessionId);
-      let zone = tracker.zone(tabId);
-      if (zone === undefined) {
+      let plan = tracker.zonePlan(tabId);
+      if (plan === undefined) {
         const generation = tracker.generation(tabId);
-        zone = await withTimeout(
-          zoneForTab(tabId).catch(() => null),
+        plan = await withTimeout(
+          zoneForTab(tabId).catch(() => none),
           timeoutMs,
-          null
+          none
         );
         if (!tracker.hasChild(tabId, sessionId) || tracker.generation(tabId) !== generation) {
-          zone = null;
+          plan = none;
         }
       }
-      if (zone) {
+      if (plan.zone && tracker.allows(tabId, plan)) {
         await withTimeout(
-          dbg
-            .sendCommand(child, "Emulation.setTimezoneOverride", { timezoneId: zone })
+          tracker
+            .track(
+              tabId,
+              plan,
+              dbg.sendCommand(child, "Emulation.setTimezoneOverride", { timezoneId: plan.zone })
+            )
             .catch((error: unknown) => {
               // E.g. "Timezone override is already in effect" when Chrome put
               // this frame in a process another session already set.
@@ -312,35 +421,61 @@ export function handleChildDetached(
 }
 
 /**
- * Set `timezoneId` on the tab's root session, then on every tracked child, as
- * reconcile `generation` of the tab. Nothing is sent from the first step at
- * which a newer reconcile has started: that one writes after this one.
- * Returns whether the root command succeeded, which is what makes a tab count
- * as held. Never throws.
+ * Whether reconcile `generation` of the tab, applying `plan`, may still send:
+ * it's the tab's newest reconcile, and the tab's page hasn't been delivered
+ * newer settings with another zone.
+ */
+function mayWrite(
+  tracker: TabSessionTracker,
+  tabId: number,
+  generation: number,
+  plan: TabPlan
+): boolean {
+  return tracker.isCurrent(tabId, generation) && tracker.allows(tabId, plan);
+}
+
+/**
+ * Set `timezoneId`, from settings `revision`, on the tab's root session, then
+ * on every tracked child, as reconcile `generation` of the tab. Nothing is
+ * sent from the first step at which a newer reconcile has started (that one
+ * writes after this one) or the tab's page has been delivered newer settings
+ * with another zone (see {@link TabSessionTracker.allows}). Returns whether
+ * the root command succeeded, which is what makes a tab count as held. Never
+ * throws.
  */
 export async function setTabZone(
   dbg: DebuggerLike,
   tracker: TabSessionTracker,
   tabId: number,
   timezoneId: string,
-  generation: number
+  generation: number,
+  revision?: number
 ): Promise<boolean> {
-  if (!tracker.isCurrent(tabId, generation)) return false;
+  const plan: TabPlan = { revision, zone: timezoneId };
+  if (!mayWrite(tracker, tabId, generation, plan)) return false;
   // A child that attaches from now on gets this zone (handleChildAttached).
-  tracker.setZone(tabId, timezoneId);
+  tracker.setZone(tabId, timezoneId, revision);
   let rootOk = false;
   try {
-    await dbg.sendCommand({ tabId }, "Emulation.setTimezoneOverride", { timezoneId });
+    await tracker.track(
+      tabId,
+      plan,
+      dbg.sendCommand({ tabId }, "Emulation.setTimezoneOverride", { timezoneId })
+    );
     rootOk = true;
   } catch (error) {
     logger.debug(`setTimezoneOverride failed for tab ${tabId}:`, error);
   }
-  if (!tracker.isCurrent(tabId, generation)) return rootOk;
+  if (!mayWrite(tracker, tabId, generation, plan)) return rootOk;
   await Promise.allSettled(
     tracker
       .children(tabId)
       .map((sessionId) =>
-        dbg.sendCommand({ tabId, sessionId }, "Emulation.setTimezoneOverride", { timezoneId })
+        tracker.track(
+          tabId,
+          plan,
+          dbg.sendCommand({ tabId, sessionId }, "Emulation.setTimezoneOverride", { timezoneId })
+        )
       )
   );
   return rootOk;
@@ -364,8 +499,10 @@ export interface HoldOptions {
  * tab is forgotten and attached again once. A failed `attach` is tolerated: a
  * rejection can't tell "already ours" from "someone else's", which is why only
  * a root command that succeeds marks a tab held. Once a newer reconcile of the
- * tab has started, nothing more is sent or recorded. Returns whether this
- * reconcile set the zone on the root and still owns the tab. Never throws.
+ * tab has started, or the tab's page has been delivered settings newer than
+ * `revision` with another zone, nothing more is sent or recorded. Returns
+ * whether this reconcile set the zone on the root and still owns the tab.
+ * Never throws.
  */
 export async function holdTab(
   dbg: DebuggerLike,
@@ -373,9 +510,11 @@ export async function holdTab(
   tabId: number,
   timezoneId: string,
   generation: number,
-  { protocolVersion, childSessions }: HoldOptions
+  { protocolVersion, childSessions }: HoldOptions,
+  revision?: number
 ): Promise<boolean> {
-  const current = (): boolean => tracker.isCurrent(tabId, generation);
+  const current = (): boolean =>
+    mayWrite(tracker, tabId, generation, { revision, zone: timezoneId });
   const attach = async (): Promise<void> => {
     try {
       await dbg.attach({ tabId }, protocolVersion);
@@ -389,11 +528,11 @@ export async function holdTab(
     if (!current()) return false;
     await attach();
   }
-  let ok = await setTabZone(dbg, tracker, tabId, timezoneId, generation);
+  let ok = await setTabZone(dbg, tracker, tabId, timezoneId, generation, revision);
   if (!ok && held && current()) {
     tracker.clearTab(tabId);
     await attach();
-    ok = await setTabZone(dbg, tracker, tabId, timezoneId, generation);
+    ok = await setTabZone(dbg, tracker, tabId, timezoneId, generation, revision);
   }
   if (!ok || !current()) return false;
   tracker.markHeld(tabId);
@@ -405,27 +544,28 @@ export async function holdTab(
  * Reconcile one tab as its reconcile `generation`, taken with {@link
  * TabSessionTracker.begin} when the event arrived: hold it with the zone
  * `lookup` resolves to, or revert and detach it when that's null (out of
- * scope, spoofing off). If a newer reconcile of the tab started while
- * `lookup` ran, nothing is sent: that one decides. Never throws.
+ * scope, spoofing off), as the settings revision the lookup read. If a newer
+ * reconcile of the tab started while `lookup` ran, nothing is sent: that one
+ * decides. Never throws.
  */
 export async function reconcileTab(
   dbg: DebuggerLike,
   tracker: TabSessionTracker,
   tabId: number,
   generation: number,
-  lookup: () => Promise<string | null>,
+  lookup: () => Promise<TabPlan>,
   options: HoldOptions
 ): Promise<void> {
-  let zone: string | null;
+  let plan: TabPlan;
   try {
-    zone = await lookup();
+    plan = await lookup();
   } catch (error) {
     logger.debug(`zone lookup for tab ${tabId} failed:`, error);
     return;
   }
   if (!tracker.isCurrent(tabId, generation)) return;
-  if (zone) await holdTab(dbg, tracker, tabId, zone, generation, options);
-  else await revertAndDetachTab(dbg, tracker, tabId, generation);
+  if (plan.zone) await holdTab(dbg, tracker, tabId, plan.zone, generation, options, plan.revision);
+  else await revertAndDetachTab(dbg, tracker, tabId, generation, plan.revision);
 }
 
 /**
@@ -469,49 +609,62 @@ export async function ensureChildAutoAttach(
 
 /**
  * Revert the zone on the tab's children, then its root, then detach and forget
- * the tab, as reconcile `generation` of the tab. Reverting explicitly matters:
- * detaching alone doesn't reliably revert the override on an already-loaded
- * document. If a newer reconcile starts partway, the remaining steps are
- * skipped, so a teardown can't detach a session that reconcile is using.
- * Never throws.
+ * the tab, as reconcile `generation` of the tab, from settings `revision`.
+ * Reverting explicitly matters: detaching alone doesn't reliably revert the
+ * override on an already-loaded document. If a newer reconcile starts partway,
+ * or the tab's page is delivered newer settings that give it a zone, the
+ * remaining steps are skipped, so a teardown can't detach a session that
+ * reconcile is using or take the zone from under that page. Never throws.
  */
 export async function revertAndDetachTab(
   dbg: DebuggerLike,
   tracker: TabSessionTracker,
   tabId: number,
-  generation: number
+  generation: number,
+  revision?: number
 ): Promise<void> {
-  const current = (): boolean => tracker.isCurrent(tabId, generation);
+  const plan: TabPlan = { revision, zone: null };
+  const current = (): boolean => mayWrite(tracker, tabId, generation, plan);
   if (!current()) return;
   // A child that attaches from now on gets no zone.
-  tracker.setZone(tabId, null);
+  tracker.setZone(tabId, null, revision);
   await Promise.allSettled(
-    tracker
-      .children(tabId)
-      .map((sessionId) =>
-        dbg.sendCommand({ tabId, sessionId }, "Emulation.setTimezoneOverride", { timezoneId: "" })
+    tracker.children(tabId).map((sessionId) =>
+      tracker.track(
+        tabId,
+        plan,
+        dbg.sendCommand({ tabId, sessionId }, "Emulation.setTimezoneOverride", {
+          timezoneId: "",
+        })
       )
+    )
   );
   if (!current()) return;
   try {
-    await dbg.sendCommand({ tabId }, "Emulation.setTimezoneOverride", { timezoneId: "" });
+    await tracker.track(
+      tabId,
+      plan,
+      dbg.sendCommand({ tabId }, "Emulation.setTimezoneOverride", { timezoneId: "" })
+    );
   } catch {
     /* not attached / no override — fine */
   }
   if (!current()) return;
   try {
-    await dbg.detach({ tabId });
+    // Tracked too: detaching can revert the override.
+    await tracker.track(tabId, plan, dbg.detach({ tabId }));
   } catch {
     // Wasn't attached (the common case) — nothing to do.
   }
-  if (current()) tracker.clearTab(tabId);
+  // The session is gone, so forget it unless a newer reconcile is using the tab.
+  if (tracker.isCurrent(tabId, generation)) tracker.clearTab(tabId);
 }
 
 /** What {@link createDebuggerEventHandler}'s listener needs. */
 export interface DebuggerEventDeps {
   dbg: DebuggerLike;
   tracker: TabSessionTracker;
-  zoneForTab: (tabId: number) => Promise<string | null>;
+  zoneForTab: (tabId: number) => Promise<TabPlan>;
   timeoutMs?: number;
 }
 

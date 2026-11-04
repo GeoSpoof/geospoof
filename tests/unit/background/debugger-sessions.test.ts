@@ -19,6 +19,7 @@ import {
   setTabZone,
   type AttachedToTargetParams,
   type DebuggerLike,
+  type TabPlan,
 } from "@/background/debugger-sessions";
 
 interface Call {
@@ -106,7 +107,7 @@ function iframeAttached(sessionId = "S1", waitingForDebugger = true): AttachedTo
   };
 }
 
-const tokyo = () => Promise.resolve("Asia/Tokyo");
+const tokyo = (): Promise<TabPlan> => Promise.resolve({ zone: "Asia/Tokyo" });
 
 afterEach(() => {
   vi.useRealTimers();
@@ -134,7 +135,7 @@ describe("handleChildAttached", () => {
     const { dbg, calls } = fakeDebugger();
     await handleChildAttached(
       dbg,
-      () => Promise.resolve(null),
+      () => Promise.resolve({ zone: null }),
       new TabSessionTracker(),
       ROOT,
       iframeAttached()
@@ -160,7 +161,7 @@ describe("handleChildAttached", () => {
     const { dbg, calls } = fakeDebugger();
     const done = handleChildAttached(
       dbg,
-      () => new Promise<string | null>(() => {}),
+      () => new Promise<TabPlan>(() => {}),
       new TabSessionTracker(),
       ROOT,
       iframeAttached(),
@@ -459,7 +460,7 @@ describe("the newest reconcile of a tab writes last", () => {
   test("a child's lookup that finishes after a newer reconcile is dropped", async () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
-    const lookup = deferred<string | null>();
+    const lookup = deferred<TabPlan>();
     const child = handleChildAttached(
       dbg,
       () => lookup.promise,
@@ -467,8 +468,15 @@ describe("the newest reconcile of a tab writes last", () => {
       ROOT,
       iframeAttached("S1", false)
     );
-    await reconcileTab(dbg, tracker, TAB, tracker.begin(TAB), () => Promise.resolve(LA), OPTS);
-    lookup.resolve("Asia/Tokyo");
+    await reconcileTab(
+      dbg,
+      tracker,
+      TAB,
+      tracker.begin(TAB),
+      () => Promise.resolve({ zone: LA }),
+      OPTS
+    );
+    lookup.resolve({ zone: "Asia/Tokyo" });
     await child;
     expect(zonesSentTo(calls, CHILD)).toEqual([LA]);
   });
@@ -477,7 +485,7 @@ describe("the newest reconcile of a tab writes last", () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
     tracker.markHeld(TAB);
-    const lookup = deferred<string | null>();
+    const lookup = deferred<TabPlan>();
     const child = handleChildAttached(
       dbg,
       () => lookup.promise,
@@ -486,7 +494,7 @@ describe("the newest reconcile of a tab writes last", () => {
       iframeAttached("S1", false)
     );
     await revertAndDetachTab(dbg, tracker, TAB, tracker.begin(TAB));
-    lookup.resolve("Asia/Tokyo");
+    lookup.resolve({ zone: "Asia/Tokyo" });
     await child;
     expect(zonesSentTo(calls, CHILD)).toEqual([""]);
     expect(calls.at(-1)?.method).not.toBe("Emulation.setTimezoneOverride");
@@ -508,10 +516,10 @@ describe("the newest reconcile of a tab writes last", () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
     await holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS);
-    const lookup = deferred<string | null>();
+    const lookup = deferred<TabPlan>();
     const nav = reconcileTab(dbg, tracker, TAB, tracker.begin(TAB), () => lookup.promise, OPTS);
     await handleChildAttached(dbg, tokyo, tracker, ROOT, iframeAttached("S1", false));
-    lookup.resolve(LA);
+    lookup.resolve({ zone: LA });
     await nav;
     expect(zonesSentTo(calls, CHILD)).toEqual(["Asia/Tokyo", LA]);
   });
@@ -519,10 +527,17 @@ describe("the newest reconcile of a tab writes last", () => {
   test("navigations: an older lookup that finishes last sends nothing", async () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
-    const older = deferred<string | null>();
+    const older = deferred<TabPlan>();
     const first = reconcileTab(dbg, tracker, TAB, tracker.begin(TAB), () => older.promise, OPTS);
-    await reconcileTab(dbg, tracker, TAB, tracker.begin(TAB), () => Promise.resolve(LA), OPTS);
-    older.resolve("Asia/Tokyo");
+    await reconcileTab(
+      dbg,
+      tracker,
+      TAB,
+      tracker.begin(TAB),
+      () => Promise.resolve({ zone: LA }),
+      OPTS
+    );
+    older.resolve({ zone: "Asia/Tokyo" });
     await first;
     expect(zonesSentTo(calls, ROOT)).toEqual([LA]);
     expect(tracker.zone(TAB)).toBe(LA);
@@ -531,10 +546,17 @@ describe("the newest reconcile of a tab writes last", () => {
   test("navigations: an older out-of-scope lookup can't detach the newer page's session", async () => {
     const { dbg, calls } = fakeDebugger();
     const tracker = new TabSessionTracker();
-    const older = deferred<string | null>();
+    const older = deferred<TabPlan>();
     const first = reconcileTab(dbg, tracker, TAB, tracker.begin(TAB), () => older.promise, OPTS);
-    await reconcileTab(dbg, tracker, TAB, tracker.begin(TAB), () => Promise.resolve(LA), OPTS);
-    older.resolve(null);
+    await reconcileTab(
+      dbg,
+      tracker,
+      TAB,
+      tracker.begin(TAB),
+      () => Promise.resolve({ zone: LA }),
+      OPTS
+    );
+    older.resolve({ zone: null });
     await first;
     expect(calls.map((c) => c.method)).not.toContain("detach");
     expect(tracker.isHeld(TAB)).toBe(true);
@@ -631,6 +653,105 @@ describe("the newest reconcile of a tab writes last", () => {
     // fails on the detached session and it attaches again (holdTab's retry).
     expect(tracker.isHeld(TAB)).toBe(true);
     expect(tracker.isCurrent(TAB, g)).toBe(true);
+  });
+});
+
+describe("a page delivered newer settings", () => {
+  const OPTS = { protocolVersion: "1.3", childSessions: false };
+  const CHILD = { tabId: TAB, sessionId: "S1" };
+  const LA = "America/Los_Angeles";
+
+  test("an older reconcile with another zone sends nothing; with the same zone it still writes", async () => {
+    const { dbg, calls } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    tracker.markHeld(TAB);
+    tracker.addChild(TAB, "S1");
+    await tracker.deliver(TAB, { revision: 2, zone: LA });
+    expect(await holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS, 1)).toBe(false);
+    expect(calls).toEqual([]);
+    // A newer save that kept the zone (a logging toggle) doesn't stop it.
+    expect(await holdTab(dbg, tracker, TAB, LA, tracker.begin(TAB), OPTS, 1)).toBe(true);
+    expect(zonesSentTo(calls, ROOT)).toEqual([LA]);
+    expect(zonesSentTo(calls, CHILD)).toEqual([LA]);
+  });
+
+  test("an older teardown can't revert or detach a page delivered a zone", async () => {
+    const { dbg, calls } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    tracker.markHeld(TAB);
+    tracker.addChild(TAB, "S1");
+    await tracker.deliver(TAB, { revision: 2, zone: LA });
+    await revertAndDetachTab(dbg, tracker, TAB, tracker.begin(TAB), 1);
+    expect(calls).toEqual([]);
+    expect(tracker.isHeld(TAB)).toBe(true);
+  });
+
+  test("a delivery older than the one recorded, or without a revision, changes nothing", async () => {
+    const tracker = new TabSessionTracker();
+    await tracker.deliver(TAB, { revision: 2, zone: LA });
+    await tracker.deliver(TAB, { revision: 1, zone: "Asia/Tokyo" });
+    await tracker.deliver(TAB, { zone: "Asia/Tokyo" });
+    expect(tracker.allows(TAB, { revision: 1, zone: "Asia/Tokyo" })).toBe(false);
+    expect(tracker.allows(TAB, { revision: 1, zone: LA })).toBe(true);
+    expect(tracker.allows(TAB, { revision: 2, zone: "Asia/Tokyo" })).toBe(true);
+  });
+
+  test("the delivery waits for an older reconcile's command in flight; then its children are skipped", async () => {
+    const { dbg, calls, holdNext } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    tracker.markHeld(TAB);
+    tracker.addChild(TAB, "S1");
+    const release = holdNext("Emulation.setTimezoneOverride");
+    const older = holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS, 1);
+    await vi.waitFor(() => expect(zonesSentTo(calls, ROOT)).toEqual(["Asia/Tokyo"]));
+    let delivered = false;
+    const delivery = tracker.deliver(TAB, { revision: 2, zone: LA }).then(() => {
+      delivered = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(delivered).toBe(false);
+    release();
+    await delivery;
+    expect(await older).toBe(false);
+    expect(zonesSentTo(calls, CHILD)).toEqual([]);
+  });
+
+  test("a command in flight that never settles holds the delivery for the bound only", async () => {
+    vi.useFakeTimers();
+    const { dbg } = fakeDebugger({ "Emulation.setTimezoneOverride": "hang" });
+    const tracker = new TabSessionTracker();
+    tracker.markHeld(TAB);
+    void holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS, 1);
+    let delivered = false;
+    void tracker.deliver(TAB, { revision: 2, zone: LA }, 1000).then(() => {
+      delivered = true;
+    });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(delivered).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(delivered).toBe(true);
+  });
+
+  test("a delivery doesn't wait for a command with its own zone", async () => {
+    const { dbg, calls, holdNext } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    tracker.markHeld(TAB);
+    const release = holdNext("Emulation.setTimezoneOverride");
+    const hold = holdTab(dbg, tracker, TAB, LA, tracker.begin(TAB), OPTS, 1);
+    await vi.waitFor(() => expect(zonesSentTo(calls, ROOT)).toEqual([LA]));
+    await tracker.deliver(TAB, { revision: 2, zone: LA });
+    release();
+    expect(await hold).toBe(true);
+  });
+
+  test("a child attaching gets no zone from settings older than its page's", async () => {
+    const { dbg, calls } = fakeDebugger();
+    const tracker = new TabSessionTracker();
+    await holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS, 1);
+    await tracker.deliver(TAB, { revision: 2, zone: LA });
+    await handleChildAttached(dbg, tokyo, tracker, ROOT, iframeAttached("S1", false));
+    expect(zonesSentTo(calls, CHILD)).toEqual([]);
+    expect(tracker.children(TAB)).toEqual(["S1"]);
   });
 });
 

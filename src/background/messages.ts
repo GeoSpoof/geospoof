@@ -90,7 +90,7 @@ import {
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
-import { syncDebuggerSpoofing } from "./debugger-spoof";
+import { beforePageDelivery, syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
 import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
 import {
@@ -201,6 +201,11 @@ export async function handleMessage(
         // from, so the content script can drop a reply built from settings
         // older than a push it has already applied.
         const reply: ContentSettingsReply = { ...payload, ...revisionField(settings) };
+        // Chromium Engine-level, as for a push (sendSettingsToTab). Not for a
+        // prerendering document: the tab's session doesn't reach it.
+        if (__CHROMIUM__ && senderTabId != null && !isPrerendering(_sender)) {
+          await beforePageDelivery(senderTabId, settings, pageUrl);
+        }
         return reply;
       }
 
