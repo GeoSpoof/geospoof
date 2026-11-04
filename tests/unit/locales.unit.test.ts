@@ -243,7 +243,7 @@ describe("Per-site locations keys are present in every locale", () => {
 
   // Per-site strings use each locale's established words. Vietnamese says
   // "trang web" for a site, as Filters do ("trang" alone reads as "page"), and
-  // Simplified Chinese says 伪造 for spoofing, not 伪装 ("disguise").
+  // both Chinese locales say 伪造/偽造 for spoofing, not 伪装/偽裝 ("disguise").
   test("vi says 'trang web' for a site, as its Filters heading does", () => {
     const vi = loadLocale("vi");
     expect(vi.filters_heading.message).toContain("trang web");
@@ -255,6 +255,12 @@ describe("Per-site locations keys are present in every locale", () => {
     const zh = loadLocale("zh_CN");
     expect(zh.filters_modeAllDesc.message).toContain("伪造");
     expect(REQUIRED_KEYS.filter((key) => zh[key].message.includes("伪装"))).toEqual([]);
+  });
+
+  test("zh_TW per-site strings say 偽造 for spoofing, as Filters do", () => {
+    const zh = loadLocale("zh_TW");
+    expect(zh.filters_modeAllDesc.message).toContain("偽造");
+    expect(REQUIRED_KEYS.filter((key) => zh[key].message.includes("偽裝"))).toEqual([]);
   });
 
   // Keys that lose their last use get removed, so translators aren't asked to
@@ -291,8 +297,8 @@ describe("Location precision cadence keys are present in every locale", () => {
     "advanced_precisionCadence_day",
   ];
 
-  test("all 12 locales are covered", () => {
-    expect(listLocales()).toHaveLength(12);
+  test("all 13 locales are covered", () => {
+    expect(listLocales()).toHaveLength(13);
   });
 
   describe.each(listLocales())("%s", (locale) => {

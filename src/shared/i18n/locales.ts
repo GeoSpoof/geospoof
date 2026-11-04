@@ -33,6 +33,7 @@ export const SUPPORTED_UI_LOCALES: readonly SupportedLocale[] = [
   { code: "sv", endonym: "Svenska" },
   { code: "vi", endonym: "Tiếng Việt" },
   { code: "zh_CN", endonym: "简体中文" },
+  { code: "zh_TW", endonym: "繁體中文" },
 ] as const;
 
 const LOCALE_CODES: readonly string[] = SUPPORTED_UI_LOCALES.map((l) => l.code);
@@ -43,10 +44,11 @@ const LOCALE_CODES: readonly string[] = SUPPORTED_UI_LOCALES.map((l) => l.code);
  *
  * The two platforms spell the same languages differently: WebExtensions use
  * underscore region tags, while Apple uses hyphens and keys Chinese by *script*
- * rather than region. Only two of the twelve differ:
+ * rather than region. Only three of the thirteen differ:
  *
  *   `pt_BR` → `pt-BR`      (separator only)
  *   `zh_CN` → `zh-Hans`    (region → script)
+ *   `zh_TW` → `zh-Hant`    (region → script)
  *
  * This lives here, beside the locale list itself, because it is the only bridge
  * between the extension's locale vocabulary and the native app's. Kept in one
@@ -56,6 +58,7 @@ const LOCALE_CODES: readonly string[] = SUPPORTED_UI_LOCALES.map((l) => l.code);
  */
 export function toAppleLocaleCode(code: string): string {
   if (code === "zh_CN") return "zh-Hans";
+  if (code === "zh_TW") return "zh-Hant";
   return code.replace("_", "-");
 }
 
@@ -65,12 +68,27 @@ export function isSupportedLocale(code: string): boolean {
 }
 
 /**
+ * Pick the Chinese catalog for the subtags after `zh` (canonical: lowercased,
+ * `_`-separated). A script subtag decides first (`hant` → Traditional, `hans`
+ * → Simplified); otherwise Taiwan, Hong Kong and Macau get Traditional, and
+ * everything else (bare `zh`, `zh_cn`, `zh_sg`) gets Simplified.
+ */
+function chineseLocaleFor(subtags: readonly string[]): "zh_TW" | "zh_CN" {
+  if (subtags.includes("hant")) return "zh_TW";
+  if (subtags.includes("hans")) return "zh_CN";
+  return subtags.some((s) => s === "tw" || s === "hk" || s === "mo") ? "zh_TW" : "zh_CN";
+}
+
+/**
  * Map an arbitrary language tag (e.g. `"pt-BR"`, `"en_US"`, `"ru"`,
- * `"zh-Hans-CN"`) to a supported `_locales` code, or `null` when none applies.
+ * `"zh-Hans-CN"`, `"zh-HK"`) to a supported `_locales` code, or `null` when
+ * none applies.
  *
  * Tries a region-qualified match first (so `"pt-BR"` → `"pt_BR"`), then falls
  * back to the base language (so `"pt"` and `"pt-PT"` also resolve to `"pt_BR"`,
- * the only Portuguese we ship). Case- and separator-insensitive.
+ * the only Portuguese we ship). Chinese picks a script instead: `"zh-HK"`,
+ * `"zh-MO"` and `"zh-Hant-*"` resolve to `"zh_TW"`, while `"zh"`, `"zh-SG"` and
+ * `"zh-Hans-*"` resolve to `"zh_CN"`. Case- and separator-insensitive.
  */
 export function normalizeToSupportedLocale(tag: string | null | undefined): string | null {
   if (!tag) return null;
@@ -81,9 +99,17 @@ export function normalizeToSupportedLocale(tag: string | null | undefined): stri
   const exact = LOCALE_CODES.find((code) => code.toLowerCase() === canonical);
   if (exact) return exact;
 
+  const subtags = canonical.split("_");
+  const base = subtags[0];
+
+  // Two Chinese catalogs share the primary subtag, so choose by script/region.
+  if (base === "zh") {
+    const chinese = chineseLocaleFor(subtags.slice(1));
+    if (LOCALE_CODES.includes(chinese)) return chinese;
+  }
+
   // Base-language fallback: compare the primary subtag on both sides so
-  // "en_US" -> "en", "zh_hans_cn" -> "zh" -> "zh_CN".
-  const base = canonical.split("_")[0];
+  // "en_US" -> "en", "pt_pt" -> "pt" -> "pt_BR".
   return LOCALE_CODES.find((code) => code.toLowerCase().split("_")[0] === base) ?? null;
 }
 

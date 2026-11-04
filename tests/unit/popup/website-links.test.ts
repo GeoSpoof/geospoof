@@ -42,6 +42,7 @@ describe("localizeWebsiteHref — locales the site serves get a prefix", () => {
     // The extension uses WebExtension underscores; the site uses BCP-47 hyphens.
     expect(localizeWebsiteHref(VERIFY, "pt_BR")).toContain("/pt-BR/verify");
     expect(localizeWebsiteHref(VERIFY, "zh_CN")).toContain("/zh-CN/verify");
+    expect(localizeWebsiteHref(VERIFY, "zh_TW")).toContain("/zh-TW/verify");
   });
 
   test("the UTM query string is preserved verbatim", () => {
