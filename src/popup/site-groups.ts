@@ -422,7 +422,7 @@ function hostnameOf(url: string): string {
  *   - typed: the pattern as stored, no meta;
  *   - exact: the address without `=`, meta "Exact address only";
  *   - group: the featured label or the name, plus " @attr" per attr, meta
- *     "964 sites" (plus " · 2 rules skipped");
+ *     "964 sites" (no skipped count: built-in skips aren't actionable);
  *   - link: the list's derived name, meta "110,197 sites · from host" (plus
  *     skipped), or "Couldn't update this list" when its last refresh failed;
  *     the tooltip is the URL.
@@ -459,9 +459,16 @@ export function describeEntry(
       return { title, meta, tooltip: canonical, warning: false, kind: "group" };
     }
     if (summary === undefined) return unavailable(title, canonical, "group");
-    const meta = [siteCountText(summary.count)];
-    if (summary.skipped > 0) meta.push(skippedText(summary.skipped));
-    return { title, meta: meta.join(" · "), tooltip: canonical, warning: false, kind: "group" };
+    // No skipped count here: a built-in group's skipped rules (v2fly's few
+    // regexp entries) aren't something the user chose or can act on. A list
+    // from a link keeps its count, because the user picked that source.
+    return {
+      title,
+      meta: siteCountText(summary.count),
+      tooltip: canonical,
+      warning: false,
+      kind: "group",
+    };
   }
 
   const title = linkDisplayName(entry.url);

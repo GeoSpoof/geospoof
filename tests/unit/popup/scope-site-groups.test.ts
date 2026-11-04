@@ -169,7 +169,7 @@ describe("rows", () => {
 
     const meta = (title: string) => rowFor(title).querySelector(".scope-site-meta")?.textContent;
     expect(meta("mail.example.com")).toBe("Exact address only");
-    expect(meta("Google")).toBe("964 sites · 2 rules skipped");
+    expect(meta("Google")).toBe("964 sites");
     expect(meta("direct-list")).toBe(
       `${formatCount(110_197)} sites · from raw.githubusercontent.com · 8 rules skipped`
     );
@@ -345,9 +345,7 @@ describe("removing a group row", () => {
     expect(messagesOfType("REMOVE_SCOPE_SITE")).toEqual([{ list: "allowlist", pattern: GOOGLE }]);
     expect(rows()).toHaveLength(4);
     expect(rows()[2].querySelector(".scope-site-domain")?.textContent).toBe("Google");
-    expect(rows()[2].querySelector(".scope-site-meta")?.textContent).toBe(
-      "964 sites · 2 rules skipped"
-    );
+    expect(rows()[2].querySelector(".scope-site-meta")?.textContent).toBe("964 sites");
     expect(byId("scopeModeError").style.display).toBe("block");
   });
 

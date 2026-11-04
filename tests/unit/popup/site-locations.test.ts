@@ -1186,7 +1186,7 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     expect(chipTitles()).toEqual(["chatgpt.com", "Google"]);
     const chip = chipRemoveButton("Google").closest(".entry-chip")!;
     expect(chip.getAttribute("role")).toBe("listitem");
-    expect(chip.querySelector(".entry-chip-meta")?.textContent).toBe("964 sites · 2 rules skipped");
+    expect(chip.querySelector(".entry-chip-meta")?.textContent).toBe("964 sites");
     expect(chip.getAttribute("title")).toBe(GOOGLE_TOKEN);
     expect(chipRemoveButton("Google").getAttribute("aria-label")).toBe("Remove site Google");
     expect(chipRemoveButton("Google").type).toBe("button");

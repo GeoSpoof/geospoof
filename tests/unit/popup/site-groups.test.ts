@@ -361,11 +361,11 @@ describe("describeEntry", () => {
     });
   });
 
-  test("a group shows its label and size, plus skipped rules", async () => {
+  test("a group shows its label and size, without skipped rules", async () => {
     await load(reply({ "geosite:google": group("geosite:google") }));
     expect(describeEntry("geosite:google")).toEqual({
       title: "Google",
-      meta: "964 sites · 2 rules skipped",
+      meta: "964 sites",
       tooltip: "geosite:google",
       warning: false,
       kind: "group",
@@ -393,7 +393,7 @@ describe("describeEntry", () => {
     });
   });
 
-  test("one site and one skipped rule read in the singular", async () => {
+  test("one site reads in the singular, and a group hides its skipped rule", async () => {
     await load(
       reply({
         "geosite:youtube@cn": group("geosite:youtube@cn", {
@@ -405,7 +405,7 @@ describe("describeEntry", () => {
     );
     expect(describeEntry("geosite:youtube@cn")).toMatchObject({
       title: "YouTube @cn",
-      meta: "1 site · 1 rule skipped",
+      meta: "1 site",
     });
   });
 
