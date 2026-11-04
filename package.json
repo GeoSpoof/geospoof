@@ -37,6 +37,7 @@
     "prepare": "husky",
     "sign:xpi": "bash scripts/sign-xpi.sh",
     "sign:xpi:amo": "bash scripts/sign-xpi.sh --channel listed --source geospoof-source-v$(node -p \"require('./package.json').version\").zip",
+    "site-groups:update": "node scripts/site-groups/build-catalog.ts --download --out assets/site-groups/catalog.json",
     "test": "vitest run --silent",
     "test:watch": "vitest",
     "test:coverage": "vitest run --silent --coverage",

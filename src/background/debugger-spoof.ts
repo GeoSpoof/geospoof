@@ -71,6 +71,7 @@ import {
   type TabPlan,
 } from "./debugger-sessions";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { currentSiteGroups } from "./site-groups-store";
 
 const logger = createLogger("BG");
 
@@ -142,7 +143,7 @@ export function buildOverridesForTab(
   url: string | undefined
 ): Overrides | null {
   if (!isSpoofableTabUrl(url)) return null;
-  const r = resolveSiteSettings(settings, url, isRestrictedUrl);
+  const r = resolveSiteSettings(settings, url, isRestrictedUrl, currentSiteGroups());
   if (!r.enabled || !r.settings.timezone) return null;
   return { timezoneId: r.settings.timezone.identifier };
 }

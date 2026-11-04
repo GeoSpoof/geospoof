@@ -50,15 +50,20 @@ import {
 import {
   normalizeSiteLocationLabel,
   normalizeSiteLocationName,
-  parseSiteLocationPattern,
-  siteLocationPatternKey,
+  siteLocationEntryKey,
 } from "@/shared/utils/site-locations";
 import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { resolveAccuracy } from "@/shared/accuracy/resolver";
 import { detectDeviceClass } from "@/shared/accuracy/device-class";
 import { isTimeCadence, validatePrecisionCadence } from "@/shared/precision/cadence";
 import { setDebugEnabled, setVerbosityLevel, createLogger } from "@/shared/utils/debug-logger";
-import { parsePattern } from "@/shared/utils/scope";
+import {
+  classifyFilterEntry,
+  parseFilterEntry,
+  parseSiteLocationEntry,
+} from "@/shared/utils/filter-entries";
+import { siteGroupsAvailable } from "@/shared/site-groups/availability";
+import { isSiteGroupToken } from "@/shared/site-groups/tokens";
 import {
   ensureValidPrecisionSeed,
   loadSettings,
@@ -99,6 +104,13 @@ import {
   runSiteLocationJob,
   stampSiteLocationRequest,
 } from "./site-location-queue";
+import {
+  handleGetSiteGroupIndex,
+  handleGetSiteGroups,
+  handleUpdateSiteGroups,
+  pruneSiteGroupDataSoon,
+  withSiteGroupData,
+} from "./site-groups";
 
 export async function handleMessage(
   message: Message,
@@ -414,6 +426,15 @@ export async function handleMessage(
       case "REMOVE_SITE_LOCATION":
         return await handleRemoveSiteLocation(message.payload as RemoveSiteLocationPayload);
 
+      case "GET_SITE_GROUPS":
+        return await handleGetSiteGroups();
+
+      case "GET_SITE_GROUP_INDEX":
+        return await handleGetSiteGroupIndex();
+
+      case "UPDATE_SITE_GROUPS":
+        return await handleUpdateSiteGroups();
+
       default:
         logger.warn("Unknown message type:", message.type);
         return { error: "Unknown message type" };
@@ -713,11 +734,24 @@ export async function handleSetScopeMode(payload: SetScopeModePayload): Promise<
 }
 
 /**
- * ADD_SCOPE_SITE handler (Req 14.1–14.5). Parse the entered pattern to its
- * canonical form, append it to the target list (idempotent against existing
- * canonical entries), persist, then re-broadcast and re-badge. Returns
- * INVALID_PATTERN for input the Pattern_Parser rejects and STORAGE_ERROR on
- * persistence failure.
+ * True when `canonical` is an entry form this engine may create: typed
+ * patterns always; exact, site group and list-link entries only where site
+ * groups are available (not Safari, until geospoof-ios supports them).
+ */
+function isCreatableEntry(canonical: string): boolean {
+  return siteGroupsAvailable() || classifyFilterEntry(canonical)?.type === "pattern";
+}
+
+/**
+ * ADD_SCOPE_SITE handler (Req 14.1–14.5). Parse the entered entry to its
+ * canonical form (`parseFilterEntry`: a typed pattern, an exact address, a
+ * site group or a list from a link), append it to the target list (idempotent
+ * against existing canonical entries), persist, then re-broadcast and
+ * re-badge. A site group or link entry has its data built and stored first
+ * (`withSiteGroupData`); when that fails, nothing is stored and the error
+ * names the reason. Returns INVALID_PATTERN for input the entry grammar
+ * rejects (and, where site groups aren't available, for the three new forms)
+ * and STORAGE_ERROR on persistence failure.
  */
 export async function handleAddScopeSite(payload: ScopeSitePayload): Promise<ScopeResponse> {
   // Checked before the write: an unknown list would otherwise throw inside it
@@ -727,32 +761,50 @@ export async function handleAddScopeSite(payload: ScopeSitePayload): Promise<Sco
   }
   const list = payload.list;
 
-  const canonical = parsePattern(payload.pattern);
-  if (canonical === null) {
+  const canonical = typeof payload.pattern === "string" ? parseFilterEntry(payload.pattern) : null;
+  if (canonical === null || !isCreatableEntry(canonical)) {
     return { error: "INVALID_PATTERN" };
   }
 
   // The duplicate check and the append run inside one settings write, against
   // the list as stored when it runs.
-  let updated;
-  try {
-    updated = await updateSettingsWith((current) =>
+  const append = () =>
+    updateSettingsWith((current) =>
       current[list].includes(canonical) ? null : { [list]: [...current[list], canonical] }
     );
+
+  let updated;
+  let siteGroup: { count: number; skipped: number } | undefined;
+  try {
+    if (isSiteGroupToken(canonical)) {
+      const result = await withSiteGroupData([canonical], append);
+      if (!result.ok) {
+        return {
+          error: result.error,
+          token: canonical,
+          ...(result.skipped !== undefined ? { skipped: result.skipped } : {}),
+        };
+      }
+      updated = result.value;
+      siteGroup = result.added[canonical];
+    } else {
+      updated = await append();
+    }
   } catch {
     return { error: "STORAGE_ERROR" };
   }
+  const success = siteGroup ? { success: true as const, siteGroup } : { success: true as const };
 
   // Idempotent: a duplicate add reports success without re-persisting (Req
   // 14.2).
   if (updated === null) {
-    return { success: true };
+    return success;
   }
 
   await broadcastSettingsToTabs(updated);
   await updateBadge();
   await syncDebuggerSpoofing(updated);
-  return { success: true };
+  return success;
 }
 
 /**
@@ -768,7 +820,9 @@ export async function handleRemoveScopeSite(payload: ScopeSitePayload): Promise<
   }
   const list = payload.list;
 
-  const canonical = parsePattern(payload.pattern) ?? payload.pattern;
+  const canonical =
+    (typeof payload.pattern === "string" ? parseFilterEntry(payload.pattern) : null) ??
+    payload.pattern;
 
   // Filters the list as stored when the write runs.
   let updated;
@@ -782,6 +836,11 @@ export async function handleRemoveScopeSite(payload: ScopeSitePayload): Promise<
   // derive never returns null; the check only narrows the type.
   if (updated === null) {
     return { error: "STORAGE_ERROR" };
+  }
+
+  // A removed group or link may have left data nothing references.
+  if (typeof canonical === "string" && isSiteGroupToken(canonical)) {
+    void pruneSiteGroupDataSoon();
   }
 
   await broadcastSettingsToTabs(updated);
@@ -945,8 +1004,9 @@ export async function handleSetLocaleSpoofing(
 /**
  * The first pattern in `patterns` that an entry other than `selfId` already
  * owns, as a PATTERN_IN_USE response naming that entry, or null. Patterns are
- * compared by `siteLocationPatternKey`, so `münchen.de` conflicts with a
- * stored `xn--mnchen-3ya.de`.
+ * compared by `siteLocationEntryKey`, so `münchen.de` conflicts with a
+ * stored `xn--mnchen-3ya.de`, and a site group or link token conflicts with
+ * the same token.
  */
 function findPatternConflict(
   list: readonly SiteLocation[],
@@ -954,9 +1014,9 @@ function findPatternConflict(
   selfId: string | undefined
 ): SiteLocationResponse | null {
   for (const pattern of patterns) {
-    const key = siteLocationPatternKey(pattern);
+    const key = siteLocationEntryKey(pattern);
     const owner = list.find(
-      (e) => e.id !== selfId && e.patterns.some((p) => siteLocationPatternKey(p) === key)
+      (e) => e.id !== selfId && e.patterns.some((p) => siteLocationEntryKey(p) === key)
     );
     if (owner) {
       return { error: "PATTERN_IN_USE", pattern, ownerId: owner.id };
@@ -1013,12 +1073,14 @@ export async function handleSaveSiteLocation(
   }
   // A host with no A-label form has no key and could never match, so it's
   // invalid too. Two spellings of one host (Unicode and A-label) keep the first.
+  // Exact, site group and link entries are accepted only where site groups
+  // are available.
   const patterns: string[] = [];
   const keys = new Set<string>();
   for (const raw of payload.patterns as unknown[]) {
-    const canonical = typeof raw === "string" ? parseSiteLocationPattern(raw) : null;
-    const key = canonical === null ? null : siteLocationPatternKey(canonical);
-    if (canonical === null || key === null) {
+    const canonical = typeof raw === "string" ? parseSiteLocationEntry(raw) : null;
+    const key = canonical === null ? null : siteLocationEntryKey(canonical);
+    if (canonical === null || key === null || !isCreatableEntry(canonical)) {
       return { error: "INVALID_PATTERN", pattern: String(raw) };
     }
     if (!keys.has(key)) {
@@ -1097,66 +1159,83 @@ export async function handleSaveSiteLocation(
 
   // 8, 10–11 run in the site-location queue, so no other save, remove, or app
   // adoption can write between this re-load and this write.
-  return runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
-    // A remove or save of this entry that arrived after this save has already
-    // written it. Writing this older edit now would undo that. Checked by the
-    // requested id, not `existing`, because a remove that landed before the
-    // first load above leaves `existing` undefined. An id nothing later wrote
-    // still creates a new entry.
-    if (typeof payload.id === "string" && isSiteLocationEntrySuperseded(payload.id, stamp)) {
-      return { error: "SUPERSEDED" };
-    }
+  const writeSiteLocation = (): Promise<SiteLocationResponse> =>
+    runSiteLocationJob(async (): Promise<SiteLocationResponse> => {
+      // A remove or save of this entry that arrived after this save has already
+      // written it. Writing this older edit now would undo that. Checked by the
+      // requested id, not `existing`, because a remove that landed before the
+      // first load above leaves `existing` undefined. An id nothing later wrote
+      // still creates a new entry.
+      if (typeof payload.id === "string" && isSiteLocationEntrySuperseded(payload.id, stamp)) {
+        return { error: "SUPERSEDED" };
+      }
 
-    // 10. Re-load after the awaits and re-check against the latest list.
-    const latest = await loadSettings();
-    const list = latest.siteLocations;
-    const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
-    const lateConflict = findPatternConflict(list, patterns, existing?.id);
-    if (lateConflict) return lateConflict;
-    if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
-      return { error: "AT_CAPACITY" };
-    }
+      // 10. Re-load after the awaits and re-check against the latest list.
+      const latest = await loadSettings();
+      const list = latest.siteLocations;
+      const inPlace = existing !== undefined && list.some((e) => e.id === existing.id);
+      const lateConflict = findPatternConflict(list, patterns, existing?.id);
+      if (lateConflict) return lateConflict;
+      if (!inPlace && list.length >= MAX_SITE_LOCATIONS) {
+        return { error: "AT_CAPACITY" };
+      }
 
-    // 8. Accuracy, as for the main location, from the settings as re-loaded.
-    const accuracy = resolveAccuracy({
-      setting: latest.accuracySetting,
-      deviceClass: detectDeviceClass(),
-      seed: latest.accuracySeed,
-      latitude,
-      longitude,
+      // 8. Accuracy, as for the main location, from the settings as re-loaded.
+      const accuracy = resolveAccuracy({
+        setting: latest.accuracySetting,
+        deviceClass: detectDeviceClass(),
+        seed: latest.accuracySeed,
+        latitude,
+        longitude,
+      });
+
+      // 9. The entry. An edited entry whose original vanished meanwhile (removed
+      // by a request that arrived before this save, or by an app action older
+      // than this save) keeps its id (it's unused now) and is appended.
+      const id = existing?.id ?? newSiteLocationId(list);
+      const entry: SiteLocation = {
+        id,
+        kind: "location",
+        patterns,
+        location: { latitude, longitude, accuracy },
+        timezone,
+        locationName,
+        label:
+          payload.label !== undefined
+            ? normalizeSiteLocationLabel(payload.label)
+            : (existing?.label ?? null),
+        updatedAt: Date.now(),
+      };
+      const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
+
+      let updated: Settings;
+      try {
+        updated = await updateSettings({ siteLocations: next });
+      } catch {
+        return { error: "STORAGE_ERROR" };
+      }
+      noteLocalSiteLocationEdit(id, stamp);
+
+      // 11. Deliver, inside the queue so broadcasts go out in write order.
+      await deliverSiteLocationChange(updated);
+      return { success: true, id };
     });
 
-    // 9. The entry. An edited entry whose original vanished meanwhile (removed
-    // by a request that arrived before this save, or by an app action older
-    // than this save) keeps its id (it's unused now) and is appended.
-    const id = existing?.id ?? newSiteLocationId(list);
-    const entry: SiteLocation = {
-      id,
-      kind: "location",
-      patterns,
-      location: { latitude, longitude, accuracy },
-      timezone,
-      locationName,
-      label:
-        payload.label !== undefined
-          ? normalizeSiteLocationLabel(payload.label)
-          : (existing?.label ?? null),
-      updatedAt: Date.now(),
+  // Site group and link patterns have their data built and stored first,
+  // after the lookups above and before that job (the site-group job finishes
+  // before the site-location job starts, so the lock order holds). A failure
+  // stores nothing.
+  const tokens = patterns.filter(isSiteGroupToken);
+  if (tokens.length === 0) return writeSiteLocation();
+  const result = await withSiteGroupData(tokens, writeSiteLocation);
+  if (!result.ok) {
+    return {
+      error: result.error,
+      ...(result.token !== undefined ? { pattern: result.token } : {}),
+      ...(result.skipped !== undefined ? { skipped: result.skipped } : {}),
     };
-    const next = inPlace ? list.map((e) => (e.id === id ? entry : e)) : [...list, entry];
-
-    let updated: Settings;
-    try {
-      updated = await updateSettings({ siteLocations: next });
-    } catch {
-      return { error: "STORAGE_ERROR" };
-    }
-    noteLocalSiteLocationEdit(id, stamp);
-
-    // 11. Deliver, inside the queue so broadcasts go out in write order.
-    await deliverSiteLocationChange(updated);
-    return { success: true, id };
-  });
+  }
+  return result.value;
 }
 
 /**
@@ -1205,17 +1284,20 @@ export function handleRemoveSiteLocation(
     }
 
     let next: SiteLocation[];
+    let removed: readonly string[];
     if (typeof payload.pattern === "string") {
-      const canonical = parseSiteLocationPattern(payload.pattern) ?? payload.pattern;
+      const canonical = parseSiteLocationEntry(payload.pattern) ?? payload.pattern;
       if (!entry.patterns.includes(canonical)) {
         return { success: true, id };
       }
       const remaining = entry.patterns.filter((p) => p !== canonical);
+      removed = [canonical];
       next =
         remaining.length === 0
           ? list.filter((e) => e.id !== id)
           : list.map((e) => (e.id === id ? { ...e, patterns: remaining } : e));
     } else {
+      removed = entry.patterns;
       next = list.filter((e) => e.id !== id);
     }
 
@@ -1226,6 +1308,8 @@ export function handleRemoveSiteLocation(
       return { error: "STORAGE_ERROR" };
     }
     noteLocalSiteLocationEdit(entry.id, stamp);
+    // A removed group or link may have left data nothing references.
+    if (removed.some(isSiteGroupToken)) void pruneSiteGroupDataSoon();
 
     await deliverSiteLocationChange(updated);
     return { success: true, id };

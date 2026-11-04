@@ -38,6 +38,7 @@ import {
   reschedulePrecisionRollover,
 } from "./precision-cadence";
 import { installDebuggerWatchers, syncDebuggerSpoofing, claimTab } from "./debugger-spoof";
+import { SITE_GROUPS_REFRESH_ALARM, onSiteGroupsStartup, refreshSiteGroups } from "./site-groups";
 import {
   installWorkerRequestFilter,
   updateWorkerFilterSettings,
@@ -325,6 +326,15 @@ async function initialize(): Promise<void> {
     }
   }
 
+  // Site groups: schedule the weekly refresh and build data for referenced
+  // groups and links that have none (or were built from an older catalog).
+  // No-op unless some entry is a site group or link. Never throws.
+  try {
+    await onSiteGroupsStartup(settings);
+  } catch (error) {
+    logger.warn("Site group startup failed:", error);
+  }
+
   // NOTE: the proxy-change and activity-driven resync watchers are installed
   // at the TOP LEVEL of this module (see installResyncWatchers() below), NOT
   // here. initialize() only runs from onInstalled/onStartup, but on a
@@ -601,6 +611,11 @@ if (__SAFARI__) {
 browser.alarms.onAlarm.addListener((alarm: Alarms.Alarm) => {
   if (alarm.name === PRECISION_ROLLOVER_ALARM) {
     void onPrecisionRolloverAlarm();
+    return;
+  }
+  if (alarm.name === SITE_GROUPS_REFRESH_ALARM) {
+    // Never rejects.
+    void refreshSiteGroups({ manual: false });
     return;
   }
   void onAlarm(alarm);

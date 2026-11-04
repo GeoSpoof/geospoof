@@ -34,3 +34,11 @@ This product includes contributions licensed under the MIT License:
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
+This product includes data from v2fly/domain-list-community
+(https://github.com/v2fly/domain-list-community), licensed under the MIT
+License, Copyright (c) 2018-2019 V2Ray:
+  - the site group catalog in assets/site-groups/catalog.json, and
+  - the site group catalogs GeoSpoof publishes under site-groups/ on
+    cdn.geospoof.com,
+  both converted from the upstream dlc.dat_plain.yml release asset. The MIT
+  permission notice above applies to this data.

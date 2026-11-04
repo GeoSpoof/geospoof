@@ -95,6 +95,15 @@ export function browserUiLanguage(): string {
 }
 
 /**
+ * The popup's active UI language as a BCP 47 tag (`pt-BR`), for `Intl`
+ * formatting: the override when one is active, else the browser UI language.
+ * Empty when neither is known, so `Intl` falls back to its default.
+ */
+export function uiLocale(): string {
+  return (activeLocale ?? browserUiLanguage()).replace(/_/g, "-");
+}
+
+/**
  * Replicate `browser.i18n.getMessage` substitution for a raw catalog entry:
  * resolve named `$PLACEHOLDER$` tokens (case-insensitive) to their `content`
  * (which may itself reference positional `$1`…`$9`), then substitute any bare

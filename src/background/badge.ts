@@ -22,6 +22,7 @@ import { loadSettings } from "./settings";
 import type { SiteResolution } from "@/shared/utils/site-locations";
 import { resolveSiteSettings, siteLocationDisplayName } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { currentSiteGroups } from "./site-groups-store";
 
 const logger = createLogger("BG");
 
@@ -160,7 +161,7 @@ export function applyTabIndicator(
   settings: Settings,
   url: string | undefined
 ): SiteResolution {
-  const r = resolveSiteSettings(settings, url, isRestrictedUrl);
+  const r = resolveSiteSettings(settings, url, isRestrictedUrl, currentSiteGroups());
   setBadgeForTab(tabId, badgeStateFor(settings.enabled, r.enabled));
   setTitleForTab(tabId, tabTitleFor(r, url));
   return r;

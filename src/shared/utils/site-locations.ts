@@ -25,6 +25,9 @@ import {
   MAX_PATTERNS_PER_SITE_LOCATION,
   MAX_SITE_LOCATIONS,
 } from "@/shared/types/settings";
+import { NO_SITE_GROUPS, type SiteGroupLookup } from "@/shared/site-groups/matcher";
+import { isSiteGroupToken } from "@/shared/site-groups/tokens";
+import { EXACT_PREFIX, parseSiteLocationEntry } from "./filter-entries";
 import { hostToASCII } from "./idn";
 import {
   computeEffectiveEnabled,
@@ -90,32 +93,54 @@ export function siteLocationPatternKey(pattern: string): string | null {
   return key;
 }
 
+/**
+ * The identity of a canonical per-site location entry (a
+ * `parseSiteLocationEntry` result), for the one-owner rule: a typed pattern's
+ * `siteLocationPatternKey`; `=` + that key for an exact address; the token
+ * itself for a site group or link. Null when a host has no A-label form.
+ *
+ * Lives here rather than in `filter-entries.ts`, which this module imports, so
+ * the two don't import each other.
+ */
+export function siteLocationEntryKey(canonical: string): string | null {
+  if (isSiteGroupToken(canonical)) {
+    return canonical;
+  }
+  if (canonical.startsWith(EXACT_PREFIX)) {
+    const key = siteLocationPatternKey(canonical.slice(EXACT_PREFIX.length));
+    return key === null ? null : `${EXACT_PREFIX}${key}`;
+  }
+  return siteLocationPatternKey(canonical);
+}
+
 // ─────────────────────────────── Precedence ───────────────────────────────
 
 /**
- * How specific a canonical site-location pattern is, compared
- * lexicographically:
- *   - `labels`: label count of the host literal (`*.` stripped; IPv4 = 4;
- *     `localhost` = 1). More labels name a narrower site.
- *   - `subdomainsOnly`: 1 for `*.L` (excludes the apex, so narrower than `L`).
+ * How specific a canonical typed site-location entry (a pattern or an exact
+ * address) is, compared lexicographically:
+ *   - `labels`: label count of the host literal (`*.` and `=` stripped; IPv4 =
+ *     4; `localhost` = 1). More labels name a narrower site.
+ *   - `hostKind`: 2 for an exact `=L` (that host only), 1 for `*.L` (excludes
+ *     the apex, so narrower than `L`), 0 for a bare `L` or an IPv4 literal.
  *   - `scheme`: explicit `http`/`https` = 2, unset (http + https) = 1, `*` = 0.
  *   - `port`: 1 when an explicit port is given.
  */
 export type SiteLocationSpecificity = readonly [
   labels: number,
-  subdomainsOnly: 0 | 1,
+  hostKind: 0 | 1 | 2,
   scheme: 0 | 1 | 2,
   port: 0 | 1,
 ];
 
-/** Compute the specificity tuple of a canonical site-location pattern. */
+/** Compute the specificity tuple of a canonical typed site-location entry. */
 export function siteLocationSpecificity(pattern: string): SiteLocationSpecificity {
-  const { scheme, host, port } = decomposePattern(pattern);
-  const subdomainsOnly = host.startsWith("*.") ? 1 : 0;
-  const literal = subdomainsOnly === 1 ? host.slice(2) : host;
+  const exact = pattern.startsWith(EXACT_PREFIX);
+  const { scheme, host, port } = decomposePattern(exact ? pattern.slice(1) : pattern);
+  const hostKind = exact ? 2 : host.startsWith("*.") ? 1 : 0;
+  const literal = hostKind === 1 ? host.slice(2) : host;
   const labels = literal.length === 0 ? 0 : literal.split(".").length;
   const schemeRank = scheme === "" ? 1 : scheme === "*" ? 0 : 2;
-  return [labels, subdomainsOnly, schemeRank, port === "" ? 0 : 1];
+  return [labels, hostKind, schemeRank, port === "" ? 0 : 1];
 }
 
 /** Lexicographic comparison of two specificity tuples; positive when `a` is more specific. */
@@ -129,6 +154,25 @@ export function compareSpecificity(a: SiteLocationSpecificity, b: SiteLocationSp
   return 0;
 }
 
+/**
+ * How well one entry of a site location matches a URL. Typed entries (tier 1)
+ * beat site group and link tokens (tier 0); typed entries then compare by
+ * specificity, and groups by size, the smaller (narrower) group winning.
+ */
+export type SiteLocationScore =
+  { tier: 1; spec: SiteLocationSpecificity } | { tier: 0; size: number };
+
+/** Compare two scores; positive when `a` wins. */
+export function compareSiteLocationScore(a: SiteLocationScore, b: SiteLocationScore): number {
+  if (a.tier === 1 && b.tier === 1) {
+    return compareSpecificity(a.spec, b.spec);
+  }
+  if (a.tier === 0 && b.tier === 0) {
+    return b.size - a.size;
+  }
+  return a.tier - b.tier;
+}
+
 /** The winning entry for a URL and the pattern that made it win. */
 export interface SiteLocationMatch {
   entry: SiteLocation;
@@ -137,26 +181,50 @@ export interface SiteLocationMatch {
 
 /**
  * Find the site location for `url`, ignoring Filters. Each entry scores the
- * highest specificity among its patterns that match; the most specific score
- * wins. Ties (defensive: two distinct canonical patterns matching one URL
- * can't share a whole tuple) go to the higher `updatedAt`, then to the
- * lexicographically smaller `id` (plain `<`, so the order is locale-free). The
- * result doesn't depend on list order.
+ * best of its entries that match (`compareSiteLocationScore`): a typed
+ * pattern or exact address by its specificity, a site group or link token
+ * whose data in `siteGroups` holds the URL's hostname by its size. The best
+ * score wins. Ties (two groups of one size, or defensively two typed entries
+ * with one tuple) go to the higher `updatedAt`, then to the lexicographically
+ * smaller `id` (plain `<`, so the order is locale-free). The result doesn't
+ * depend on list order.
  */
 export function matchSiteLocation(
   url: string,
-  entries: readonly SiteLocation[]
+  entries: readonly SiteLocation[],
+  siteGroups: SiteGroupLookup = NO_SITE_GROUPS
 ): SiteLocationMatch | null {
-  let best: { entry: SiteLocation; pattern: string; score: SiteLocationSpecificity } | null = null;
+  let best: { entry: SiteLocation; pattern: string; score: SiteLocationScore } | null = null;
+  // The URL's hostname, parsed only when an entry holds a token.
+  let host: string | null | undefined;
+  const hostOf = (): string | null => {
+    if (host === undefined) {
+      try {
+        host = new URL(url).hostname;
+      } catch {
+        host = null;
+      }
+    }
+    return host;
+  };
 
   for (const entry of entries) {
-    let entryBest: { pattern: string; score: SiteLocationSpecificity } | null = null;
+    let entryBest: { pattern: string; score: SiteLocationScore } | null = null;
     for (const pattern of entry.patterns) {
-      if (!matchesPattern(url, pattern)) {
-        continue;
+      let score: SiteLocationScore;
+      if (isSiteGroupToken(pattern)) {
+        const h = hostOf();
+        if (h === null || !siteGroups.has(pattern, h)) {
+          continue;
+        }
+        score = { tier: 0, size: siteGroups.size(pattern) ?? Number.MAX_SAFE_INTEGER };
+      } else {
+        if (!matchesPattern(url, pattern)) {
+          continue;
+        }
+        score = { tier: 1, spec: siteLocationSpecificity(pattern) };
       }
-      const score = siteLocationSpecificity(pattern);
-      if (entryBest === null || compareSpecificity(score, entryBest.score) > 0) {
+      if (entryBest === null || compareSiteLocationScore(score, entryBest.score) > 0) {
         entryBest = { pattern, score };
       }
     }
@@ -168,7 +236,7 @@ export function matchSiteLocation(
       best = { entry, ...entryBest };
       continue;
     }
-    const cmp = compareSpecificity(entryBest.score, best.score);
+    const cmp = compareSiteLocationScore(entryBest.score, best.score);
     const wins =
       cmp > 0 ||
       (cmp === 0 &&
@@ -204,11 +272,14 @@ export interface SiteResolution {
  * Resolve the effective settings for a tab whose top-level URL is
  * `topLevelUrl`. Filters run first: out of scope, no entry applies, so an
  * entry's coordinates can never reach a page Filters keep GeoSpoof off.
+ * `siteGroups` supplies the data for site group and link tokens on both axes;
+ * omitted, every token matches nothing.
  */
 export function resolveSiteSettings(
   settings: Settings,
   topLevelUrl: string | undefined,
-  isRestricted: (url: string) => boolean
+  isRestricted: (url: string) => boolean,
+  siteGroups: SiteGroupLookup = NO_SITE_GROUPS
 ): SiteResolution {
   const enabled = computeEffectiveEnabled({
     masterEnabled: settings.enabled,
@@ -218,6 +289,7 @@ export function resolveSiteSettings(
     proFeaturesBlocked: settings.proFeaturesBlocked,
     topLevelUrl,
     isRestricted,
+    siteGroups,
   });
   if (!enabled || !topLevelUrl) {
     return { enabled, siteLocation: null, matchedPattern: null, settings };
@@ -227,7 +299,7 @@ export function resolveSiteSettings(
     settings.siteLocations,
     settings.proFeaturesBlocked
   );
-  const match = matchSiteLocation(topLevelUrl, entries);
+  const match = matchSiteLocation(topLevelUrl, entries, siteGroups);
   if (match === null) {
     return { enabled, siteLocation: null, matchedPattern: null, settings };
   }
@@ -369,13 +441,14 @@ export function normalizeSiteLocationLabel(value: unknown): string | null {
 
 /**
  * Repair a stored `siteLocations` value. Non-arrays become `[]`; an entry
- * failing any rule is dropped rather than half-applied. Patterns are
- * re-parsed to canonical form, deduped within the entry, and dropped when an
- * EARLIER entry already claims them (first occurrence wins), so no two
- * entries ever share a pattern. Patterns are compared by
- * `siteLocationPatternKey`, so a Unicode and an A-label spelling of one host
- * count as one, and a pattern without a key is dropped. Both caps are
- * enforced; order is preserved.
+ * failing any rule is dropped rather than half-applied. Patterns (typed
+ * patterns, exact addresses, and site group and link tokens) are re-parsed to
+ * canonical form with `parseSiteLocationEntry`, deduped within the entry, and
+ * dropped when an EARLIER entry already claims them (first occurrence wins),
+ * so no two entries ever share a pattern. Patterns are compared by
+ * `siteLocationEntryKey`, so a Unicode and an A-label spelling of one host
+ * count as one, and a pattern without a key is dropped. A token counts once
+ * toward the per-entry cap. Both caps are enforced; order is preserved.
  */
 export function validateSiteLocations(value: unknown): SiteLocation[] {
   if (!Array.isArray(value)) {
@@ -421,8 +494,8 @@ export function validateSiteLocations(value: unknown): SiteLocation[] {
       if (typeof rawPattern !== "string") {
         continue;
       }
-      const canonical = parseSiteLocationPattern(rawPattern);
-      const key = canonical === null ? null : siteLocationPatternKey(canonical);
+      const canonical = parseSiteLocationEntry(rawPattern);
+      const key = canonical === null ? null : siteLocationEntryKey(canonical);
       if (canonical === null || key === null || claimed.has(key) || keys.has(key)) {
         continue;
       }

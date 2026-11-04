@@ -4,6 +4,7 @@ import { GeoTzCdnEnv } from "../config/app";
 import { GeoTzCdn } from "../constructs/geo-tz-cdn";
 import { GpsDownloads } from "../constructs/gps-downloads";
 import { ExtensionUpdates } from "../constructs/extension-updates";
+import { SiteGroupsCatalog } from "../constructs/site-groups-catalog";
 
 export interface GeoTzCdnStackProps extends StackProps {
   readonly envConfig: GeoTzCdnEnv;
@@ -38,6 +39,17 @@ export class GeoTzCdnStack extends Stack {
         bucket: cdn.bucket,
         distribution: cdn.distribution,
         githubSubjectPatterns: props.envConfig.extensionUpdates.githubSubjectPatterns,
+        oidcProvider: gps?.oidcProvider,
+      });
+    }
+
+    // And the site-groups catalog the extension refreshes weekly. Same provider
+    // threading, for the same one-provider-per-account reason.
+    if (props.envConfig.siteGroupsCatalog) {
+      new SiteGroupsCatalog(this, "SiteGroupsCatalog", {
+        bucket: cdn.bucket,
+        distribution: cdn.distribution,
+        githubSubjectPatterns: props.envConfig.siteGroupsCatalog.githubSubjectPatterns,
         oidcProvider: gps?.oidcProvider,
       });
     }

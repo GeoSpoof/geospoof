@@ -10,6 +10,10 @@ environment. `GeoSpoofGeoTzCdn-<env>` provisions:
   to serve the signed, notarized macOS DMG under `cdn.geospoof.com/gps/`,
   published by the private `geospoof-gps` repo's CI via GitHub OIDC (no stored
   AWS keys). See [GPS DMG publishing](#gps-dmg-publishing) below.
+- **Firefox update manifest and site-groups catalog** (prod only) — the same
+  bucket again, under `firefox/` and `site-groups/`, each written by its own
+  scoped OIDC role. See
+  [Site groups catalog publishing](#site-groups-catalog-publishing) below.
 
 `GeoSpoofApnsRelay-<env>` is the **APNs relay** for Live Activity push: an HTTP
 API and one Lambda. It is a separate stack so a relay deploy never churns the
@@ -17,17 +21,18 @@ CDN. See [APNs relay](#apns-relay) below.
 
 ## Layout
 
-| Path                              | What                                                    |
-| --------------------------------- | ------------------------------------------------------- |
-| `lib/app.ts`                      | CDK app entry; instantiates the stacks per env          |
-| `lib/config/app.ts`               | Per-env config (accounts, domain, GPS release, relay)   |
-| `lib/stacks/geo-tz-cdn-stack.ts`  | The CDN stack                                           |
-| `lib/constructs/geo-tz-cdn.ts`    | S3 + CloudFront + monitoring for the geo-tz data        |
-| `lib/constructs/gps-downloads.ts` | OIDC role letting geospoof-gps CI publish the DMG       |
-| `lib/stacks/apns-relay-stack.ts`  | The APNs relay stack                                    |
-| `lib/constructs/apns-relay.ts`    | HTTP API + Lambda + secrets + alarms + budget           |
-| `lib/lambda/apns-relay/`          | The relay Lambda's source (self-contained; no CDK code) |
-| `test/`, `test/apns-relay/`       | Vitest unit/assertion tests                             |
+| Path                                    | What                                                                  |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| `lib/app.ts`                            | CDK app entry; instantiates the stacks per env                        |
+| `lib/config/app.ts`                     | Per-env config (accounts, domain, GPS release, relay)                 |
+| `lib/stacks/geo-tz-cdn-stack.ts`        | The CDN stack                                                         |
+| `lib/constructs/geo-tz-cdn.ts`          | S3 + CloudFront + monitoring for the geo-tz data                      |
+| `lib/constructs/gps-downloads.ts`       | OIDC role letting geospoof-gps CI publish the DMG                     |
+| `lib/constructs/site-groups-catalog.ts` | OIDC role letting the weekly workflow publish the site-groups catalog |
+| `lib/stacks/apns-relay-stack.ts`        | The APNs relay stack                                                  |
+| `lib/constructs/apns-relay.ts`          | HTTP API + Lambda + secrets + alarms + budget                         |
+| `lib/lambda/apns-relay/`                | The relay Lambda's source (self-contained; no CDK code)               |
+| `test/`, `test/apns-relay/`             | Vitest unit/assertion tests                                           |
 
 ## Prerequisites
 
@@ -254,6 +259,56 @@ custom claim is a good way to deny every publish.
 > A green preflight means the subject matched. That only covers Entra, though —
 > `Configure AWS credentials (OIDC)` is skipped unless `publish_release` is on, so
 > the trust policy above is exercised only by a real `gps-v*` tag. It fails closed.
+
+## Site groups catalog publishing
+
+Prod serves the extension's site-groups catalog (v2fly domain lists, converted)
+from `cdn.geospoof.com/site-groups/v1/`. This repo's weekly workflow,
+`.github/workflows/site-groups-catalog.yml`, uploads it with GitHub OIDC against
+the `SiteGroupsCatalog` role (`lib/constructs/site-groups-catalog.ts`). The format
+and the client side are in
+[docs/SITE_GROUPS_DATA.md](../docs/SITE_GROUPS_DATA.md).
+
+**What is published**, catalog first so the pointer never names a missing file:
+
+| Key                                     | Cache-Control                         | Notes                                                     |
+| --------------------------------------- | ------------------------------------- | --------------------------------------------------------- |
+| `site-groups/v1/catalog-<release>.json` | `public, max-age=31536000, immutable` | Named by release; never rewritten                         |
+| `site-groups/v1/latest.json`            | `public, max-age=3600`                | Pointer with the catalog's sha256; invalidated on publish |
+
+The pointer must keep a short header: the distribution honours the origin's
+`Cache-Control`, so a long one would pin a stale pointer at the edge.
+
+**Who may publish:** only `repo:*/geospoof@1170325630:ref:refs/heads/main`
+(`siteGroupsCatalog` in `lib/config/app.ts`). The schedule always runs on the
+default branch and the workflow is dispatched from `main`, so no tag or other
+branch needs it. The job has no `environment:`, which keeps the `sub` in that
+form (see [Who may publish](#who-may-publish-the-oidc-subject-is-not-a-repo-name)).
+The role can write only `site-groups/*` and invalidate the distribution; it
+cannot touch geo-tz data, the GPS artifacts or the Firefox update manifest. It
+reuses the account's single GitHub OIDC provider.
+
+**Manual deploy** (nothing in CI deploys this stack):
+
+1. `npm ci && npm run build:full`.
+2. `aws sso login --profile geospoof-prod`, then `npm run diff:prod`. Confirm the
+   only additions are the `SiteGroupsCatalog` role, its policy and the
+   `SiteGroupsPublishRoleArn` / `SiteGroupsPointerUrl` outputs.
+3. `npm run deploy:prod`.
+4. In this repo's Actions **Variables**, set `SITE_GROUPS_PUBLISH_ROLE_ARN` to the
+   `SiteGroupsPublishRoleArn` output (`EXT_CDN_BUCKET` and
+   `EXT_CDN_DISTRIBUTION_ID` are already set for the release). Until it's set,
+   the workflow's job is skipped.
+5. Dispatch the workflow from `main`:
+   `gh workflow run site-groups-catalog.yml --repo GeoSpoof/geospoof --ref main`.
+6. Verify:
+
+   ```sh
+   curl -sI https://cdn.geospoof.com/site-groups/v1/latest.json   # 200, application/json
+   curl -s https://cdn.geospoof.com/site-groups/v1/latest.json | jq -r '.path, .sha256'
+   curl -s "https://cdn.geospoof.com/$(curl -s https://cdn.geospoof.com/site-groups/v1/latest.json | jq -r .path)" \
+     | shasum -a 256                                               # equals .sha256
+   ```
 
 ## APNs relay
 

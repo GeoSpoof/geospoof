@@ -129,6 +129,7 @@ import { computeEffectiveEnabled, computeEffectiveSiteLocations } from "@/shared
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
 import { isOlderRevision, readRevision } from "@/shared/settings-revision";
+import { currentSiteGroups } from "./site-groups-store";
 
 const logger = createLogger("BG");
 
@@ -406,7 +407,8 @@ export function workerPayloadFor(
   const resolved = resolveSiteSettings(
     options.withoutSiteLocation === true ? { ...settings, siteLocations: [] } : settings,
     pageUrl,
-    isRestrictedUrl
+    isRestrictedUrl,
+    currentSiteGroups()
   );
   if (!resolved.enabled) return "";
   const effective = resolved.settings;
@@ -503,7 +505,8 @@ export function untiedWorkerKeepsSiteLocation(
 ): boolean {
   if (thirdParty !== false || !initiatorUrl) return false;
   const entryId = (url: string) =>
-    resolveSiteSettings(settings, url, isRestrictedUrl).siteLocation?.id ?? null;
+    resolveSiteSettings(settings, url, isRestrictedUrl, currentSiteGroups()).siteLocation?.id ??
+    null;
   const own = entryId(initiatorUrl);
   let candidates = 0;
   for (const url of topLevelUrls) {
@@ -743,6 +746,7 @@ function classifyRequest(details: WebRequestDetailsWithHeaders): Decision {
     proFeaturesBlocked: cachedSettings.proFeaturesBlocked,
     topLevelUrl: pageUrl,
     isRestricted: isRestrictedUrl,
+    siteGroups: currentSiteGroups(),
   });
   if (!effective) return "pass"; // out-of-scope → unmodified
 

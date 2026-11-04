@@ -1,4 +1,6 @@
 import type { ScopeMode, SiteLocation } from "@/shared/types/settings";
+import { NO_SITE_GROUPS, type SiteGroupLookup } from "@/shared/site-groups/matcher";
+import { isSiteGroupToken } from "@/shared/site-groups/tokens";
 import { getURLPattern } from "./url-pattern-provider";
 import { hostToASCII } from "./idn";
 
@@ -297,20 +299,42 @@ export function decomposePattern(pattern: string): {
  * invalid IDN that passed the parser's coarse structural rule but is rejected by
  * UTS #46 — returns `null` so `compilePattern` yields a non-matching Pattern
  * (Req 4.4), never a poison value whose match behavior varies by engine.
+ *
+ * Also accepts an exact-address entry (`=` + a canonical Pattern, see
+ * `filter-entries.ts`), whose hostname is the plain A-label (or IPv4 literal)
+ * with no `{*.}?`, and returns `null` for site group and link tokens.
  */
 export function patternToInit(pattern: string): CompiledPatternInit | null {
-  const { scheme, host, port, path } = decomposePattern(pattern);
+  // Site group and link tokens aren't URL patterns: they match by hostname
+  // through a `SiteGroupLookup`, never through a compiled `URLPattern`.
+  if (isSiteGroupToken(pattern)) {
+    return null;
+  }
+  // An exact-address entry (`=` + a typed pattern, see filter-entries.ts)
+  // matches its host only: no `{*.}?` group.
+  const exact = pattern.startsWith("=");
+  const { scheme, host, port, path } = decomposePattern(exact ? pattern.slice(1) : pattern);
 
   // protocol (Req 4.7): unset ⇒ http + https only; explicit ⇒ that scheme; `*` ⇒ any.
   const protocol = scheme === "" ? "http{s}?" : scheme;
 
-  // hostname (Req 4.2/4.3/4.4 + IDN 4.1/4.2): `*` ⇒ any host; `*.labels` ⇒
+  // hostname (Req 4.2/4.3/4.4 + IDN 4.1/4.2): `=host` ⇒ that host only;
+  // `*` ⇒ any host; `*.labels` ⇒
   // subdomains only; an IPv4 literal ⇒ exact; any other bare host ⇒ apex +
   // subdomains via the optional `{*.}?` group (which URLPattern treats as
   // "zero-or-one <label>."). The literal label portion is first converted to its
   // A-label form; a failure ⇒ `null` (Req 4.4). `*` and IPv4 need no conversion.
   let hostname: string;
-  if (host === "*") {
+  if (exact) {
+    if (host === "*" || host.startsWith("*.")) {
+      return null;
+    }
+    const ascii = isValidIpv4(host) ? host : hostToASCII(host);
+    if (ascii === null) {
+      return null;
+    }
+    hostname = ascii;
+  } else if (host === "*") {
     hostname = "*";
   } else if (host.startsWith("*.")) {
     const ascii = hostToASCII(host.slice(2));
@@ -395,13 +419,17 @@ function safeTest(compiled: CompiledURLPattern, url: string): boolean {
  * its inputs — the compile cache never changes the result (Req 4.1); returns
  * `false` for an empty URL or empty list (Req 4.8); short-circuits on the first
  * match (Req 15.4). Supersedes `matchesDomainList`, taking the full URL rather
- * than a bare hostname.
+ * than a bare hostname. Site group and link tokens in the list are skipped:
+ * they match by hostname (`matchesFilterList` in `computeEffectiveEnabled`).
  */
 export function matchesPatternList(url: string, patterns: string[]): boolean {
   if (url.length === 0 || patterns.length === 0) {
     return false;
   }
   for (const pattern of patterns) {
+    if (isSiteGroupToken(pattern)) {
+      continue;
+    }
     if (matchesPattern(url, pattern)) {
       return true;
     }
@@ -509,13 +537,31 @@ export function computeEffectiveSiteLocations(
 }
 
 /**
+ * True when a Filters list matches the page: any typed or exact entry matches
+ * the full URL, or any site group or link token's data contains the host. A
+ * token whose data is absent from `groups` matches nothing.
+ */
+function matchesFilterList(
+  url: string,
+  host: string,
+  list: string[],
+  groups: SiteGroupLookup
+): boolean {
+  return (
+    matchesPatternList(url, list) ||
+    list.some((entry) => isSiteGroupToken(entry) && groups.has(entry, host))
+  );
+}
+
+/**
  * Effective_Enabled resolver (Req 6). The single source of truth for the
  * per-tab spoofing decision. Pure: it matches the tab's top-level URL against
- * the active pattern list via `matchesPatternList` and combines the master
- * switch, scope mode, and lists into one boolean. The hostname is still derived
- * from the URL, but only to guard against an unparseable or host-less URL — the
- * pattern match itself runs against the full top-level URL (scheme, host, port,
- * and path), which is what enables wildcard, port, and sub-route filtering. The
+ * the active list via `matchesFilterList` and combines the master switch, scope
+ * mode, and lists into one boolean. Typed entries match against the full
+ * top-level URL (scheme, host, port, and path), which is what enables wildcard,
+ * port, and sub-route filtering; site group and link tokens match the URL's
+ * hostname through `siteGroups`, so the list is the union of both. The
+ * hostname also guards against an unparseable or host-less URL. The
  * allowlist/denylist arrays never leave the background, so this function is the
  * only place that consults them for a given tab.
  */
@@ -536,8 +582,15 @@ export function computeEffectiveEnabled(args: {
    * Firefox are unaffected.
    */
   proFeaturesBlocked?: boolean;
+  /**
+   * Group data for the site group and link tokens in the lists. Omitted ⇒
+   * `NO_SITE_GROUPS`, so every token matches nothing. Production callers pass
+   * the background's current lookup.
+   */
+  siteGroups?: SiteGroupLookup;
 }): boolean {
   const { masterEnabled, scopeMode, allowlist, denylist, topLevelUrl, isRestricted } = args;
+  const siteGroups = args.siteGroups ?? NO_SITE_GROUPS;
 
   // Req 6.2: master switch off ⇒ never spoof, regardless of mode or lists.
   if (!masterEnabled) {
@@ -550,8 +603,8 @@ export function computeEffectiveEnabled(args: {
   }
 
   // Req 6.9: an unparseable URL or a URL with no derivable hostname means we
-  // cannot make a scoping decision ⇒ do not spoof. (Pattern matching runs
-  // against the full URL below; the hostname is derived here only as a guard.)
+  // cannot make a scoping decision ⇒ do not spoof. (Typed patterns match the
+  // full URL below; only site group tokens match this hostname.)
   let host: string;
   try {
     host = new URL(topLevelUrl).hostname;
@@ -573,13 +626,14 @@ export function computeEffectiveEnabled(args: {
   const effectiveMode: ScopeMode =
     __SAFARI__ && args.proFeaturesBlocked === true ? "all" : scopeMode;
   // Req 6.3/6.4/6.5: resolve against the active scope mode, matching the full
-  // top-level URL against the active pattern list (Req 6.1, 6.4, 6.5).
+  // top-level URL (typed entries) and its host (group tokens) against the
+  // active list (Req 6.1, 6.4, 6.5).
   switch (effectiveMode) {
     case "all":
       return true;
     case "allowlist":
-      return matchesPatternList(topLevelUrl, allowlist);
+      return matchesFilterList(topLevelUrl, host, allowlist, siteGroups);
     case "denylist":
-      return !matchesPatternList(topLevelUrl, denylist);
+      return !matchesFilterList(topLevelUrl, host, denylist, siteGroups);
   }
 }

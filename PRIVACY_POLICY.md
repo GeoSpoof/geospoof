@@ -1,6 +1,6 @@
 # Privacy Policy for GeoSpoof
 
-**Last Updated:** November 3, 2026
+**Last Updated:** November 4, 2026
 
 ## Overview
 
@@ -39,6 +39,7 @@ All extension settings are stored locally on your device using the browser's loc
 - WebRTC protection settings
 - VPN sync preference
 - Onboarding completion status
+- Your Site Filters and per-site locations, and the site-group and link lists they use
 
 This data never leaves your device and is only accessible by the extension.
 
@@ -46,13 +47,13 @@ This data never leaves your device and is only accessible by the extension.
 
 When you use certain features, GeoSpoof communicates with external services. Both
 the Safari extension and the companion app (iOS, iPadOS, macOS) may make these
-requests, depending on which surface you're using. With one exception, none of
+requests, depending on which surface you're using. With two exceptions, none of
 these requests reach a developer server, the developer receives none of this
 data, and all such HTTPS requests go directly from your device to the third party
-(the STUN requests below are direct UDP from your device). **The exception is the timezone boundary data
-(section 2 below), which the extension fetches from the developer's own
-content-delivery endpoint, `cdn.geospoof.com`.** See that section for what that
-means for your IP address.
+(the STUN requests below are direct UDP from your device). **The exceptions are the timezone boundary data
+(section 2 below) and site-group updates (section 4 below), which the extension
+fetches from the developer's own content-delivery endpoint, `cdn.geospoof.com`.**
+See those sections for what that means for your IP address.
 
 ### 1. Location / place name resolution
 
@@ -156,6 +157,31 @@ GeoSpoof can set your spoofed location to match your VPN.
 > not your home IP, because the whole point of the feature is that a VPN is
 > already active.
 
+### 4. Site groups and lists from a link (optional — only when you add one)
+
+_Extension only (Firefox and Chrome)._ These requests happen only while one of
+your Site Filters or per-site locations uses a site group or a list from a link,
+or when you press **Update now**. If you use neither, none of them is made.
+
+**Site-group updates, from `cdn.geospoof.com`:** about once a week the extension
+downloads a small pointer file and, when there's a newer release, the **whole**
+catalog of every site group (the public v2fly domain lists). The request is the
+same for every user: it doesn't name the groups you picked, the sites you visit,
+or anything in your settings. Like any web request it carries your IP address.
+The same terms as section 2 apply: the developer has not enabled request logging,
+uses these requests for nothing but delivering the file, and stores no personal
+data from them; Amazon, as the infrastructure operator, processes each request
+transiently and may keep its own operational logs.
+
+**Lists from a link, from the host you entered:** when you add a list from a link,
+and then about once a week, the extension downloads that file directly from the
+host in the link, without cookies. That host, which you chose, receives your IP
+address and the request for that file under its own privacy policy. The developer
+receives none of this.
+
+Matching against these lists happens entirely on your device; your lists and the
+sites you visit are never sent anywhere.
+
 ## In-App Purchases and Subscriptions
 
 The app offers paid options through Apple's In-App Purchase system:
@@ -236,9 +262,9 @@ You can change or revoke any of these at any time in **Safari → Settings → E
 
 - All settings are stored locally using the browser's secure storage API
 - The extension transmits no data to the developer for collection, analytics, or profiling
-- The one request that reaches developer-controlled infrastructure — fetching timezone boundary data from `cdn.geospoof.com` — is a static-file download that is not used to track or identify you (see "Third-Party API Usage")
+- The only requests that reach developer-controlled infrastructure — fetching timezone boundary data and, while you use a site group or a list from a link, site-group updates from `cdn.geospoof.com` — are static-file downloads that are not used to track or identify you (see "Third-Party API Usage")
 - All third-party API calls use HTTPS encryption
-- The developer maintains no user accounts, and `cdn.geospoof.com` (the timezone boundary data) serves only static files
+- The developer maintains no user accounts, and `cdn.geospoof.com` (the timezone boundary data and the site-group catalog) serves only static files
 - The website (`geospoof.com`) uses only cookieless, privacy-friendly analytics (see "Website Analytics"). The only personal data its server stores is the pseudonymous purchase records described under "In-App Purchases and Subscriptions", in an Upstash database protected by a secret access token
 
 ## Your Rights
@@ -256,9 +282,9 @@ If you are located in the EEA, UK, or Switzerland, the following applies to you 
 
 **Controller:** GeoSpoof LLC, a New York limited liability company based in the United States, acts as the data controller for any personal data processed by this extension. You can contact the controller at [support@geospoof.com](mailto:support@geospoof.com).
 
-**Legal basis for processing:** Two kinds of personal data may be processed by the extension, both limited to your public IP address. (1) When you explicitly enable the "Sync with VPN" feature, your public IP is sent to the IP-detection and geolocation services listed above; we rely on your consent (GDPR Art. 6(1)(a)), which you give by enabling the feature and can withdraw at any time by disabling "Sync with VPN" in the extension popup. (2) Whenever the extension resolves a timezone, it fetches boundary data from `cdn.geospoof.com`, which — like any web request — transmits your IP to the developer's content-delivery host (Amazon CloudFront/S3); we rely on legitimate interests (GDPR Art. 6(1)(f)) in delivering the boundary data needed for the location-spoofing you requested, and the IP is used only to serve the file and is not retained or otherwise processed by the developer. Withdrawing consent does not affect the lawfulness of processing based on consent before its withdrawal.
+**Legal basis for processing:** Two kinds of personal data may be processed by the extension, both limited to your public IP address. (1) When you explicitly enable the "Sync with VPN" feature, your public IP is sent to the IP-detection and geolocation services listed above; we rely on your consent (GDPR Art. 6(1)(a)), which you give by enabling the feature and can withdraw at any time by disabling "Sync with VPN" in the extension popup. (2) Whenever the extension resolves a timezone, it fetches boundary data from `cdn.geospoof.com`, and while you use a site group or a list from a link it fetches site-group updates from the same host; like any web request, these transmit your IP to the developer's content-delivery host (Amazon CloudFront/S3). We rely on legitimate interests (GDPR Art. 6(1)(f)) in delivering the data needed for the features you requested, and the IP is used only to serve the file and is not retained or otherwise processed by the developer. No choice you made in the extension is sent with these requests. Withdrawing consent does not affect the lawfulness of processing based on consent before its withdrawal.
 
-**International transfers:** The third-party services listed above (AWS, Cloudflare, Akamai, ipify, GeoJS, FreeIPAPI, ReallyFreeGeoIP, ipinfo.io, Google STUN, Nominatim, and, for the companion app, Apple's MapKit and geocoding services) are operated outside the EEA, including in the United States; each is an independent controller and determines its own transfer mechanisms. Separately, the timezone boundary data is served from the developer's own domain `cdn.geospoof.com`, hosted on Amazon Web Services (CloudFront/S3), whose infrastructure is also located outside the EEA, including in the United States. (Older extension versions that still fetch from `geospoof.com` use the developer's Vercel host, likewise located in the United States.) When you use features that contact any of these endpoints, your public IP is transferred to that infrastructure. Apart from that static boundary data, the extension sends nothing to a developer server. The purchase records described under "In-App Purchases and Subscriptions" are handled by Vercel, Upstash, and Discord, which are United States companies, so those records may be processed outside the EEA, including in the United States.
+**International transfers:** The third-party services listed above (AWS, Cloudflare, Akamai, ipify, GeoJS, FreeIPAPI, ReallyFreeGeoIP, ipinfo.io, Google STUN, Nominatim, and, for the companion app, Apple's MapKit and geocoding services) are operated outside the EEA, including in the United States; each is an independent controller and determines its own transfer mechanisms. Separately, the timezone boundary data and the site-group catalog are served from the developer's own domain `cdn.geospoof.com`, hosted on Amazon Web Services (CloudFront/S3), whose infrastructure is also located outside the EEA, including in the United States. (Older extension versions that still fetch from `geospoof.com` use the developer's Vercel host, likewise located in the United States.) When you use features that contact any of these endpoints, your public IP is transferred to that infrastructure. Apart from the requests for that static boundary data and site-group catalog, the extension sends nothing to a developer server. The purchase records described under "In-App Purchases and Subscriptions" are handled by Vercel, Upstash, and Discord, which are United States companies, so those records may be processed outside the EEA, including in the United States.
 
 **Your rights under GDPR / UK GDPR:** you have the right to access, rectify, erase, restrict, object to, and port your personal data, and to withdraw consent at any time. Because the extension stores no personal data on any server controlled by the developer, most of these rights are exercised directly by you within the extension: uninstalling the extension or disabling "Sync with VPN" fully erases everything the extension holds. The purchase records described under "In-App Purchases and Subscriptions" are the exception: to access or erase yours, contact [support@geospoof.com](mailto:support@geospoof.com). You also have the right to lodge a complaint with your local data protection authority.
 
@@ -270,7 +296,7 @@ If you are a California resident, the California Consumer Privacy Act (CCPA), as
 
 **We do not sell or share your personal information** as those terms are defined under the CCPA/CPRA. We do not disclose personal information for cross-context behavioral advertising. We do not knowingly handle the personal information of consumers under 16.
 
-**Categories collected:** The only category of personal information touched by the extension is an internet identifier (your public IP address). This happens in two cases: when you enable "Sync with VPN" (sent to the IP-detection and geolocation services), and when the extension fetches timezone boundary data from `cdn.geospoof.com` (your IP reaches the developer's content-delivery host, Amazon CloudFront/S3, as part of an ordinary web request). In both cases the IP is used only for the purposes described above and is not retained by the developer. Separately, the website receives and keeps the purchase records described under "In-App Purchases and Subscriptions".
+**Categories collected:** The only category of personal information touched by the extension is an internet identifier (your public IP address). This happens in two cases: when you enable "Sync with VPN" (sent to the IP-detection and geolocation services), and when the extension fetches timezone boundary data or site-group updates from `cdn.geospoof.com` (your IP reaches the developer's content-delivery host, Amazon CloudFront/S3, as part of an ordinary web request). In both cases the IP is used only for the purposes described above and is not retained by the developer. Separately, the website receives and keeps the purchase records described under "In-App Purchases and Subscriptions".
 
 **Your rights:** You have the right to know what personal information is collected, the right to delete personal information, the right to correct inaccurate personal information, the right to opt out of sale or sharing (there is nothing to opt out of here), and the right not to receive discriminatory treatment for exercising these rights. The extension retains no personal information, so for it these rights are effectively exercised by uninstalling the extension or disabling the feature. For the purchase records, or any other inquiry, contact [support@geospoof.com](mailto:support@geospoof.com).
 

@@ -1,0 +1,368 @@
+{
+  "_comment": [
+    "Cross-language parity fixture for site groups (#206): the entry grammar that rides inside",
+    "allowlist / denylist / siteLocations[].patterns, group matching, per-site location precedence,",
+    "and the link-list formats.",
+    "",
+    "entries / siteLocationEntries: { input, kind?, expected } where expected is the canonical stored",
+    "string, or null (with a reason). With no kind, a bare https URL stays a typed pattern; kind is the",
+    "popup's type menu (site | exact | subdomains | group | link).",
+    "lookup.groups: per token, its domain entries (the host or any subdomain) and full entries (that",
+    "host only); a group's size is domains + full. lookup.cases: { token, host, expected }. A token",
+    "missing from groups matches nothing.",
+    "precedence.cases: { url, entries: [{ id, updatedAt, patterns }], expected } where expected is the",
+    "winning entry id or null, resolved with lookup.groups. Typed entries beat group tokens; typed",
+    "entries compare [labels, hostKind (= 2, *. 1, bare 0), scheme, port]; groups compare by size,",
+    "smaller first; ties go to the higher updatedAt, then the smaller id (plain code-unit order).",
+    "listFormats: { text, domains, full, skipped } where domains and full compare as sets.",
+    "Expected values are hand-authored (an independent contract), NOT re-derived from either parser.",
+    "Additive only: append vectors, never change existing ones.",
+    "",
+    "Consumed by:",
+    "  - tests/unit/shared/site-group-vectors.test.ts (TypeScript, runs under `npm test`)",
+    "  - a future geospoof-ios Swift parity test (not yet written)"
+  ],
+  "entries": {
+    "valid": [
+      { "input": "geosite:google", "expected": "geosite:google" },
+      { "input": "  GeoSite:Google  ", "expected": "geosite:google" },
+      { "input": "geosite:google@CN@ads", "expected": "geosite:google@ads@cn" },
+      { "input": "geosite:apple@cn@ads@cn", "expected": "geosite:apple@ads@cn" },
+      { "input": "geosite:geolocation-!cn", "expected": "geosite:geolocation-!cn" },
+      { "input": "geosite:google@!cn", "expected": "geosite:google@!cn" },
+      { "input": "google", "kind": "group", "expected": "geosite:google" },
+      { "input": "geosite:youtube", "kind": "group", "expected": "geosite:youtube" },
+      { "input": "=mail.example.com", "expected": "=mail.example.com" },
+      { "input": "  =Mail.Example.COM  ", "expected": "=mail.example.com" },
+      {
+        "input": "=https://mail.example.com:8443",
+        "expected": "=https://mail.example.com:8443"
+      },
+      { "input": "=example.com/path/*", "expected": "=example.com/path/*" },
+      { "input": "=localhost", "expected": "=localhost" },
+      { "input": "=1.2.3.4", "expected": "1.2.3.4" },
+      { "input": "=MÜNCHEN.de", "expected": "=münchen.de" },
+      { "input": "mail.example.com", "kind": "exact", "expected": "=mail.example.com" },
+      { "input": "example.com", "kind": "subdomains", "expected": "*.example.com" },
+      {
+        "input": "https://example.com:8080/a",
+        "kind": "subdomains",
+        "expected": "https://*.example.com:8080/a"
+      },
+      {
+        "input": "list:https://example.org/direct-list.txt",
+        "expected": "list:https://example.org/direct-list.txt"
+      },
+      {
+        "input": "LIST:https://Example.org/a.txt#frag",
+        "expected": "list:https://example.org/a.txt"
+      },
+      {
+        "input": "list:https://münchen.de/x.list",
+        "expected": "list:https://xn--mnchen-3ya.de/x.list"
+      },
+      {
+        "input": "https://example.org/a.txt",
+        "kind": "link",
+        "expected": "list:https://example.org/a.txt"
+      },
+      { "input": "https://example.org/a.txt", "expected": "https://example.org/a.txt" },
+      { "input": "Example.com", "expected": "example.com" },
+      { "input": "*.ru", "expected": "*.ru" }
+    ],
+    "invalid": [
+      { "input": "=*.example.com", "expected": null, "reason": "an exact host can't be *." },
+      { "input": "=*", "expected": null, "reason": "an exact host can't be *" },
+      { "input": "=", "expected": null, "reason": "nothing after =" },
+      { "input": "geosite:", "expected": null, "reason": "empty group name" },
+      { "input": "geosite:google_inc", "expected": null, "reason": "_ isn't allowed" },
+      { "input": "geosite:google@", "expected": null, "reason": "empty attr" },
+      {
+        "input": "geosite:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": null,
+        "reason": "name over 64 chars"
+      },
+      {
+        "input": "geosite:google@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "expected": null,
+        "reason": "attr over 32 chars"
+      },
+      { "input": "list:http://example.org/a.txt", "expected": null, "reason": "http, not https" },
+      {
+        "input": "list:https://user:pw@example.org/a.txt",
+        "expected": null,
+        "reason": "credentials"
+      },
+      { "input": "list:not a url", "expected": null, "reason": "not a URL" },
+      { "input": "list:", "expected": null, "reason": "no URL" },
+      {
+        "input": "http://example.org/a.txt",
+        "kind": "link",
+        "expected": null,
+        "reason": "a link must be https"
+      },
+      {
+        "input": "geosite:google",
+        "kind": "exact",
+        "expected": null,
+        "reason": "the group marker is stripped and a single-label host isn't valid"
+      }
+    ]
+  },
+  "siteLocationEntries": {
+    "valid": [
+      { "input": "geosite:google", "expected": "geosite:google" },
+      { "input": "geosite:google@cn", "expected": "geosite:google@cn" },
+      { "input": "=mail.example.com", "expected": "=mail.example.com" },
+      {
+        "input": "=https://mail.example.com:8443",
+        "expected": "=https://mail.example.com:8443"
+      },
+      { "input": "=1.2.3.4", "expected": "1.2.3.4" },
+      {
+        "input": "list:https://example.org/a.txt",
+        "expected": "list:https://example.org/a.txt"
+      },
+      { "input": "Twitch.TV", "expected": "twitch.tv" },
+      { "input": "twitch.tv", "kind": "subdomains", "expected": "*.twitch.tv" }
+    ],
+    "invalid": [
+      { "input": "=example.com/path", "expected": null, "reason": "a path" },
+      { "input": "example.com/path", "expected": null, "reason": "a path" },
+      { "input": "*", "expected": null, "reason": "a wildcard-only host" },
+      { "input": "=*.example.com", "expected": null, "reason": "an exact host can't be *." },
+      { "input": "geosite:", "expected": null, "reason": "empty group name" }
+    ]
+  },
+  "lookup": {
+    "groups": {
+      "geosite:youtube": { "domains": ["youtube.com", "ytimg.com"], "full": [] },
+      "geosite:google": {
+        "domains": ["google.com", "google.ru", "youtube.com", "ytimg.com"],
+        "full": ["fonts.gstatic.com"]
+      },
+      "geosite:geolocation-!cn": {
+        "domains": [
+          "google.com",
+          "google.ru",
+          "youtube.com",
+          "ytimg.com",
+          "twitch.tv",
+          "bbc.co.uk"
+        ],
+        "full": ["fonts.gstatic.com"]
+      },
+      "geosite:cn": { "domains": ["cn"], "full": [] },
+      "geosite:google@cn": { "domains": ["google.cn"], "full": [] },
+      "geosite:twitch": { "domains": ["twitch.tv", "ttvnw.net"], "full": [] },
+      "list:https://example.org/streaming.txt": {
+        "domains": ["twitch.tv"],
+        "full": ["exact.example.net"]
+      }
+    },
+    "cases": [
+      { "token": "geosite:youtube", "host": "youtube.com", "expected": true },
+      { "token": "geosite:youtube", "host": "www.youtube.com", "expected": true },
+      { "token": "geosite:youtube", "host": "a.b.ytimg.com", "expected": true },
+      { "token": "geosite:youtube", "host": "notyoutube.com", "expected": false },
+      { "token": "geosite:youtube", "host": "youtube.com.evil.net", "expected": false },
+      { "token": "geosite:youtube", "host": "www.youtube.com.", "expected": false },
+      { "token": "geosite:google", "host": "fonts.gstatic.com", "expected": true },
+      { "token": "geosite:google", "host": "x.fonts.gstatic.com", "expected": false },
+      { "token": "geosite:google", "host": "gstatic.com", "expected": false },
+      { "token": "geosite:cn", "host": "a.b.cn", "expected": true },
+      { "token": "geosite:cn", "host": "cn", "expected": true },
+      { "token": "geosite:cn", "host": "cnn.com", "expected": false },
+      { "token": "geosite:cn", "host": "example.cn.", "expected": false },
+      { "token": "geosite:google@cn", "host": "www.google.cn", "expected": true },
+      { "token": "geosite:google@cn", "host": "www.google.com", "expected": false },
+      {
+        "token": "list:https://example.org/streaming.txt",
+        "host": "exact.example.net",
+        "expected": true
+      },
+      {
+        "token": "list:https://example.org/streaming.txt",
+        "host": "a.exact.example.net",
+        "expected": false
+      },
+      { "token": "geosite:netflix", "host": "netflix.com", "expected": false },
+      { "token": "geosite:youtube", "host": "", "expected": false },
+      { "token": "geosite:youtube", "host": "[::1]", "expected": false }
+    ]
+  },
+  "precedence": {
+    "cases": [
+      {
+        "name": "the smaller group wins: youtube (2) over google (5) over geolocation-!cn (7)",
+        "url": "https://www.youtube.com/watch?v=1",
+        "entries": [
+          { "id": "a", "updatedAt": 1, "patterns": ["geosite:google"] },
+          { "id": "b", "updatedAt": 1, "patterns": ["geosite:youtube"] },
+          { "id": "c", "updatedAt": 1, "patterns": ["geosite:geolocation-!cn"] }
+        ],
+        "expected": "b"
+      },
+      {
+        "name": "google (5) over geolocation-!cn (7) where youtube doesn't match",
+        "url": "https://www.google.com/",
+        "entries": [
+          { "id": "a", "updatedAt": 1, "patterns": ["geosite:google"] },
+          { "id": "b", "updatedAt": 1, "patterns": ["geosite:youtube"] },
+          { "id": "c", "updatedAt": 1, "patterns": ["geosite:geolocation-!cn"] }
+        ],
+        "expected": "a"
+      },
+      {
+        "name": "a typed *.ru beats the google group on google.ru",
+        "url": "https://google.ru/",
+        "entries": [
+          { "id": "a", "updatedAt": 1, "patterns": ["geosite:google"] },
+          { "id": "b", "updatedAt": 1, "patterns": ["*.ru"] }
+        ],
+        "expected": "b"
+      },
+      {
+        "name": "a typed google.ru next to the group takes google.ru back",
+        "url": "https://google.ru/",
+        "entries": [
+          { "id": "a", "updatedAt": 1, "patterns": ["geosite:google", "google.ru"] },
+          { "id": "b", "updatedAt": 1, "patterns": ["*.ru"] }
+        ],
+        "expected": "a"
+      },
+      {
+        "name": "a typed entry beats a group even when the group is smaller",
+        "url": "https://www.youtube.com/",
+        "entries": [
+          { "id": "a", "updatedAt": 1, "patterns": ["geosite:youtube"] },
+          { "id": "b", "updatedAt": 1, "patterns": ["*.com"] }
+        ],
+        "expected": "b"
+      },
+      {
+        "name": "exact beats the bare host with the same labels",
+        "url": "https://www.example.com/",
+        "entries": [
+          { "id": "bare", "updatedAt": 1, "patterns": ["www.example.com"] },
+          { "id": "exact", "updatedAt": 1, "patterns": ["=www.example.com"] },
+          { "id": "sub", "updatedAt": 1, "patterns": ["*.example.com"] },
+          { "id": "apex", "updatedAt": 1, "patterns": ["example.com"] }
+        ],
+        "expected": "exact"
+      },
+      {
+        "name": "*. beats the bare host with the same labels",
+        "url": "https://www.example.com/",
+        "entries": [
+          { "id": "apex", "updatedAt": 1, "patterns": ["example.com"] },
+          { "id": "sub", "updatedAt": 1, "patterns": ["*.example.com"] }
+        ],
+        "expected": "sub"
+      },
+      {
+        "name": "exact beats the bare host on the apex",
+        "url": "https://example.com/",
+        "entries": [
+          { "id": "apex", "updatedAt": 9, "patterns": ["example.com"] },
+          { "id": "exact", "updatedAt": 1, "patterns": ["=example.com"] }
+        ],
+        "expected": "exact"
+      },
+      {
+        "name": "an exact entry doesn't match a subdomain",
+        "url": "https://www.example.com/",
+        "entries": [{ "id": "exact", "updatedAt": 1, "patterns": ["=example.com"] }],
+        "expected": null
+      },
+      {
+        "name": "groups of one size tie; the higher updatedAt wins",
+        "url": "https://www.twitch.tv/",
+        "entries": [
+          { "id": "a", "updatedAt": 1, "patterns": ["geosite:twitch"] },
+          { "id": "b", "updatedAt": 2, "patterns": ["list:https://example.org/streaming.txt"] }
+        ],
+        "expected": "b"
+      },
+      {
+        "name": "then the smaller id wins",
+        "url": "https://www.twitch.tv/",
+        "entries": [
+          { "id": "b", "updatedAt": 2, "patterns": ["geosite:twitch"] },
+          { "id": "a", "updatedAt": 2, "patterns": ["list:https://example.org/streaming.txt"] }
+        ],
+        "expected": "a"
+      },
+      {
+        "name": "a token without data matches nothing",
+        "url": "https://www.netflix.com/",
+        "entries": [{ "id": "a", "updatedAt": 1, "patterns": ["geosite:netflix"] }],
+        "expected": null
+      },
+      {
+        "name": "a trailing-dot host matches no group",
+        "url": "https://www.youtube.com./",
+        "entries": [{ "id": "a", "updatedAt": 1, "patterns": ["geosite:youtube"] }],
+        "expected": null
+      }
+    ]
+  },
+  "listFormats": [
+    {
+      "name": "plain lines and comments",
+      "text": "example.com\n# a comment\nfoo.example.org # trailing\n\n",
+      "domains": ["example.com", "foo.example.org"],
+      "full": [],
+      "skipped": { "regexp": 0, "keyword": 0, "other": 0 }
+    },
+    {
+      "name": "v2fly",
+      "text": "domain:google.com\nfull:www.google.com\nregexp:^a\\.b$\nkeyword:goog\ninclude:other\ngoogle.cn @cn\ndomain:youtube.com:@ads,@cn\n",
+      "domains": ["google.com", "google.cn", "youtube.com"],
+      "full": ["www.google.com"],
+      "skipped": { "regexp": 1, "keyword": 1, "other": 1 }
+    },
+    {
+      "name": "Clash classical",
+      "text": "DOMAIN-SUFFIX,google.com\nDOMAIN,www.example.com\nDOMAIN-KEYWORD,goog\nDOMAIN-REGEX,^x$\nIP-CIDR,1.1.1.1/32\n",
+      "domains": ["google.com"],
+      "full": ["www.example.com"],
+      "skipped": { "regexp": 1, "keyword": 1, "other": 1 }
+    },
+    {
+      "name": "mihomo domain format: a plain line is exact",
+      "text": "+.google.com\nwww.example.com\n*.wild.com\n",
+      "domains": ["google.com"],
+      "full": ["www.example.com"],
+      "skipped": { "regexp": 0, "keyword": 0, "other": 1 }
+    },
+    {
+      "name": "YAML payload wrapper",
+      "text": "payload:\n  - '+.google.com'\n  - \"api.example.com\"\n",
+      "domains": ["google.com"],
+      "full": ["api.example.com"],
+      "skipped": { "regexp": 0, "keyword": 0, "other": 0 }
+    },
+    {
+      "name": "BOM, CRLF and an IDN host",
+      "text": "\uFEFFexample.com\r\nMÜNCHEN.de\r\n",
+      "domains": ["example.com", "xn--mnchen-3ya.de"],
+      "full": [],
+      "skipped": { "regexp": 0, "keyword": 0, "other": 0 }
+    },
+    {
+      "name": "invalid hosts count as other",
+      "text": "bad_host.com\n-x.com\nexample.com.\n",
+      "domains": [],
+      "full": [],
+      "skipped": { "regexp": 0, "keyword": 0, "other": 3 }
+    },
+    {
+      "name": "case and duplicates",
+      "text": "Example.com\nexample.COM\n",
+      "domains": ["example.com"],
+      "full": [],
+      "skipped": { "regexp": 0, "keyword": 0, "other": 0 }
+    }
+  ]
+}

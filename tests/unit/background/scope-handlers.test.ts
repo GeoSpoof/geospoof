@@ -15,9 +15,23 @@
  * Validates: Requirements 9.1, 9.2, 9.5, 14.5, 15.1, 15.2, 15.3, 15.4, 15.5, 15.6
  */
 
-import { describe, test, expect, vi } from "vitest";
+import { describe, test, expect, vi, beforeEach } from "vitest";
 import type { Settings } from "@/shared/types/settings";
 import type { Message, ScopeResponse } from "@/shared/types/messages";
+import {
+  installLocalStore,
+  responseAt,
+  routeFetch,
+  storedGroup,
+  storedGroups,
+  type LocalStore,
+} from "../../helpers/site-groups";
+
+/** Site groups are available unless a test turns the Safari gate off. */
+const gate = vi.hoisted(() => ({ available: true }));
+vi.mock("@/shared/site-groups/availability", () => ({
+  siteGroupsAvailable: () => gate.available,
+}));
 
 function makeSettings(overrides?: Partial<Settings>): Settings {
   return {
@@ -245,5 +259,163 @@ describe("handleRemoveScopeSite (task 7)", () => {
     expect(response).toEqual({ error: "STORAGE_ERROR" });
     expect(broadcasts.length).toBe(0);
     expect(setBadgeText).not.toHaveBeenCalled();
+  });
+});
+
+describe("site group, exact and link entries", () => {
+  const LINK_URL = "https://lists.example.org/rules/direct-list.txt";
+  const LINK = `list:${LINK_URL}`;
+
+  let store: LocalStore;
+
+  /** Import the background over a multi-key store (group data lives beside settings). */
+  async function bootWithStore(s: Settings, data?: Record<string, unknown>) {
+    vi.clearAllMocks();
+    vi.resetModules();
+    store = installLocalStore({ settings: s, ...(data ? { siteGroupData: data } : {}) });
+    browser.tabs.query = vi.fn().mockResolvedValue([{ id: 1, url: "https://www.google.com/" }]);
+    const broadcasts: Array<Message<Record<string, unknown>>> = [];
+    browser.tabs.sendMessage = vi
+      .fn()
+      .mockImplementation((_tabId: number, message: Message<Record<string, unknown>>) => {
+        if (message.type === "UPDATE_SETTINGS") broadcasts.push(message);
+        return Promise.resolve();
+      });
+    browser.action.setBadgeText = vi.fn().mockResolvedValue(undefined);
+    browser.action.setBadgeBackgroundColor = vi.fn().mockResolvedValue(undefined);
+    const mod = await import("@/background");
+    return { ...mod, broadcasts };
+  }
+
+  const stored = (): Settings => store.data.settings as Settings;
+
+  beforeEach(() => {
+    gate.available = true;
+    routeFetch();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  test("a group add stores its data before the settings, then delivers", async () => {
+    const bg = await bootWithStore(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+
+    const response = await bg.handleAddScopeSite({
+      list: "allowlist",
+      pattern: " GeoSite:Google ",
+    });
+
+    expect(response).toEqual({ success: true, siteGroup: { count: 3, skipped: 2 } });
+    expect(store.writes.slice(0, 2)).toEqual(["siteGroupData", "settings"]);
+    expect(stored().allowlist).toEqual(["geosite:google"]);
+    expect(storedGroups(store)["geosite:google"].n).toBe(3);
+    // The open tab is in a group on the allowlist now.
+    expect(bg.broadcasts.at(-1)!.payload!.enabled).toBe(true);
+  });
+
+  test.each([
+    ["geosite:nosuchlist", "UNKNOWN_GROUP"],
+    ["geosite:google@ads", "EMPTY_GROUP"],
+  ])("%s answers %s and stores nothing", async (pattern, error) => {
+    const bg = await bootWithStore(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+    const response = await bg.handleAddScopeSite({ list: "allowlist", pattern });
+    expect(response).toEqual({ error, token: pattern });
+    expect(store.writes).toEqual([]);
+    expect(bg.broadcasts).toHaveLength(0);
+  });
+
+  test("a link add answers its counts, including skipped rules", async () => {
+    const bg = await bootWithStore(makeSettings({ scopeMode: "denylist", denylist: [] }));
+    routeFetch({ [LINK_URL]: (url) => responseAt(url, "example.com\nregexp:^a\nkeyword:b\n") });
+    const response = await bg.handleAddScopeSite({ list: "denylist", pattern: LINK });
+    expect(response).toEqual({ success: true, siteGroup: { count: 1, skipped: 2 } });
+    expect(stored().denylist).toEqual([LINK]);
+  });
+
+  test.each([
+    ["an empty list", "regexp:^a\n", { error: "LINK_EMPTY", skipped: 1 }],
+    ["a failed download", null, { error: "LINK_FAILED" }],
+  ])("%s answers its error and stores nothing", async (_name, body, expected) => {
+    const bg = await bootWithStore(makeSettings({ scopeMode: "denylist", denylist: [] }));
+    routeFetch(body === null ? {} : { [LINK_URL]: (url) => responseAt(url, body) });
+    const response = await bg.handleAddScopeSite({ list: "denylist", pattern: LINK });
+    expect(response).toEqual({ ...expected, token: LINK });
+    expect(store.writes).toEqual([]);
+  });
+
+  test("STORAGE_FULL when the group data would pass its cap", async () => {
+    const big = "geosite:big";
+    const bg = await bootWithStore(makeSettings({ scopeMode: "allowlist", allowlist: [big] }), {
+      v: 1,
+      groups: { [big]: { ...storedGroup([]), d: `\n${"a".repeat(4_999_990)}\n`, n: 1 } },
+    });
+    const response = await bg.handleAddScopeSite({ list: "allowlist", pattern: "geosite:google" });
+    expect(response).toEqual({ error: "STORAGE_FULL", token: "geosite:google" });
+    expect(stored().allowlist).toEqual([big]);
+  });
+
+  test("an exact entry is stored in its canonical form without group data", async () => {
+    const bg = await bootWithStore(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+    const response = await bg.handleAddScopeSite({
+      list: "allowlist",
+      pattern: "=Mail.Example.com",
+    });
+    expect(response).toEqual({ success: true });
+    expect(stored().allowlist).toEqual(["=mail.example.com"]);
+    expect(store.writes).toEqual(["settings"]);
+  });
+
+  test("a duplicate group add is a success that writes nothing", async () => {
+    const bg = await bootWithStore(
+      makeSettings({ scopeMode: "allowlist", allowlist: ["geosite:google"] }),
+      { v: 1, groups: { "geosite:google": storedGroup(["google.com"]) } }
+    );
+    const response = await bg.handleAddScopeSite({ list: "allowlist", pattern: "geosite:google" });
+    expect(response).toEqual({ success: true, siteGroup: { count: 1, skipped: 0 } });
+    expect(store.writes).toEqual([]);
+  });
+
+  test("removing a group drops its data", async () => {
+    const bg = await bootWithStore(
+      makeSettings({ scopeMode: "allowlist", allowlist: ["geosite:google", "example.com"] }),
+      { v: 1, groups: { "geosite:google": storedGroup(["google.com"]) } }
+    );
+    const response = await bg.handleRemoveScopeSite({
+      list: "allowlist",
+      pattern: "GEOSITE:GOOGLE",
+    });
+    expect(response).toEqual({ success: true });
+    expect(stored().allowlist).toEqual(["example.com"]);
+    await vi.waitFor(() => expect(storedGroups(store)).toEqual({}));
+  });
+
+  describe("where site groups aren't available (Safari)", () => {
+    beforeEach(() => {
+      gate.available = false;
+    });
+
+    test.each(["geosite:google", LINK, "=mail.example.com"])(
+      "%s is rejected as INVALID_PATTERN with nothing stored or fetched",
+      async (pattern) => {
+        const bg = await bootWithStore(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+        const fetchMock = routeFetch();
+        const response = await bg.handleAddScopeSite({ list: "allowlist", pattern });
+        expect(response).toEqual({ error: "INVALID_PATTERN" });
+        expect(store.writes).toEqual([]);
+        expect(fetchMock).not.toHaveBeenCalled();
+      }
+    );
+
+    test("typed patterns still add, and a stored token can still be removed", async () => {
+      const bg = await bootWithStore(
+        makeSettings({ scopeMode: "allowlist", allowlist: ["geosite:google"] })
+      );
+      expect(await bg.handleAddScopeSite({ list: "allowlist", pattern: "*.ru" })).toEqual({
+        success: true,
+      });
+      expect(
+        await bg.handleRemoveScopeSite({ list: "allowlist", pattern: "geosite:google" })
+      ).toEqual({ success: true });
+      expect(stored().allowlist).toEqual(["*.ru"]);
+    });
   });
 });

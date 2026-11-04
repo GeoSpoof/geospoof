@@ -100,6 +100,7 @@ GeoSpoof overrides every one of those channels so your browser reports a consist
 - **Full signal alignment** — geolocation, timezone, Date APIs, Intl, Temporal, and WebRTC all report the same place.
 - **Reported Language (opt-in)** — optionally report a language to match, so `navigator.language`, every `Intl` format, and the `Accept-Language` header agree instead of announcing where you actually come from.
 - **Per-site locations** — give specific sites their own location (say, `twitch.tv` in one place and `chatgpt.com` in another) while every other site keeps your main location, if you've set one. Set it under **Per-site locations** at the bottom of the popup's Filters tab. Free on Firefox and Chrome; part of GeoSpoof Pro on Safari. See the [User Guide](docs/USER_GUIDE.md#per-site-locations).
+- **Site groups in Filters** — add a whole service or region in one entry (Google, Netflix, OpenAI, "Sites outside China", about 1,500 v2fly `geosite` lists), an exact address (`=mail.example.com`), or your own proxy list from a link. Use them in Filters or per-site locations; a more specific entry beats a broader one. Matched on your device and kept up to date weekly. Firefox and Chrome. See [Site groups](docs/SITE_FILTERS.md#site-groups).
 - **Anti-fingerprinting** — overrides are disguised to pass native code checks used by real-world fingerprinting scripts.
 - **Cross-browser** — Firefox, Chrome, Brave, Edge, and Safari. Single codebase, MV3.
 

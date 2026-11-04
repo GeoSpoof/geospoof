@@ -16,9 +16,27 @@
 
 import type { ScopeMode, Settings } from "@/shared/types/settings";
 import type { ScopeResponse, ScopeSitePayload, SetScopeModePayload } from "@/shared/types/messages";
+import { siteGroupsAvailable } from "@/shared/site-groups/availability";
+import { isSiteGroupToken, LINK_PREFIX } from "@/shared/site-groups/tokens";
+import type { EntryInputKind } from "@/shared/utils/filter-entries";
 import { parsePattern } from "@/shared/utils/scope";
 import { loadSettings, isRestrictedUrl } from "./settings";
 import { t } from "./i18n";
+import {
+  createEntryAddControl,
+  entryInvalidText,
+  type EntryAddControl,
+  type EntrySubmitResult,
+} from "./entry-add-control";
+import {
+  describeEntry,
+  formatCatalogDate,
+  isSiteGroupErrorCode,
+  linkAddedText,
+  requestSiteGroupUpdate,
+  siteGroupErrorText,
+  siteGroupsStatus,
+} from "./site-groups";
 
 /** Modes that show the list manager. */
 const LIST_MODES: ReadonlyArray<ScopeMode> = ["allowlist", "denylist"];
@@ -28,6 +46,16 @@ const REVERT_TIMEOUT_MS = 5000;
 
 /** The mode currently reflected as persisted, used to revert optimistic changes. */
 let lastPersistedMode: ScopeMode = "all";
+
+/** The list the add control adds to (null in "all" mode), and the control itself. */
+let activeListKey: "allowlist" | "denylist" | null = null;
+let addControl: EntryAddControl | null = null;
+
+/** "Update now" is running. */
+let siteGroupsUpdating = false;
+/** The release a manual check found already in use, for "up to date". */
+let upToDateRelease: string | null = null;
+let announceTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Resolve the active scope mode, defaulting to "all" for legacy/partial settings. */
 function resolveScopeMode(value: unknown): ScopeMode {
@@ -115,6 +143,7 @@ export function renderScope(settings: Settings, proLocked = false): void {
   if (desc) desc.textContent = modeDescription(mode);
 
   const listKey = listKeyForMode(mode);
+  renderSiteGroupsStatus(settings, listKey, proLocked);
   if (listKey === null) {
     // "all" mode — hide the list manager entirely (Req 13.8).
     setListManagerVisible(false);
@@ -142,8 +171,9 @@ function applyScopeLock(locked: boolean): void {
 
   // The add controls live inside the list manager (hidden in "all" mode, which
   // is what a locked user always sees), but disable them defensively too.
-  for (const id of ["scopeAddInput", "scopeAddButton", "scopeAddCurrentButton"]) {
-    const el = document.getElementById(id) as HTMLInputElement | HTMLButtonElement | null;
+  for (const id of ["scopeAddKind", "scopeAddInput", "scopeAddButton", "scopeAddCurrentButton"]) {
+    const el = document.getElementById(id) as
+      HTMLInputElement | HTMLSelectElement | HTMLButtonElement | null;
     if (el) el.disabled = locked;
   }
 }
@@ -302,21 +332,51 @@ export function buildMonogram(domain: string): HTMLElement {
   return tile;
 }
 
-/** Build a single list row: the domain label + its remove button. */
+/**
+ * The meta text of an entry row or chip ("964 sites"). A warning ("Not
+ * available") gets a ⚠ sign and the `warning` class, so it isn't colour alone.
+ */
+export function buildEntryMeta(meta: string, warning: boolean, className: string): HTMLElement {
+  const metaEl = document.createElement("span");
+  metaEl.className = warning ? `${className} warning` : className;
+  if (warning) {
+    const sign = document.createElement("span");
+    sign.setAttribute("aria-hidden", "true");
+    sign.textContent = "⚠ ";
+    metaEl.appendChild(sign);
+  }
+  metaEl.appendChild(document.createTextNode(meta));
+  return metaEl;
+}
+
+/**
+ * Build a single list row: the domain label + its remove button. An exact
+ * address, site group or list from a link shows as one row too: its name, and
+ * a muted meta line ("964 sites"), in the warning style when its data is
+ * missing or its last refresh failed.
+ */
 function buildSiteRow(listKey: "allowlist" | "denylist", domain: string): HTMLElement {
+  const display = describeEntry(domain);
   const row = document.createElement("div");
   row.className = "scope-site-row";
   row.setAttribute("role", "listitem");
 
   // Decorative monogram tile: deterministic colour from the domain, generated
   // locally — no favicon fetch, so the list never leaves the device.
-  row.appendChild(buildMonogram(domain));
+  row.appendChild(buildMonogram(display.title));
 
   const label = document.createElement("span");
   label.className = "scope-site-domain";
-  label.textContent = domain;
-  label.title = domain;
-  row.appendChild(label);
+  label.textContent = display.title;
+  label.title = display.tooltip;
+  if (display.meta === null) {
+    row.appendChild(label);
+  } else {
+    const text = document.createElement("span");
+    text.className = "scope-site-text";
+    text.append(label, buildEntryMeta(display.meta, display.warning, "scope-site-meta"));
+    row.appendChild(text);
+  }
 
   const removeBtn = document.createElement("button");
   removeBtn.className = "scope-site-remove";
@@ -324,7 +384,7 @@ function buildSiteRow(listKey: "allowlist" | "denylist", domain: string): HTMLEl
   removeBtn.textContent = "✕";
   removeBtn.setAttribute(
     "aria-label",
-    `${t("filters_removeAriaLabel") || "Remove site"} ${domain}`
+    `${t("filters_removeAriaLabel") || "Remove site"} ${display.title}`
   );
   removeBtn.addEventListener("click", () => {
     void handleRemove(listKey, domain, row);
@@ -335,38 +395,36 @@ function buildSiteRow(listKey: "allowlist" | "denylist", domain: string): HTMLEl
 }
 
 /**
- * Wire the manual add input + button for the active list mode. Replaces the
- * input node to drop stale listeners bound to a previous mode.
+ * Wire the add control (type menu, input, Add) for the active list mode. The
+ * control is wired once per element and adds to `activeListKey`; switching
+ * lists clears what was typed for the previous one.
  */
 function wireAddControls(mode: ScopeMode): void {
   const listKey = listKeyForMode(mode);
-  if (listKey === null) return;
+  if (listKey === null) {
+    activeListKey = null;
+    return;
+  }
 
-  const input = document.getElementById("scopeAddInput") as HTMLInputElement | null;
-  const button = document.getElementById("scopeAddButton") as HTMLButtonElement | null;
-  if (!input || !button) return;
-
-  // Replace nodes to clear listeners from a prior render/mode.
-  const freshInput = input.cloneNode(true) as HTMLInputElement;
-  freshInput.value = "";
-  input.parentNode?.replaceChild(freshInput, input);
-
-  const freshButton = button.cloneNode(true) as HTMLButtonElement;
-  button.parentNode?.replaceChild(freshButton, button);
-
-  const submit = (): void => {
-    void handleAdd(listKey, freshInput);
-  };
-
-  freshButton.addEventListener("click", submit);
-  freshInput.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      submit();
-    }
+  const control = createEntryAddControl({
+    ids: {
+      kind: "scopeAddKind",
+      input: "scopeAddInput",
+      button: "scopeAddButton",
+      listbox: "scopeGroupListbox",
+      attribution: "scopeGroupAttribution",
+      error: "scopeAddError",
+    },
+    context: "filters",
+    onSubmit: handleAdd,
   });
-  freshInput.addEventListener("input", () => {
-    hideAddError();
+  if (control !== addControl || listKey !== activeListKey) control?.reset();
+  addControl = control;
+  activeListKey = listKey;
+
+  // The syntax rows for the forms this build can't add.
+  document.querySelectorAll<HTMLElement>("[data-site-groups-only]").forEach((row) => {
+    row.hidden = !siteGroupsAvailable();
   });
 
   // "Add current site" convenience: reads the active tab's top-level URL,
@@ -447,44 +505,142 @@ async function handleAddCurrent(listKey: "allowlist" | "denylist"): Promise<void
 }
 
 /**
- * Validate the typed domain inline. On invalid input, retain the text and show
- * the inline message without sending (Req 14.4). On valid input, send
- * ADD_SCOPE_SITE and reload on success (Req 14.2).
+ * The add control's submit: the control has already validated the input
+ * inline (an invalid entry keeps its text and sends nothing, Req 12.3, 14.4).
+ * Send ADD_SCOPE_SITE with the canonical entry and reload on success (Req
+ * 14.2). A list from a link announces how many sites it added. On failure the
+ * control keeps the text and shows the returned message.
  */
-async function handleAdd(
-  listKey: "allowlist" | "denylist",
-  input: HTMLInputElement
-): Promise<void> {
-  hideAddError();
-  const raw = input.value;
-  const canonical = parsePattern(raw);
+async function handleAdd(entries: string[], kind: EntryInputKind): Promise<EntrySubmitResult> {
+  const notSaved = t("filters_notSaved") || "⚠ Change not saved";
+  const listKey = activeListKey;
+  const pattern = entries[0];
+  if (listKey === null || pattern === undefined) return { ok: false, message: notSaved };
 
-  if (canonical === null) {
-    // Retain input, show inline message, send nothing (Req 12.3, 14.4).
-    showAddError();
-    return;
-  }
+  const payload: ScopeSitePayload = { list: listKey, pattern };
 
-  const payload: ScopeSitePayload = { list: listKey, pattern: canonical };
-
+  let result: ScopeResponse | undefined;
   try {
-    const result = (await browser.runtime.sendMessage({
+    result = (await browser.runtime.sendMessage({
       type: "ADD_SCOPE_SITE",
       payload,
-    })) as ScopeResponse;
-
-    if (result && "success" in result && result.success) {
-      input.value = "";
-      await loadSettings();
-      return;
-    }
-
-    // Defensive: background also reports INVALID_PATTERN.
-    showAddError();
+    })) as ScopeResponse | undefined;
   } catch (error: unknown) {
     console.error("Failed to add scope site:", error);
-    showAddError();
+    return { ok: false, message: notSaved };
   }
+
+  if (result && "success" in result && result.success) {
+    if (pattern.startsWith(LINK_PREFIX) && result.siteGroup) {
+      announce(linkAddedText(pattern, result.siteGroup));
+    }
+    await loadSettings();
+    return { ok: true };
+  }
+
+  const error = result && "error" in result ? result.error : null;
+  if (isSiteGroupErrorCode(error)) {
+    const token = result && "error" in result ? result.token : undefined;
+    return { ok: false, message: siteGroupErrorText(error, token ?? pattern) };
+  }
+  if (error === "INVALID_PATTERN") {
+    return { ok: false, message: entryInvalidText(kind, pattern, "filters") };
+  }
+  return { ok: false, message: notSaved };
+}
+
+/** Long enough for screen readers to register the cleared region first. */
+const ANNOUNCE_DELAY_MS = 100;
+
+/**
+ * Speak a confirmation through #siteLocationAnnouncer, the popup's polite live
+ * region outside every view: cleared first and set a moment later, so the same
+ * message repeated is spoken again.
+ */
+function announce(text: string): void {
+  const region = document.getElementById("siteLocationAnnouncer");
+  if (!region) return;
+  clearTimeout(announceTimer);
+  region.textContent = "";
+  announceTimer = setTimeout(() => {
+    region.textContent = text;
+  }, ANNOUNCE_DELAY_MS);
+}
+
+// ── Site group status ──────────────────────────────────────────────────────
+
+/**
+ * The status line under the list: where site group data comes from and
+ * whether its last update worked, with "Update now". Shown only when the
+ * active list or any site location holds a site group or a list from a link.
+ */
+function renderSiteGroupsStatus(
+  settings: Settings,
+  listKey: "allowlist" | "denylist" | null,
+  proLocked: boolean
+): void {
+  const box = document.getElementById("siteGroupsStatus");
+  const textEl = document.getElementById("siteGroupsStatusText");
+  const button = document.getElementById("siteGroupsUpdateNow");
+  if (!box || !textEl || !button) return;
+  if (button.dataset.wired !== "1") {
+    button.dataset.wired = "1";
+    button.addEventListener("click", () => {
+      void handleUpdateNow();
+    });
+  }
+
+  const hasToken = (list: unknown): boolean =>
+    Array.isArray(list) && list.some((p) => typeof p === "string" && isSiteGroupToken(p));
+  const status = siteGroupsStatus();
+  const shown =
+    !proLocked &&
+    siteGroupsAvailable() &&
+    status !== null &&
+    ((listKey !== null && hasToken(settings[listKey])) ||
+      (Array.isArray(settings.siteLocations) &&
+        settings.siteLocations.some((entry) => hasToken(entry?.patterns))));
+  box.hidden = !shown;
+  if (!shown || status === null) return;
+
+  const date = status.releasedAt === null ? "" : formatCatalogDate(Date.parse(status.releasedAt));
+  let text: string;
+  if (siteGroupsUpdating || status.updating) {
+    text = t("siteGroups_statusUpdating") || "Updating site groups…";
+  } else if (status.lastError !== null) {
+    text =
+      t("siteGroups_statusFailed", [date]) ||
+      `Couldn't update site groups. Using lists from ${date}.`;
+  } else if (upToDateRelease !== null && upToDateRelease === status.release) {
+    text =
+      t("siteGroups_statusUpToDate", [date]) || `Site groups are up to date (lists from ${date})`;
+  } else {
+    text = t("siteGroups_statusFrom", [date]) || `Site group lists from ${date}`;
+  }
+  // Only a real change, so the polite region isn't re-read on every render.
+  if (textEl.textContent !== text) textEl.textContent = text;
+  // aria-disabled rather than disabled, so a focused button keeps focus.
+  if (siteGroupsUpdating) button.setAttribute("aria-disabled", "true");
+  else button.removeAttribute("aria-disabled");
+}
+
+/** "Update now": a manual refresh, then a reload that re-renders the status. */
+async function handleUpdateNow(): Promise<void> {
+  if (siteGroupsUpdating) return;
+  const before = siteGroupsStatus()?.release ?? null;
+  siteGroupsUpdating = true;
+  upToDateRelease = null;
+  const textEl = document.getElementById("siteGroupsStatusText");
+  if (textEl) textEl.textContent = t("siteGroups_statusUpdating") || "Updating site groups…";
+  document.getElementById("siteGroupsUpdateNow")?.setAttribute("aria-disabled", "true");
+
+  const result = await requestSiteGroupUpdate();
+  siteGroupsUpdating = false;
+  document.getElementById("siteGroupsUpdateNow")?.removeAttribute("aria-disabled");
+  if (result.ok && before !== null && result.status?.release === before) {
+    upToDateRelease = before;
+  }
+  await loadSettings();
 }
 
 /**
@@ -546,11 +702,6 @@ function restoreRow(
 
 // ── Inline messages ────────────────────────────────────────────────────────
 
-function showAddError(): void {
-  const el = document.getElementById("scopeAddError");
-  if (el) el.style.display = "block";
-}
-
 function hideAddError(): void {
   const el = document.getElementById("scopeAddError");
   if (el) el.style.display = "none";
@@ -568,6 +719,17 @@ function showCurrentMsg(text: string): void {
 function hideCurrentMsg(): void {
   const el = document.getElementById("scopeCurrentMsg");
   if (el) el.style.display = "none";
+}
+
+/** Test hook: forget popup-session state between cases. */
+export function __resetScopeForTest(): void {
+  lastPersistedMode = "all";
+  activeListKey = null;
+  addControl = null;
+  siteGroupsUpdating = false;
+  upToDateRelease = null;
+  clearTimeout(announceTimer);
+  announceTimer = undefined;
 }
 
 function showModeError(): void {

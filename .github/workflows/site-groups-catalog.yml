@@ -1,0 +1,226 @@
+name: Site groups catalog
+# Publishes the site-groups catalog (v2fly domain-list-community, converted) to
+# cdn.geospoof.com/site-groups/v1/ once a week, so installed extensions pick up
+# new and changed groups without waiting for an extension release.
+#
+# WHAT IS PUBLISHED. Two files, in this order:
+#   1. site-groups/v1/catalog-<release>.json  immutable, cached for a year
+#   2. site-groups/v1/latest.json             the pointer, cached for an hour
+# The catalog goes first so the pointer never names a file that is not there
+# yet. A catalog file is never rewritten: the release tag is in its name, and a
+# run whose release is already published stops before assuming the role. See
+# docs/SITE_GROUPS_DATA.md for the format and the client side.
+#
+# WHO MAY PUBLISH. The job assumes an IAM role (cdk/lib/constructs/
+# site-groups-catalog.ts) that can write only under `site-groups/*` and trusts
+# only the OIDC subject `repo:*/geospoof@1170325630:ref:refs/heads/main`. Both
+# triggers run on main (schedule always does; dispatch it from main), so that
+# subject is what GitHub presents. There is deliberately NO `environment:` on
+# the job: an environment changes the `sub` claim to `...:environment:<name>`
+# and the role would refuse it. See cdk/README.md, "Who may publish: the OIDC
+# subject is not a repo name", before changing the trust or this job's shape.
+#
+# GUARDS. The upstream file is checked against its .sha256sum asset AND the
+# GitHub API's asset digest; the converter refuses a release that lost more than
+# 10% of its lists or 20% of its rules against the published catalog (the
+# `force` input skips that check, for a shrink that is known to be legitimate).
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Publish even if the new release shrank past the guard
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: site-groups-catalog
+  cancel-in-progress: false
+jobs:
+  publish:
+    name: Publish the site-groups catalog
+    # The role exists only after the manual CDK deploy sets this variable
+    # (docs/SITE_GROUPS_DATA.md, "Runbook: Deploying the Publish Role"). Until
+    # then the job is skipped, so the weekly schedule doesn't fail at the AWS
+    # step or spend runner minutes.
+    if: vars.SITE_GROUPS_PUBLISH_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Exchanged for the scoped CDN publish role; no stored AWS credentials.
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      # The converter is a self-contained TS file with only node: imports, so
+      # no `npm ci` is needed (and none of the dependency tree runs here).
+      - name: Read the latest upstream release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/v2fly/domain-list-community/releases/latest > release.json
+          tag="$(jq -r '.tag_name' release.json)"
+          published_at="$(jq -r '.published_at' release.json)"
+          # The tag flows into an S3 key and a URL, so check its shape first.
+          if ! [[ "$tag" =~ ^[0-9]{14}$ ]]; then
+            echo "::error::unexpected release tag: ${tag}"
+            exit 1
+          fi
+          if ! [[ "$published_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$ ]]; then
+            echo "::error::unexpected published_at: ${published_at}"
+            exit 1
+          fi
+          plain_url="$(jq -r '.assets[] | select(.name == "dlc.dat_plain.yml") | .browser_download_url' release.json)"
+          sum_url="$(jq -r '.assets[] | select(.name == "dlc.dat_plain.yml.sha256sum") | .browser_download_url' release.json)"
+          digest="$(jq -r '.assets[] | select(.name == "dlc.dat_plain.yml") | .digest' release.json)"
+          if [[ -z "$plain_url" || -z "$sum_url" || ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::release ${tag} lacks dlc.dat_plain.yml, its .sha256sum, or an API digest"
+            exit 1
+          fi
+          {
+            echo "tag=${tag}"
+            echo "published-at=${published_at}"
+            echo "plain-url=${plain_url}"
+            echo "sum-url=${sum_url}"
+            echo "digest=${digest#sha256:}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify dlc.dat_plain.yml
+        env:
+          PLAIN_URL: ${{ steps.release.outputs.plain-url }}
+          SUM_URL: ${{ steps.release.outputs.sum-url }}
+          API_DIGEST: ${{ steps.release.outputs.digest }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "$PLAIN_URL" -o dlc.dat_plain.yml
+          curl -fsSL "$SUM_URL" -o dlc.dat_plain.yml.sha256sum
+          sha256sum -c dlc.dat_plain.yml.sha256sum
+          actual="$(sha256sum dlc.dat_plain.yml | cut -d' ' -f1)"
+          if [[ "$actual" != "$API_DIGEST" ]]; then
+            echo "::error::sha256 ${actual} does not match the API digest ${API_DIGEST}"
+            exit 1
+          fi
+
+      - name: Convert to the catalog format
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          PUBLISHED_AT: ${{ steps.release.outputs.published-at }}
+          API_DIGEST: ${{ steps.release.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          node scripts/site-groups/build-catalog.ts \
+            --input dlc.dat_plain.yml \
+            --release "$TAG" \
+            --released-at "$PUBLISHED_AT" \
+            --upstream-sha256 "$API_DIGEST" \
+            --out out/catalog.json \
+            --pointer out/latest.json
+
+      - name: Compare with the published catalog
+        id: compare
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          PUBLISHED_AT: ${{ steps.release.outputs.published-at }}
+          API_DIGEST: ${{ steps.release.outputs.digest }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o published-latest.json -w '%{http_code}' \
+            "https://cdn.geospoof.com/site-groups/v1/latest.json")"
+          if [[ "$status" == "404" || "$status" == "403" ]]; then
+            # First run: nothing published yet, so there is nothing to guard against.
+            echo "No published pointer (HTTP ${status}); publishing the first catalog."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$status" != "200" ]]; then
+            echo "::error::GET latest.json returned HTTP ${status}"
+            exit 1
+          fi
+          published_release="$(jq -r '.release' published-latest.json)"
+          if [[ "$published_release" == "$TAG" ]]; then
+            # Catalog files are immutable; never overwrite one, even with force.
+            echo "Release ${TAG} is already published; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$FORCE" == "true" ]]; then
+            echo "::warning::force is set; skipping the shrink guard."
+          else
+            published_path="$(jq -r '.path' published-latest.json)"
+            if ! [[ "$published_path" =~ ^site-groups/v1/catalog-[0-9]{14}\.json$ ]]; then
+              echo "::error::unexpected path in the published pointer: ${published_path}"
+              exit 1
+            fi
+            curl -fsS "https://cdn.geospoof.com/${published_path}" -o published-catalog.json
+            node scripts/site-groups/build-catalog.ts \
+              --input dlc.dat_plain.yml \
+              --release "$TAG" \
+              --released-at "$PUBLISHED_AT" \
+              --upstream-sha256 "$API_DIGEST" \
+              --out out/catalog.json \
+              --pointer out/latest.json \
+              --guard-against published-catalog.json
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      # No stored AWS credentials: this assumes a role scoped to `site-groups/*`
+      # through the `id-token: write` permission above.
+      - name: Configure AWS credentials (OIDC)
+        if: steps.compare.outputs.skip != 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.SITE_GROUPS_PUBLISH_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Publish the catalog, then the pointer
+        if: steps.compare.outputs.skip != 'true'
+        env:
+          BUCKET: ${{ vars.EXT_CDN_BUCKET }}
+          DISTRIBUTION_ID: ${{ vars.EXT_CDN_DISTRIBUTION_ID }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The catalog's name carries its release, so it is safe to cache for a
+          # year at the edge and in browsers. The pointer must stay short-lived:
+          # the distribution honours the origin header, and a long one would pin
+          # a stale pointer at the edge.
+          aws s3 cp out/catalog.json "s3://${BUCKET}/site-groups/v1/catalog-${TAG}.json" \
+            --cache-control "public, max-age=31536000, immutable" \
+            --content-type "application/json"
+          aws s3 cp out/latest.json "s3://${BUCKET}/site-groups/v1/latest.json" \
+            --cache-control "public, max-age=3600" \
+            --content-type "application/json"
+          aws cloudfront create-invalidation \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --paths "/site-groups/v1/latest.json"
+
+      - name: Verify the published pointer
+        if: steps.compare.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS "https://cdn.geospoof.com/site-groups/v1/latest.json" -o cdn-latest.json \
+              && diff -q out/latest.json cdn-latest.json > /dev/null; then
+              break
+            fi
+            echo "CDN pointer not current yet (attempt ${attempt}); retrying..."
+            sleep 15
+          done
+          if ! diff -u out/latest.json cdn-latest.json; then
+            echo "::error::the CDN pointer does not match the one just generated"
+            exit 1
+          fi
+          echo "CDN pointer matches the generated pointer"

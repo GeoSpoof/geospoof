@@ -45,7 +45,10 @@ export type MessageType =
   | "SET_PRECISION_CADENCE"
   | "SET_LOCALE_SPOOFING"
   | "SAVE_SITE_LOCATION"
-  | "REMOVE_SITE_LOCATION";
+  | "REMOVE_SITE_LOCATION"
+  | "GET_SITE_GROUPS"
+  | "GET_SITE_GROUP_INDEX"
+  | "UPDATE_SITE_GROUPS";
 
 /**
  * Generic message structure for runtime messaging.
@@ -319,7 +322,11 @@ export interface SetScopeModePayload {
 
 export interface ScopeSitePayload {
   list: "allowlist" | "denylist";
-  /** Canonical glob-style URL pattern (see `parsePattern`); background re-validates. */
+  /**
+   * A Filters entry: a glob-style URL pattern (see `parsePattern`), an exact
+   * address (`=host`), a site group (`geosite:name[@attr]`), or a list from a
+   * link (`list:https://...`); see `parseFilterEntry`. Background re-validates.
+   */
   pattern: string;
 }
 
@@ -350,10 +357,33 @@ export interface SetLocaleSpoofingPayload {
 
 export interface ScopeSuccessResponse {
   success: true;
+  /** A site group or link entry: its usable entry count and skipped rules. */
+  siteGroup?: { count: number; skipped: number };
 }
 
+/**
+ * Why a site group or link entry couldn't be added. Nothing is stored.
+ *   - `UNKNOWN_GROUP`: no catalog list has that name.
+ *   - `EMPTY_GROUP`: the list has no entries with every requested `@attr`.
+ *   - `LINK_FAILED`: the download failed (network, status, timeout, non-https).
+ *   - `LINK_EMPTY`: the download has no usable entries (`skipped` counts the rest).
+ *   - `LINK_TOO_LARGE`: over 10 MB or 250,000 entries.
+ *   - `STORAGE_FULL`: the stored group data would pass its 5,000,000-char cap.
+ */
+export type SiteGroupErrorCode =
+  | "UNKNOWN_GROUP"
+  | "EMPTY_GROUP"
+  | "LINK_FAILED"
+  | "LINK_EMPTY"
+  | "LINK_TOO_LARGE"
+  | "STORAGE_FULL";
+
 export interface ScopeErrorResponse {
-  error: "INVALID_PATTERN" | "STORAGE_ERROR";
+  error: "INVALID_PATTERN" | "STORAGE_ERROR" | SiteGroupErrorCode;
+  /** The site group or link token the error is about. */
+  token?: string;
+  /** LINK_EMPTY: rules that were read but not used. */
+  skipped?: number;
 }
 
 export type ScopeResponse = ScopeSuccessResponse | ScopeErrorResponse;
@@ -396,14 +426,69 @@ export type SiteLocationErrorCode =
   | "TIMEZONE_UNAVAILABLE"
   | "STORAGE_ERROR"
   /** A remove or save of the same entry that arrived later was written first. */
-  | "SUPERSEDED";
+  | "SUPERSEDED"
+  | SiteGroupErrorCode;
 
 export type SiteLocationResponse =
   | { success: true; id: string }
   | {
       error: SiteLocationErrorCode;
-      /** The offending pattern (INVALID_PATTERN, PATTERN_IN_USE). */
+      /** The offending pattern (INVALID_PATTERN, PATTERN_IN_USE, and the site group codes). */
       pattern?: string;
       /** The entry that already owns `pattern` (PATTERN_IN_USE). */
       ownerId?: string;
+      /** LINK_EMPTY: rules that were read but not used. */
+      skipped?: number;
     };
+
+// --- Site group types ---
+
+/** One stored site group or link token, as the popup shows it. */
+export interface SiteGroupSummary {
+  token: string;
+  kind: "group" | "link";
+  /** The list name (`google`), or a link's derived name (`direct-list`). */
+  name: string;
+  /** Usable entries (domains plus fulls). */
+  count: number;
+  /** Rules that were read but not used. */
+  skipped: number;
+  /** When the data was last built or downloaded (ms). */
+  updatedAt: number;
+  /** A newer catalog lacks this list or leaves it empty; the last good copy stays in use. */
+  missingUpstream?: boolean;
+  /** A link's last refresh failed; the last good copy stays in use. */
+  lastError?: "LINK_FAILED" | "LINK_EMPTY" | "LINK_TOO_LARGE" | null;
+}
+
+/** The catalog and refresh state the popup shows. */
+export interface SiteGroupsStatus {
+  /** The release of the catalog in use (bundled or downloaded), or null. */
+  release: string | null;
+  releasedAt: string | null;
+  /** When the last refresh checked the CDN (ms), or null. */
+  checkedAt: number | null;
+  /** The last refresh's failure, or null. */
+  lastError: "NETWORK" | "INVALID" | null;
+  /** A refresh is running now. */
+  updating: boolean;
+}
+
+/** GET_SITE_GROUPS response. `available` is false where site groups are hidden (Safari). */
+export interface SiteGroupsResponse {
+  available: boolean;
+  status: SiteGroupsStatus;
+  /** Every stored token's summary plus its framed `d`/`f` strings. */
+  groups: Record<string, SiteGroupSummary & { d: string; f: string }>;
+}
+
+/** GET_SITE_GROUP_INDEX response: every catalog list's name and entry count, by name. */
+export interface SiteGroupIndexResponse {
+  release: string | null;
+  lists: { name: string; count: number }[];
+}
+
+/** UPDATE_SITE_GROUPS ("Update now") response. */
+export type SiteGroupsUpdateResponse =
+  | { success: true; status: SiteGroupsStatus }
+  | { error: "NETWORK" | "INVALID" | "NOT_AVAILABLE"; status: SiteGroupsStatus };
