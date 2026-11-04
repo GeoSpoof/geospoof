@@ -297,7 +297,8 @@ reuses the account's single GitHub OIDC provider.
 3. `npm run deploy:prod`.
 4. In this repo's Actions **Variables**, set `SITE_GROUPS_PUBLISH_ROLE_ARN` to the
    `SiteGroupsPublishRoleArn` output (`EXT_CDN_BUCKET` and
-   `EXT_CDN_DISTRIBUTION_ID` are already set for the release).
+   `EXT_CDN_DISTRIBUTION_ID` are already set for the release). Until it's set,
+   the workflow's job is skipped.
 5. Dispatch the workflow from `main`:
    `gh workflow run site-groups-catalog.yml --repo GeoSpoof/geospoof --ref main`.
 6. Verify:

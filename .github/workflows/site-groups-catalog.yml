@@ -41,6 +41,11 @@ concurrency:
 jobs:
   publish:
     name: Publish the site-groups catalog
+    # The role exists only after the manual CDK deploy sets this variable
+    # (docs/SITE_GROUPS_DATA.md, "Runbook: Deploying the Publish Role"). Until
+    # then the job is skipped, so the weekly schedule doesn't fail at the AWS
+    # step or spend runner minutes.
+    if: vars.SITE_GROUPS_PUBLISH_ROLE_ARN != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
