@@ -798,6 +798,41 @@ Response: `{ success: true, id: string }` or `{ error: SiteLocationErrorCode, pa
 | `STORAGE_ERROR`        | `storage.local.set` rejected                                                                                           |
 | `SUPERSEDED`           | Save only: a remove or save of the same entry sent later, or a newer app change, was written first. Nothing is written |
 
+`patterns` may also hold [entry forms](#filter-and-site-location-entry-forms) (`=host`, `geosite:`, `list:`), parsed with `parseSiteLocationEntry`. A group or link token's data is built before the write (`withSiteGroupData`); when that fails nothing is written and the response is `{ error: SiteGroupErrorCode, pattern: token, skipped? }` (table below). Where `siteGroupsAvailable()` is false, a new exact, group or link entry is `INVALID_PATTERN`; ones already stored are kept.
+
+#### Site group errors (ADD_SCOPE_SITE, SAVE_SITE_LOCATION)
+
+`ADD_SCOPE_SITE` accepts every [entry form](#filter-and-site-location-entry-forms) (`parseFilterEntry`). For a group or link it answers `{ success: true, siteGroup: { count, skipped } }`, or `{ error, token, skipped? }`. Nothing is stored on any of these errors:
+
+| Error            | When                                                                         |
+| ---------------- | ---------------------------------------------------------------------------- |
+| `UNKNOWN_GROUP`  | No catalog list has that name (or no catalog loads at all)                   |
+| `EMPTY_GROUP`    | The list has no entries carrying every requested `@attr`                     |
+| `LINK_FAILED`    | The download failed: network, HTTP status, 30 s timeout, or a non-https hop  |
+| `LINK_EMPTY`     | The list has no usable entries; `skipped` counts the rules that weren't used |
+| `LINK_TOO_LARGE` | Over 10 MB or 250,000 entries                                                |
+| `STORAGE_FULL`   | The stored group data would pass its 5,000,000-character cap                 |
+
+#### GET_SITE_GROUPS / GET_SITE_GROUP_INDEX / UPDATE_SITE_GROUPS
+
+```typescript
+{
+  type: "GET_SITE_GROUPS";
+} // → SiteGroupsResponse
+{
+  type: "GET_SITE_GROUP_INDEX";
+} // → SiteGroupIndexResponse
+{
+  type: "UPDATE_SITE_GROUPS";
+} // → SiteGroupsUpdateResponse ("Update now")
+```
+
+- `GET_SITE_GROUPS` returns `{ available, status, groups }`. `available` is `siteGroupsAvailable()`. `status` is `{ release, releasedAt, checkedAt, lastError: "NETWORK" | "INVALID" | null, updating }`. `groups` maps every stored token to its summary (`kind`, `name`, `count`, `skipped`, `updatedAt`, `missingUpstream?`, `lastError?`) plus its framed `d`/`f` strings, which the popup uses to evaluate tokens the same way the background does.
+- `GET_SITE_GROUP_INDEX` returns `{ release, lists: [{ name, count }] }` for the picker: every catalog list, by name, with its untagged entry count.
+- `UPDATE_SITE_GROUPS` runs a manual refresh (`refreshSiteGroups({ manual: true })`, single-flight) and returns `{ success: true, status }` or `{ error: "NETWORK" | "INVALID" | "NOT_AVAILABLE", status }`. A manual refresh fetches the pointer even when no token is referenced.
+
+The client side of the refresh (pointer, sha256 check, last-good copies) is described in [SITE_GROUPS_DATA.md](SITE_GROUPS_DATA.md#client-refresh-and-integrity).
+
 ### Content Script → Background Messages
 
 #### ANNOUNCE_WORKER_FETCH
@@ -864,9 +899,39 @@ Persisted in `browser.storage.local` under the key `"settings"`.
   version: string,
   lastUpdated: number,              // epoch ms; default 0 (never-saved sentinel — see app-bridge.ts)
   revision: number,                 // strictly increasing per save; never bridged or sent to pages
-  siteLocations: SiteLocation[]     // default []; see Per-site locations below
+  siteLocations: SiteLocation[],    // default []; see Per-site locations below
+  scopeMode: "all" | "allowlist" | "denylist", // Site Filters mode; default "all"
+  allowlist: string[],              // Filters entries (see Entry forms below)
+  denylist: string[]
 }
 ```
+
+### Filter and site-location entry forms
+
+`allowlist`, `denylist` and `siteLocations[].patterns` hold canonical strings in four forms. No settings field, schema version or bridge key was added for the last three: they ride in the same arrays.
+
+| Form             | Canonical                                                                                                       | Example                                 |
+| ---------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Typed pattern    | `parsePattern` (Filters) or `parseSiteLocationPattern` (per-site)                                               | `example.com`, `*.ru`, `localhost:3000` |
+| Exact address    | `=` + a typed pattern whose host isn't `*` or `*.x`; `=1.2.3.4` canonicalizes to `1.2.3.4`; per-site: no path   | `=mail.example.com`                     |
+| Site group       | `geosite:<name>[@<attr>]...`, lowercase, `[a-z0-9!-]`, name ≤ 64, attrs ≤ 32, deduped and sorted; attrs are AND | `geosite:google@cn`                     |
+| List from a link | `list:` + `new URL(input).href` without the hash; https only, no credentials, ≤ 2048 chars                      | `list:https://example.com/list.txt`     |
+
+`parsePattern` and `parseSiteLocationPattern` reject the three new forms and are unchanged, so `tests/fixtures/pattern-vectors.json` and `site-location-vectors.json` still hold. The superset parsers are `parseFilterEntry` and `parseSiteLocationEntry` in `src/shared/utils/filter-entries.ts`; `tests/fixtures/site-group-vectors.json` pins their cases, the matcher, the list-format parser and precedence for other implementations. A bare `https://...` with no kind stays a typed pattern; only the popup's Type menu or auto-detect sends `list:`.
+
+**Matching.** A token matches when the top-level URL's `hostname` (ASCII) equals a `full` entry, or equals or ends in `.` + a `domain` entry. Filters take the union: in Allowlist mode a URL is on when any typed entry matches or any group contains its host; in Denylist mode it's off on the same condition. A token whose data is missing matches nothing on every surface (Filters, per-site locations, the Firefox bootstrap), so in Allowlist mode those sites aren't spoofed and in Denylist mode they are. Validation keeps every syntactically valid token. Every resolver (`computeEffectiveEnabled`, `resolveSiteSettings`, `matchSiteLocation`, `planBootstrapScripts`) takes an optional lookup defaulting to `NO_SITE_GROUPS`; every production caller passes `currentSiteGroups()` (`tests/unit/background/site-groups-wiring.test.ts` checks this).
+
+**Storage keys** in `storage.local`, next to `settings`:
+
+| Key                | Holds                                                                                                                                                                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `siteGroupData`    | `{ v: 1, groups: { [token]: StoredSiteGroup } }`: `"\n"`-framed `d` (domains) and `f` (fulls), counts, source, release or `fetchedAt`, `lastError`, `missingUpstream`. Only referenced tokens; at most 5,000,000 chars of `d` + `f` in total |
+| `siteGroupCatalog` | The last good catalog downloaded from the CDN. The bundled `dist/site-groups/catalog.json` is used when it's newer or this is absent                                                                                                         |
+| `siteGroupStatus`  | `{ checkedAt, lastError }` of the last refresh                                                                                                                                                                                               |
+
+The background keeps the group data in memory; `loadSettings()` loads it before returning whenever settings reference a token, so resolvers can call `currentSiteGroups()` synchronously. Writes go through the site-group queue. Lock order is site-location queue, then site-group queue, then settings queue, never the reverse.
+
+**Availability.** `siteGroupsAvailable()` (`src/shared/site-groups/availability.ts`) returns `!__SAFARI__`. Where it's false, the popup hides the three new kinds, the add and save handlers answer `INVALID_PATTERN` for them, no refresh alarm is scheduled and no request is made. Stored or bridged tokens still validate and round-trip, so the gate isn't destructive. On Safari, `proFeaturesBlocked` will gate them like the rest of Filters once the gate flips.
 
 ### Settings revision
 
@@ -911,9 +976,9 @@ Per-site locations (`siteLocations`) give specific sites their own location. The
 
 Caps: `MAX_SITE_LOCATIONS = 50` entries and `MAX_PATTERNS_PER_SITE_LOCATION = 10` patterns per entry. Coordinates and zone are a snapshot, so changing the main location or a favorite never moves a site location, and VPN resync updates only the main location. `validateSiteLocations` repairs rather than rejects: an absent field becomes `[]`, an entry failing any rule is dropped whole, and a pattern already claimed by an earlier entry is dropped from the later one.
 
-**Pattern grammar.** The [Site Filters](SITE_FILTERS.md#per-site-locations) grammar without paths and without a wildcard-only host (`*`, `*://*`, `https://*:8080`). Every accepted pattern is also a valid Filters pattern with the identical canonical form. `tests/fixtures/site-location-vectors.json` pins the accept/reject cases for other implementations.
+**Pattern grammar.** The [Site Filters](SITE_FILTERS.md#per-site-locations) grammar without paths and without a wildcard-only host (`*`, `*://*`, `https://*:8080`). Every accepted pattern is also a valid Filters pattern with the identical canonical form. `tests/fixtures/site-location-vectors.json` pins the accept/reject cases for other implementations. `patterns` may also hold exact, group and link [entry forms](#filter-and-site-location-entry-forms) (`parseSiteLocationEntry`); a token counts as one of the 10.
 
-**Pattern identity.** Uniqueness, within an entry and across entries, compares `siteLocationPatternKey`: the canonical pattern with its literal host converted to its A-label, as the compiler converts it (`hostToASCII`; an IPv4 host stays as is). The canonical form keeps a Unicode host, so `münchen.de` and `xn--mnchen-3ya.de` are stored as different strings, but they match the same pages with the same specificity and have one key. Only one of them can be stored: the save path dedupes them within an entry and answers `PATTERN_IN_USE` across entries, and `validateSiteLocations` keeps the first. A pattern whose host has no A-label form (`xn--zz.com`) never matches a page, so a save rejects it as `INVALID_PATTERN` and the loader drops it.
+**Pattern identity.** Uniqueness, within an entry and across entries, compares `siteLocationPatternKey`: the canonical pattern with its literal host converted to its A-label, as the compiler converts it (`hostToASCII`; an IPv4 host stays as is). The canonical form keeps a Unicode host, so `münchen.de` and `xn--mnchen-3ya.de` are stored as different strings, but they match the same pages with the same specificity and have one key. Only one of them can be stored: the save path dedupes them within an entry and answers `PATTERN_IN_USE` across entries, and `validateSiteLocations` keeps the first. A pattern whose host has no A-label form (`xn--zz.com`) never matches a page, so a save rejects it as `INVALID_PATTERN` and the loader drops it. With entry forms, identity is `siteLocationEntryKey` (`src/shared/utils/site-locations.ts`): an exact entry keys as `=` + the key of its typed part, and group and link tokens compare as their canonical strings.
 
 **Resolution order**, per tab, from the tab's top-level URL (`resolveSiteSettings` in `src/shared/utils/site-locations.ts`). For a content script's `GET_SETTINGS`, a top-level document supplies its own URL, so a page Chrome is prerendering is judged as the page it will show (see [GET_SETTINGS](#get_settings)):
 
@@ -923,7 +988,13 @@ Caps: `MAX_SITE_LOCATIONS = 50` entries and `MAX_PATTERNS_PER_SITE_LOCATION = 10
 4. The most specific matching site location decides which location applies. No match keeps the main settings, by reference.
 5. Per-page transforms (approximate precision, cadence, Reported Language) run on the result.
 
-**Precedence.** Each entry scores the highest specificity among its patterns that match, as the tuple `[labels, subdomainsOnly, scheme, port]` compared left to right: more host labels win, then `*.L` over `L`, then an explicit `http`/`https` over an unset scheme over `*`, then an explicit port. For `https://www.example.com/` that orders `www.example.com` > `*.example.com` > `https://example.com` > `example.com` > `*://example.com` > `*.com`. Ties, which cross-entry uniqueness makes defensive only, go to the higher `updatedAt`, then to the smaller `id` by plain `<`. The result doesn't depend on list order.
+**Precedence.** Each entry scores its best matching pattern, in two tiers:
+
+1. **Typed beats group.** Any typed or exact pattern (tier 1) beats any group or link token (tier 0).
+2. **Typed patterns** compare the tuple `[labels, hostKind, scheme, port]` left to right: more host labels win; then `hostKind` 2 (exact `=L`) over 1 (`*.L`) over 0 (bare `L` and IPv4); then an explicit `http`/`https` over an unset scheme over `*`; then an explicit port. For `https://www.example.com/` that orders `=www.example.com` > `www.example.com` > `*.example.com` > `https://example.com` > `example.com` > `*://example.com` > `*.com`. Existing orderings are unchanged: `hostKind` was `subdomainsOnly` before exact entries existed.
+3. **Tokens** compare by size: the one with fewer usable entries wins (`geosite:youtube` over `geosite:google` over `geosite:geolocation-!cn` on `www.youtube.com`). A token whose data is missing doesn't match.
+
+Ties, which cross-entry uniqueness makes defensive only, go to the higher `updatedAt`, then to the smaller `id` by plain `<`. The result doesn't depend on list order.
 
 **Overlay.** A match replaces exactly `location`, `timezone`, and `locationName`; every other field stays global. Language follows the site location's zone when Reported Language is **Match my location**. Accuracy is resolved when the entry is saved, and approximate precision and cadence then apply to its coordinates as they do to the main location's. The background is the only place this runs, and every consumer (page payloads, the Firefox bootstrap, Firefox workers, Accept-Language, Chromium engine-level spoofing, and the toolbar title) goes through the same resolver, so they resolve a tab the same way, within the limits listed under [Known Limitations](#known-limitations); see Known Limitation #11 for the Accept-Language header. `UpdateSettingsPayload` has no list keys, so neither the list nor any pattern or id ever reaches a page.
 
@@ -935,6 +1006,7 @@ Caps: `MAX_SITE_LOCATIONS = 50` entries and `MAX_PATTERNS_PER_SITE_LOCATION = 10
 - **App → extension.** The app writes `pending_siteLocations`, relayed as `pending.siteLocations`, only once it has read `region_siteLocations` or the user edited the list in the app. Until then it leaves the key unset, because `[]` means "clear the list".
 - **Adoption.** Step 9 of `adoptPendingSnapshot` runs after step 8 in its own try/catch. An absent key is a no-op, and invalid JSON or a non-array is ignored, never a wipe. An empty array is adopted as a clear. A bare IANA id in place of a `timezone` object (or an object with non-finite offsets) is repaired with `computeOffsets`. Every zone id is checked against the engine's time-zone data, offsets or not, and an entry whose id the engine can't resolve, or whose zone is marked `fallback`, is dropped. Then every entry is re-validated by `validateSiteLocations`, so invalid entries are dropped. An unchanged list saves nothing; a changed one is saved, broadcast, and badged. The load and write run in the site-location queue. If a save or remove in the extension was written after the snapshot passed its newer-than check, that edit is newer, so the snapshot's list isn't adopted; the edit's own `REGION_UPDATE` carries the list back to the app. Among snapshots that pass the newer-than check, the newest action on an entry wins between the app and the popup, by the snapshot's `updatedAt` against the popup save's arrival time (see `SAVE_SITE_LOCATION`); a save or remove written after the check still wins, as above. Adoptions can overlap (boot, tab switch, navigation, and each Safari `GET_SETTINGS` start one), so the bridge also remembers the newest snapshot with a list that passed its check. An older snapshot that reaches this step after it, for example because it waited on a main-location lookup, doesn't adopt its list, so the newer list stays. The same snapshot adopted twice still applies.
 - **Region request (`regionWanted`).** While the app has no current list (no `region_siteLocations` string, or a `region_siteLocationsAt` that's absent or older than `region_updatedAt`), the native handler adds `regionWanted: true` to its `GET_PENDING_SETTINGS` response, often next to `pending: null`. It's a response field, not an App Group key. Only the handler writes it, and only `adoptPendingResponse` reads it; `REGION_WANTED_FIELD` in `app-bridge.ts` holds the literal. The extension reads the flag before the no-snapshot return, then runs adoption and waits for it. If that pass saved nothing (`lastUpdated` unchanged), it sends one `REGION_UPDATE` built from the stored settings. If it saved, the save already pushed. If either settings read throws, it sends nothing, so a storage error can't hand the app the defaults' empty list as Safari's, and a later call that still sees the flag pushes. The push is single-flight: a call that sees the flag while a push is in flight sends nothing, and once the push settles, a call that still sees the flag pushes again. Any value but `true` does nothing. A push that isn't a save carries the stored list. Normally that list is at least as new as the pass's snapshot: the snapshot lost by last-writer-wins, or its list was already stored. The exception is a snapshot whose step 9 deferred to a newer snapshot still in flight (see Adoption). Its pass pushes Safari's list from before both snapshots, and the newer snapshot's save follows with the adopted list. Until that save lands, `region_updatedAt` is newer than the app's `app_siteLocationsEditedAt`, so a `writePending` in that window prunes `pending_siteLocations`, and the app reads the older list as Safari's. The newer pass adopts from the snapshot it already holds, so the app's edit is lost only if the background also stops inside that window. A save in steps 1–8 of any pass opens the same window, because its push carries the list from before step 9. An older handler never sends the field. No settings field or schema version changed, so an upgrade's first boot still doesn't save.
+- **Entry forms ride the existing strings.** `=host`, `geosite:` and `list:` entries cross inside the `allowlist`, `denylist` and `siteLocations` JSON strings (`region_*` / `pending_*`); there's no new key. The Swift parser must accept and round-trip all three verbatim, or an older app drops them on its next write. That's why `siteGroupsAvailable()` is false on Safari; flip it (one line) only after `geospoof-ios` `main` parses them and its resolver implements the tiers above, since app builds take this repo's `main` tip. The adoption path parses with the superset parsers, so a token an app sends is kept, and `repairSiteGroupDataSoon` builds its data afterwards.
 - **Swift must preserve unknown fields and kinds verbatim**, so an entry shape or `kind` added later survives an app round trip. The app mirrors `MAX_SITE_LOCATIONS` (50) and `MAX_PATTERNS_PER_SITE_LOCATION` (10), and validates patterns against `tests/fixtures/site-location-vectors.json`. A native conflict check has to compare patterns by the identity above (the literal host's A-label, UTS #46 ToASCII), not by stored string, or it accepts `münchen.de` next to `xn--mnchen-3ya.de` and the extension drops the later one on adoption. The fixture has no alias cases yet.
 - **Pro.** The app's UI gate is a convenience; `proFeaturesBlocked` is what enforces it, disabling the overlay for a non-Pro user while the stored list is kept.
 
@@ -1096,6 +1168,9 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
     - In Allowlist mode, entries with a path or port seed nothing, and a site location only gets a seed where a path-free, port-free allowlist entry covers all of it.
     - A `*.example.com` site location leaves the apex `example.com` unseeded unless another pattern covers it, and where two site locations' hosts overlap, the broader one doesn't seed the narrower one's host.
     - With no main location, only site-location pages are seeded.
+    - Exact entries (`=host`) seed that host only. Site groups and lists from a link can't be written as match patterns, so their entries are inlined as `"\n"`-framed strings into a small host check in front of the seed. In Denylist mode the main script skips hosts in a deny group; in Allowlist mode a separate `gs-tz-bootstrap-groups` script matches every http(s) page and seeds only hosts in an allow group. Both skip hosts in a site location's group, which get the right value from the async path.
+    - Per-site-location scripts never carry group data: a site location seeds only its typed patterns, and a group-only site location gets no early seed. In Denylist mode, a typed site-location pattern whose host a deny group might touch is excluded from the seed.
+    - A token with no data matches nothing here either, as everywhere else.
     - Before a settings change is stored, the early scripts built from the previous settings are removed, and the new ones are registered once it's stored, so a page that loads in between gets no early value rather than one from the old settings. If storing fails, the scripts for the settings still stored are registered again. If building fails, no early scripts remain until the next settings change or browser restart. GeoSpoof waits at most a second for Firefox to remove the old scripts; if `userScripts` doesn't answer by then, the change is stored anyway and the old scripts can stay until Firefox's call returns.
 
     Chromium and Safari have no bootstrap.
@@ -1109,6 +1184,8 @@ Timeout: 10s (IP detection), 5s per geo service | Retry: 2x exponential backoff 
 14. **Per-site locations: prerendered pages (Chrome).** Chrome can prerender a page (speculation rules, the omnibox) inside the tab the user is still looking at, so `tab.url` is the page being left. The prerendered page itself is judged by its own URL, for Filters and per-site locations alike (see [GET_SETTINGS](#get_settings)). Its subframes can't be: a message sender names no parent document, and finding one needs the optional `webNavigation` permission. So until the page is shown, its subframes follow the page being left for Filters and get the main location, if you've set one, but never a per-site location: the page being left's per-site location may belong to a different site than the prerendered page. When it's shown, every frame asks for its settings again (`prerenderingchange`) and catches up. Engine-level Spoofing's debugger session is attached to the tab, not the prerendered page, so that page keeps the injected timezone until it's shown and the session takes over. From a tab that session already holds, Chrome 156 didn't prerender at all: the speculation rule's page loaded normally when the link was followed, as it does with DevTools attached. The `Accept-Language` header can't follow the prerendered page: header rules are per tab, so its requests carry the visible page's value until it's shown. Measured in Chrome 156 under Match mode, prerendering a Paris site from a Tokyo site sent `ja-JP` (with `Sec-Purpose: prefetch;prerender`) while the page reported `fr-FR`.
 
 15. **Per-site locations: Engine-level Spoofing right after a cross-site navigation (Chrome).** The debugger override follows the tab's top-level page: it's switched when a navigation starts (`onBeforeNavigate`, or the `tabs.onUpdated` fallback) and applied again when it commits. In Chrome 156 an override sent while a cross-site navigation is under way doesn't reach the new document before that document's first scripts run, so they see the zone the tab had before: after moving from a site with a per-site location (Tokyo) to one without (Los Angeles) in the same tab, the second site's first `<head>` script read `Asia/Tokyo`. The page's own `Date`/`Intl` report its zone once its settings arrive (the injected fallback, see [Engine-level Spoofing (Chromium)](#engine-level-spoofing-chromium)), and its workers and later reads follow the override applied at commit. Measured against a local server on both attach paths: 40 of 40 same-tab cross-site navigations at 0 ms and at 50 ms server delay (median navigation 29 ms and 76 ms), and the same with a 1 s delay, after a cross-site redirect, and on a navigation a service worker answers. Holding each document response until the zone was set (CDP `Fetch` at the response stage) was tried and rejected: the override didn't land while the response was held, so every navigation waited out the 1 s safety timeout (median 1.1–1.2 s instead of 29 ms) and all 40 still leaked. Navigations that keep the zone, such as a reload or moving between two pages with the same location, aren't affected.
+
+16. **Site groups decide per tab, not per request.** Proxy tools apply a geosite list to each connection. GeoSpoof applies it once, to the tab's top-level `hostname`, and every frame, worker and request in the tab follows that decision (as in #12). So a `geosite:google` entry doesn't change what a Google iframe on another site gets, and a group can't scope by path, port or scheme. Groups also match exactly what the converted lists hold: upstream `regexp:` and `keyword:` rules are skipped and counted, never run, and a list's entries are only as current as the last good download (weekly, from the CDN or the link's host).
 
 ## Performance Targets
 

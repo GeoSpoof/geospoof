@@ -71,6 +71,14 @@ In **Settings (the ⚙ gear in the popup header) → Location Precision**, choos
 
 Control which sites GeoSpoof spoofs on. In the **Filters** tab, choose **All** (every site), **Allowlist** (only listed sites), or **Denylist** (every site except listed ones), then add patterns like `example.com`, `*.ru`, `localhost:3000`, or `site.com/app/*`. See the full pattern language — wildcards, ports, paths, and the rules to watch for — in the [Site Filters reference](SITE_FILTERS.md).
 
+The **Type** menu next to the add field offers more than typed patterns (Firefox and Chrome; not in Safari yet):
+
+- **Exact address only** — `=mail.example.com` matches that address and none of its subdomains.
+- **Site group** — pick a service such as Google, Netflix or OpenAI, or a region such as **China sites**, and one entry covers every domain it uses. The groups come from the v2fly lists that proxy tools call `geosite`, about 1,500 of them, and GeoSpoof keeps them up to date about once a week while you use one. **Update now** under the list checks right away.
+- **List from a link** — paste an `https://` link to a domain list you already use for your proxy (plain, v2fly, Clash or mihomo format). GeoSpoof downloads it and refreshes it weekly.
+
+Groups and lists are matched on your device and decide per tab, from the site in the address bar. See [Site groups](SITE_FILTERS.md#site-groups) and [Lists from a link](SITE_FILTERS.md#lists-from-a-link) for tags, skipped rules, limits and what each request sends.
+
 ### Per-site locations
 
 Give specific sites their own location while every other site keeps your **main location** (the one you set on the Main tab), if you've set one. For example, `twitch.tv` can see Mexico City and `chatgpt.com` can see Dublin, while everything else sees Tokyo.
@@ -79,7 +87,9 @@ Give specific sites their own location while every other site keeps your **main 
 
 **Filters still decide where GeoSpoof is on.** Site Filters and per-site locations are two separate settings. Filters decide whether GeoSpoof runs on a site at all; per-site locations only decide which location it reports there. If Filters keep GeoSpoof off for a site, its own location doesn't apply, and the editor tells you.
 
-**One location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, under one location. Then the same company sees one location throughout.
+**One location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, under one location. Then the same company sees one location throughout. On Firefox and Chrome, a [site group](SITE_FILTERS.md#site-groups) does this for you: `geosite:openai` covers every OpenAI domain as one entry.
+
+**When several match, the most specific wins.** A site you typed beats a site group, an exact address beats `*.example.com`, which beats `example.com`, and a smaller group beats a bigger one. So with `geosite:youtube` in Paris and `geosite:google` in Berlin, YouTube is in Paris and other Google sites are in Berlin. The [precedence rules](SITE_FILTERS.md#per-site-locations) have the details.
 
 **Embedded content goes with the page.** Content inside a page, such as embedded videos and sign-in frames, sees that page's location wherever GeoSpoof can reach it. [Known Limitations](API.md#known-limitations) lists the exceptions. A Twitch player embedded on another site gets that other site's location.
 
@@ -112,7 +122,7 @@ Give specific sites their own location while every other site keeps your **main 
 ### Giving a Site Its Own Location
 
 1. Open the site, then open GeoSpoof and go to the **Filters** tab.
-2. Open **Per-site locations** at the bottom and click **Set a location for a site**. The **Sites** field is filled in with the current site (without `www.`); edit it or add more sites, separated by commas.
+2. Open **Per-site locations** at the bottom and click **Set a location for a site**. The **Sites** field is filled in with the current site (without `www.`); edit it or add more sites, separated by commas. Each site you add shows as a chip, and the **Type** menu can add an exact address, a site group or a list from a link, up to 10 entries per location.
 3. Search for a place, or pick one of your favorites, then click **Save**.
 4. Reload the site's open pages so every page picks up the change.
 
