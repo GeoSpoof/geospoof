@@ -179,7 +179,9 @@ For the full API reference, see [docs/API.md](docs/API.md). For the VPN sync and
 
 ## External Services
 
-GeoSpoof runs no backend application and sends no data to the developer for collection or analytics. Some features — city search and the optional "Sync with VPN" — make requests directly from your device to third-party services. Timezone resolution downloads boundary data from the developer's own CDN (`cdn.geospoof.com`, hosted on AWS), which transmits your IP as part of that request. The developer does **not** use these requests for analytics, tracking, profiling, advertising, or user accounts, and stores no personal data from them. Exactly what is sent, when, and to whom (for both the Safari extension and the companion apps) is documented in the [Privacy Policy](PRIVACY_POLICY.md).
+The extension runs no backend application and sends no data to the developer for collection or analytics. Some features — city search and the optional "Sync with VPN" — make requests directly from your device to third-party services. Timezone resolution downloads boundary data from the developer's own CDN (`cdn.geospoof.com`, hosted on AWS), which transmits your IP as part of that request. The developer does **not** use these requests for analytics, tracking, profiling, advertising, or user accounts, and stores no personal data from them. Exactly what is sent, when, and to whom (for both the Safari extension and the companion apps) is documented in the [Privacy Policy](PRIVACY_POLICY.md).
+
+The website, geospoof.com, does run a backend. It receives Apple's App Store purchase notifications, keeps a running tally of them, and posts a daily sales summary. Those purchase records come from Apple, not from the extension or the apps, and the Privacy Policy describes what they contain and how long they're kept.
 
 ## Featured in
 
