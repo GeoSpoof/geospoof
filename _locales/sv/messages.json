@@ -541,14 +541,14 @@
   },
   "advanced_debuggerMode": {
     "message": "Förfalskning på motornivå",
-    "description": "Label for the Chrome-only toggle that spoofs the timezone deeper in the browser (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and applies before a page loads."
+    "description": "Label for the Chrome-only toggle that spoofs the timezone in the browser engine (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and cross-site frames, applied as early as Chrome allows."
   },
   "debuggerMode_infoAriaLabel": {
     "message": "Mer information om Förfalskning på motornivå",
     "description": "Accessible label on the Engine-level Spoofing info icon."
   },
   "debuggerMode_tooltip": {
-    "message": "Endast Chrome. Förfalskar din tidszon djupare i webbläsaren så att den även täcker bakgrundsworkers och träder i kraft innan en sida laddas. När den är på visar Chrome en rad ”GeoSpoof började felsöka den här webbläsaren” — det är normalt. Lämna av för att använda standardskyddet.",
+    "message": "Endast Chrome. Förfalskar din tidszon i webbläsarmotorn så att den även täcker bakgrundsworkers och ramar från andra webbplatser, och träder i kraft så tidigt som Chrome tillåter. När den är på visar Chrome en rad ”GeoSpoof började felsöka den här webbläsaren” — det är normalt. Lämna av för att använda standardskyddet.",
     "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
   },
   "debuggerBannerHelp_text": {
