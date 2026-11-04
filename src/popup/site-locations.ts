@@ -829,7 +829,10 @@ function renderEntryChips(): void {
 }
 
 function buildEntryChip(entry: string, index: number): HTMLElement {
-  const display = describeEntry(entry);
+  // A chip added in this editor has no group or list data until Save builds
+  // it, so it isn't "Not available".
+  const unsaved = !(editor?.entry?.patterns.includes(entry) ?? false);
+  const display = describeEntry(entry, { unsaved });
   const chip = document.createElement("div");
   chip.className = "entry-chip";
   chip.setAttribute("role", "listitem");

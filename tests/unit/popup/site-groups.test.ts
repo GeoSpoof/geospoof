@@ -456,6 +456,38 @@ describe("describeEntry", () => {
       kind: "link",
     });
   });
+
+  test("an unsaved entry without data isn't a warning: a group shows its catalog count", async () => {
+    const unsaved = { unsaved: true };
+    // Before the index loads there's no count to show.
+    expect(describeEntry("geosite:netflix", unsaved)).toEqual({
+      title: "Netflix",
+      meta: null,
+      tooltip: "geosite:netflix",
+      warning: false,
+      kind: "group",
+    });
+    await loadIndex();
+    const netflix = INDEX_REPLY.lists.find((list) => list.name === "netflix")!;
+    expect(describeEntry("geosite:netflix", unsaved)).toMatchObject({
+      meta: `${netflix.count} sites`,
+      warning: false,
+    });
+    // The index counts the whole list, not what a tag keeps.
+    expect(describeEntry("geosite:netflix@us", unsaved)).toMatchObject({
+      meta: null,
+      warning: false,
+    });
+    expect(describeEntry(LINK_TOKEN, unsaved)).toEqual({
+      title: "direct-list",
+      meta: null,
+      tooltip: LINK_URL,
+      warning: false,
+      kind: "link",
+    });
+    // Saved entries without data still say so.
+    expect(describeEntry("geosite:netflix")).toMatchObject({ warning: true });
+  });
 });
 
 describe("formatting in the popup's UI language", () => {
@@ -513,6 +545,13 @@ describe("messages", () => {
     );
     expect(linkAddedText(LINK_TOKEN, { count: 5, skipped: 8 })).toBe(
       "Added direct-list: 5 sites, 8 rules skipped."
+    );
+  });
+
+  test("one site and one skipped rule read in the singular", () => {
+    expect(linkAddedText(LINK_TOKEN, { count: 1, skipped: 0 })).toBe("Added direct-list: 1 site.");
+    expect(linkAddedText(LINK_TOKEN, { count: 1, skipped: 1 })).toBe(
+      "Added direct-list: 1 site, 1 rule skipped."
     );
   });
 });

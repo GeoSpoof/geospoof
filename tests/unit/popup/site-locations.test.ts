@@ -36,7 +36,11 @@ import {
   renderSiteLocationsSection,
 } from "@/popup/site-locations";
 import { loadSettings } from "@/popup/settings";
-import { __resetPopupSiteGroupsForTest, loadPopupSiteGroups } from "@/popup/site-groups";
+import {
+  __resetPopupSiteGroupsForTest,
+  loadCatalogIndex,
+  loadPopupSiteGroups,
+} from "@/popup/site-groups";
 
 const GOOGLE_TOKEN = "geosite:google";
 
@@ -1224,6 +1228,43 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     expect(byId<HTMLSelectElement>("siteLocationAddKind").value).toBe("site");
     expect(text("siteLocationExplain")).toBe("Pages on example.com, Google will see Work.");
     expect(await save()).toEqual(["example.com", GOOGLE_TOKEN]);
+  });
+
+  test("a group or link added here isn't 'Not available' before Save builds its data", async () => {
+    sendMessage.mockImplementation((message: unknown) =>
+      Promise.resolve(
+        (message as { type: string }).type === "GET_SITE_GROUP_INDEX"
+          ? {
+              release: "20261104112839",
+              lists: [
+                { name: "google", count: 964 },
+                { name: "netflix", count: 30 },
+              ],
+            }
+          : undefined
+      )
+    );
+    await loadCatalogIndex();
+    openFromAdd();
+    for (const typed of [
+      "geosite:netflix",
+      "geosite:google@cn",
+      "https://lists.example.org/rules/direct-list.txt",
+    ]) {
+      setPatterns(typed);
+      pressAdd();
+      await flush();
+      await flush();
+    }
+
+    expect(chipTitles()).toEqual(["example.com", "Netflix", "Google @cn", "direct-list"]);
+    const meta = (title: string) =>
+      chipRemoveButton(title).closest(".entry-chip")!.querySelector(".entry-chip-meta");
+    expect(meta("Netflix")?.textContent).toBe("30 sites");
+    expect(meta("Netflix")?.classList.contains("warning")).toBe(false);
+    // A tag's count isn't in the index, and a link is downloaded on Save.
+    expect(meta("Google @cn")).toBeNull();
+    expect(meta("direct-list")).toBeNull();
   });
 
   test("Enter in the Sites input adds the typed sites as chips", async () => {

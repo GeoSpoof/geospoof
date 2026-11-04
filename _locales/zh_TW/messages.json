@@ -1140,36 +1140,36 @@
     "description": "Shown on the Add button while a list from a link downloads; the add box is disabled meanwhile."
   },
   "siteGroups_addedLink": {
-    "message": "已新增 $NAME$：$COUNT$ 個網站。",
+    "message": "已新增 $NAME$：$SITES$。",
     "placeholders": {
       "name": {
         "content": "$1",
         "example": "direct-list"
       },
-      "count": {
+      "sites": {
         "content": "$2",
-        "example": "110,197"
+        "example": "110,197 sites"
       }
     },
-    "description": "Screen reader confirmation after a list from a link is added. $NAME$ is the list's name (from its file name), $COUNT$ the formatted number of sites."
+    "description": "Screen reader confirmation after a list from a link is added. $NAME$ is the list's name (from its file name). $SITES$ is siteGroups_count or siteGroups_countOne, already translated."
   },
   "siteGroups_addedLinkSkipped": {
-    "message": "已新增 $NAME$：$COUNT$ 個網站，已略過 $SKIPPED$ 條規則。",
+    "message": "已新增 $NAME$：$SITES$，$SKIPPED$。",
     "placeholders": {
       "name": {
         "content": "$1",
         "example": "direct-list"
       },
-      "count": {
+      "sites": {
         "content": "$2",
-        "example": "110,197"
+        "example": "110,197 sites"
       },
       "skipped": {
         "content": "$3",
-        "example": "8"
+        "example": "8 rules skipped"
       }
     },
-    "description": "Screen reader confirmation after a list from a link is added and some of its rules can't be used. $NAME$ is the list's name, $COUNT$ the number of sites, $SKIPPED$ the number of rules skipped."
+    "description": "Screen reader confirmation after a list from a link is added and some of its rules can't be used. $NAME$ is the list's name. $SITES$ is siteGroups_count or siteGroups_countOne, and $SKIPPED$ is siteGroups_skipped or siteGroups_skippedOne, both already translated."
   },
   "siteGroups_nameAi": {
     "message": "AI 服務",

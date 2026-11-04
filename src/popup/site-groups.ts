@@ -49,6 +49,8 @@ let lookup: SiteGroupLookup = NO_SITE_GROUPS;
 let requestSeq = 0;
 /** The memoized GET_SITE_GROUP_INDEX reply; a failed load is retried next time. */
 let indexReply: Promise<SiteGroupIndexResponse | null> | null = null;
+/** Each catalog list's count from the loaded index, or null until it loads. */
+let indexCounts: ReadonlyMap<string, number> | null = null;
 
 // ── Loading ─────────────────────────────────────────────────────────────────
 
@@ -266,6 +268,7 @@ export async function loadCatalogIndex(): Promise<SiteGroupIndexItem[]> {
     indexReply = null;
     return [];
   }
+  indexCounts ??= new Map(reply.lists.map(({ name, count }) => [name, count]));
   return reply.lists.map(({ name, count }) => {
     const featured = FEATURED_BY_NAME.get(name);
     return {
@@ -276,6 +279,11 @@ export async function loadCatalogIndex(): Promise<SiteGroupIndexItem[]> {
       featured: featured ? featured.rank : null,
     };
   });
+}
+
+/** A catalog list's entry count, or null when the index hasn't loaded or lacks it. */
+export function catalogIndexCount(name: string): number | null {
+  return indexCounts?.get(name) ?? null;
 }
 
 /** Most results a typed search shows. */
@@ -418,9 +426,15 @@ function hostnameOf(url: string): string {
  *   - link: the list's derived name, meta "110,197 sites · from host" (plus
  *     skipped), or "Couldn't update this list" when its last refresh failed;
  *     the tooltip is the URL.
- * A group or link with no data shows "Not available" as a warning.
+ * A group or link with no data shows "Not available" as a warning, unless
+ * it's `unsaved` (a chip added in the per-site editor, whose data Save
+ * builds): then an untagged group shows its catalog count when the index has
+ * loaded, and a tagged group or a link shows no meta.
  */
-export function describeEntry(canonical: string): EntryDisplay {
+export function describeEntry(
+  canonical: string,
+  { unsaved = false }: { unsaved?: boolean } = {}
+): EntryDisplay {
   const entry = classifyFilterEntry(canonical);
   if (entry === null || entry.type === "pattern") {
     return { title: canonical, meta: null, tooltip: canonical, warning: false, kind: "typed" };
@@ -438,6 +452,12 @@ export function describeEntry(canonical: string): EntryDisplay {
   const summary = Object.hasOwn(groups, canonical) ? groups[canonical] : undefined;
   if (entry.type === "group") {
     const title = [siteGroupLabel(entry.name), ...entry.attrs.map((attr) => `@${attr}`)].join(" ");
+    if (summary === undefined && unsaved) {
+      // The index counts the whole list, so it's exact only without tags.
+      const count = entry.attrs.length === 0 ? catalogIndexCount(entry.name) : null;
+      const meta = count === null ? null : siteCountText(count);
+      return { title, meta, tooltip: canonical, warning: false, kind: "group" };
+    }
     if (summary === undefined) return unavailable(title, canonical, "group");
     const meta = [siteCountText(summary.count)];
     if (summary.skipped > 0) meta.push(skippedText(summary.skipped));
@@ -445,6 +465,9 @@ export function describeEntry(canonical: string): EntryDisplay {
   }
 
   const title = linkDisplayName(entry.url);
+  if (summary === undefined && unsaved) {
+    return { title, meta: null, tooltip: entry.url, warning: false, kind: "link" };
+  }
   if (summary === undefined) return unavailable(title, entry.url, "link");
   if (summary.lastError !== undefined && summary.lastError !== null) {
     return {
@@ -511,18 +534,22 @@ export function siteGroupErrorText(code: SiteGroupErrorCode, token: string | und
   }
 }
 
-/** The announcement after a list from a link is added: "Added direct-list: 110,197 sites." */
+/**
+ * The announcement after a list from a link is added: "Added direct-list:
+ * 110,197 sites." The counts are the row's own strings, so one site or one
+ * skipped rule reads in the singular.
+ */
 export function linkAddedText(token: string, added: { count: number; skipped: number }): string {
   const name = linkDisplayName(token);
-  const count = formatCount(added.count);
+  const sites = siteCountText(added.count);
   if (added.skipped > 0) {
-    const skipped = formatCount(added.skipped);
+    const skipped = skippedText(added.skipped);
     return (
-      t("siteGroups_addedLinkSkipped", [name, count, skipped]) ||
-      `Added ${name}: ${count} sites, ${skipped} rules skipped.`
+      t("siteGroups_addedLinkSkipped", [name, sites, skipped]) ||
+      `Added ${name}: ${sites}, ${skipped}.`
     );
   }
-  return t("siteGroups_addedLink", [name, count]) || `Added ${name}: ${count} sites.`;
+  return t("siteGroups_addedLink", [name, sites]) || `Added ${name}: ${sites}.`;
 }
 
 /** Test hook: forget the replies and the memoized index. */
@@ -530,4 +557,5 @@ export function __resetPopupSiteGroupsForTest(): void {
   applyReply({ status: null, groups: {} });
   requestSeq = 0;
   indexReply = null;
+  indexCounts = null;
 }
