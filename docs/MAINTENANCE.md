@@ -74,7 +74,7 @@ Required on every PR into `main`: `Build & Test` (type-check, ESLint, Prettier c
 | zizmor           | Code scanning            | Fix the workflow. Findings mean a real CI weakness                                                                                                                                                     |
 | Scorecard        | Code scanning / badge    | Fix if it's substance. Solo-maintainer ceilings stay dismissed with a reason ([REPO_SECURITY](REPO_SECURITY.md#scorecard-whats-maxed-and-the-honest-ceilings))                                         |
 
-`osv-scanner.toml` is the record of reviewed, accepted advisories. Scorecard's Vulnerabilities check and OSV-Scanner both read it. Every entry needs a `reason` and an `ignoreUntil`.
+`osv-scanner.toml` is the record of reviewed, accepted advisories. Scorecard's Vulnerabilities check and OSV-Scanner both read it. Every entry needs a `reason` and an `ignoreUntil`. OSV-Scanner reads only the file next to each lockfile, so `cdk/` has its own `cdk/osv-scanner.toml`.
 
 ## Dated items
 
@@ -82,7 +82,7 @@ Things that won't happen on their own. Check this list when you cut a release.
 
 | When                                          | Item                                                                                                                                                                                                                       |
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **2027-01-15**                                | `osv-scanner.toml` node-forge entry expires. Re-check web-ext/adbkit; drop the entry if fixed, otherwise extend it with a fresh review                                                                                     |
+| **2027-02-01**                                | `osv-scanner.toml` minimatch and deepmerge entries expire (root and `cdk/`). Re-check for minimatch 11 adoption and a fixed deepmerge; drop entries that are fixed, otherwise extend them with a fresh review              |
 | **Oct–Nov 2026**                              | `ubuntu-latest` moves to 26.04. We're pinned to `ubuntu-24.04`, so nothing breaks, but plan the move: bump every `runs-on` (Dependabot doesn't touch runner labels), then run CI, a release dry run, and the CDN preflight |
 | When typescript-eslint supports TS ≥ 6.1      | Raise the `typescript` ignore bound in `dependabot.yml`                                                                                                                                                                    |
 | Next Node major (Node 24 LTS ends April 2028) | Bump `engines`, `.nvmrc`, and CI together, then lift the `@types/node` major ignore for one PR                                                                                                                             |

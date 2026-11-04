@@ -138,7 +138,8 @@ Do not chase these with metric theater (sock-puppet reviewers, an npm package no
 
 ## Accepted risks and deferred work
 
-- **node-forge** (GHSA-86w9-cpqp-85rv): dev-only, via web-ext → adbkit, with no fix released. Recorded in `osv-scanner.toml` with an expiry, and dismissed in Dependabot as tolerable risk. See [MAINTENANCE](MAINTENANCE.md#dated-items).
+- **minimatch** (GHSA-g3hv-75wg-m249): dev and synth tooling only, via eslint, typescript-eslint, web-ext, and aws-cdk-lib's bundled copy in `cdk/`. The vulnerable path runs only at `optimizationLevel >= 2`, which nothing here sets. The fix is only in minimatch 11, a breaking major that no parent has adopted. Recorded in both `osv-scanner.toml` files (root and `cdk/`) with an expiry, and dismissed in Dependabot as not used. See [MAINTENANCE](MAINTENANCE.md#dated-items).
+- **deepmerge** (GHSA-gcqx-w48m-w2h4): dev-only, via web-ext → addons-linter, which pins it exactly and merges only its own bundled schemas. No fix released. Recorded in `osv-scanner.toml` with an expiry, and dismissed in Dependabot as tolerable risk.
 - **CodeQL alerts in tests and dev scripts** are out of scope by configuration. Shipped code under `src/` is always scanned.
 - **A detection-hardening item for the page-context overrides** is tracked in a private draft security advisory, because describing it publicly would hand out a detection recipe. It's pinned until it can be live-tested in all three engines.
 - The extension-level limits on spoofing (the initialization race, workers, engine internals) are documented in `src/content/injected/index.ts` and [`BACKGROUND.md`](BACKGROUND.md). They're product limits, not repository controls.
