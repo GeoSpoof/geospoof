@@ -34,18 +34,32 @@ import type {
   ScopeSitePayload,
   SiteLocationResponse,
 } from "@/shared/types/messages";
+import { isSiteGroupToken } from "@/shared/site-groups/tokens";
+import { parseSiteLocationEntry } from "@/shared/utils/filter-entries";
 import { matchesPattern } from "@/shared/utils/scope";
 import {
   parseSiteLocationPattern,
   resolveSiteSettings,
   siteLocationDisplayName,
+  siteLocationEntryKey,
   siteLocationPatternKey,
   suggestSiteLocationPattern,
 } from "@/shared/utils/site-locations";
+import {
+  createEntryAddControl,
+  type EntryAddControl,
+  type EntrySubmitResult,
+} from "./entry-add-control";
 import { getChipDisplayText } from "./favorites";
-import { buildMonogram } from "./scope";
+import { buildEntryMeta, buildMonogram } from "./scope";
 import { isRestrictedUrl, loadSettings } from "./settings";
 import { t } from "./i18n";
+import {
+  describeEntry,
+  isSiteGroupErrorCode,
+  popupSiteGroupLookup,
+  siteGroupErrorText,
+} from "./site-groups";
 import { clearChildren } from "./ui";
 
 /** Debounce (ms) for the editor's location search, matching the main search. */
@@ -74,6 +88,8 @@ interface ChosenLocation {
 interface EditorState {
   /** The entry being edited, or null for a new one. */
   entry: SiteLocation | null;
+  /** The sites, as chips: canonical entries (patterns, exact addresses, tokens). */
+  entries: string[];
   chosen: ChosenLocation | null;
   /** The owner offered by a PATTERN_IN_USE error. */
   ownerId: string | null;
@@ -87,6 +103,8 @@ interface EditorState {
 let current: { settings: Settings; tabUrl: string | undefined; proLocked: boolean } | null = null;
 let lineState: SiteLocationLineState = { kind: "none" };
 let editor: EditorState | null = null;
+/** The editor's add control (type menu, Sites input, Add). */
+let editorControl: EntryAddControl | null = null;
 /**
  * A SAVE_SITE_LOCATION is in flight. Its payload is already built and the
  * message can't be called back, so the editor is frozen until it settles.
@@ -141,8 +159,9 @@ function currentSuggestion(): string | null {
 }
 
 /**
- * Split the sites field on commas into canonical patterns, or report the first
- * bad token. Dedupes by pattern identity as the background's save does, so
+ * Split a comma-separated sites string into canonical entries (typed
+ * patterns, `=` exact addresses, and `geosite:`/`list:` tokens), or report the
+ * first bad token. Dedupes by entry identity as the background's save does, so
  * `münchen.de` and `xn--mnchen-3ya.de` count once (the first spelling is
  * kept), and a host with no A-label form is a bad token.
  */
@@ -157,8 +176,8 @@ export function parsePatternsField(raw: string): {
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
   for (const token of tokens) {
-    const canonical = parseSiteLocationPattern(token);
-    const key = canonical === null ? null : siteLocationPatternKey(canonical);
+    const canonical = parseSiteLocationEntry(token);
+    const key = canonical === null ? null : siteLocationEntryKey(canonical);
     if (canonical === null || key === null) return { patterns, invalid: token };
     if (!keys.has(key)) {
       keys.add(key);
@@ -211,7 +230,12 @@ export function computeSiteLocationLineState(
   const effective: Settings = proLocked
     ? { ...settings, scopeMode: "all", siteLocations: [] }
     : settings;
-  const resolution = resolveSiteSettings({ ...effective, enabled: true }, tabUrl, isRestrictedUrl);
+  const resolution = resolveSiteSettings(
+    { ...effective, enabled: true },
+    tabUrl,
+    isRestrictedUrl,
+    popupSiteGroupLookup()
+  );
   if (
     resolution.enabled &&
     resolution.siteLocation !== null &&
@@ -266,7 +290,8 @@ function useMainDeliversMain(
   const after = resolveSiteSettings(
     { ...effective, enabled: true, siteLocations: remaining },
     tabUrl,
-    isRestrictedUrl
+    isRestrictedUrl,
+    popupSiteGroupLookup()
   );
   return after.siteLocation === null;
 }
@@ -486,7 +511,8 @@ function updateSectionCountFromDom(): void {
 
 function buildSiteLocationRow(entry: SiteLocation, proLocked: boolean): HTMLElement {
   const name = siteLocationDisplayName(entry);
-  const sites = entry.patterns.join(", ");
+  const titles = entry.patterns.map((pattern) => describeEntry(pattern).title);
+  const sites = titles.join(", ");
 
   const row = document.createElement("div");
   row.className = "scope-site-row";
@@ -494,7 +520,7 @@ function buildSiteLocationRow(entry: SiteLocation, proLocked: boolean): HTMLElem
   row.dataset.siteLocationId = entry.id;
 
   // Local monogram from the first site; never a favicon fetch.
-  row.appendChild(buildMonogram(entry.patterns[0] ?? name));
+  row.appendChild(buildMonogram(titles[0] ?? name));
 
   const text = document.createElement("span");
   text.className = "site-location-text";
@@ -622,7 +648,12 @@ export function renderSiteLocationDetails(
   if (!node || !section) return;
 
   if (!proLocked && tabUrl && !isRestrictedUrl(tabUrl)) {
-    const resolution = resolveSiteSettings(settings, tabUrl, isRestrictedUrl);
+    const resolution = resolveSiteSettings(
+      settings,
+      tabUrl,
+      isRestrictedUrl,
+      popupSiteGroupLookup()
+    );
     const host = hostOf(tabUrl);
     if (resolution.siteLocation !== null && host !== null) {
       const place = siteLocationDisplayName(resolution.siteLocation);
@@ -643,8 +674,10 @@ function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | nu
   if (!editorEl) return;
 
   const { entry } = args;
+  const suggestion = entry ? null : currentSuggestion();
   editor = {
     entry,
+    entries: entry ? [...entry.patterns] : suggestion !== null ? [suggestion] : [],
     chosen: entry
       ? {
           latitude: entry.location.latitude,
@@ -657,11 +690,14 @@ function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | nu
     conflict: null,
   };
 
+  // The sites show as chips; the input starts empty for adding more.
   const patternsInput = el<HTMLInputElement>("siteLocationPatterns");
+  editorControl?.reset();
   if (patternsInput) {
-    patternsInput.value = entry ? entry.patterns.join(", ") : (currentSuggestion() ?? "");
+    patternsInput.value = "";
     patternsInput.removeAttribute("aria-invalid");
   }
+  renderEntryChips();
   const searchInput = el<HTMLInputElement>("siteLocationSearch");
   if (searchInput) searchInput.value = "";
   clearSearchResults();
@@ -743,14 +779,125 @@ function computeConflict(): EditorState["conflict"] {
   if (!tabUrl || isRestrictedUrl(tabUrl)) return null;
   const mode = settings.scopeMode;
   if (mode !== "allowlist" && mode !== "denylist") return null;
-  if (resolveSiteSettings({ ...settings, enabled: true }, tabUrl, isRestrictedUrl).enabled) {
+  const groups = popupSiteGroupLookup();
+  if (
+    resolveSiteSettings({ ...settings, enabled: true }, tabUrl, isRestrictedUrl, groups).enabled
+  ) {
     return null;
   }
-  const { patterns } = parsePatternsField(
-    el<HTMLInputElement>("siteLocationPatterns")?.value ?? ""
+  const host = hostOf(tabUrl);
+  const pattern = editorEntriesWithPending().entries.find((p) =>
+    isSiteGroupToken(p) ? host !== null && groups.has(p, host) : matchesPattern(tabUrl, p)
   );
-  const pattern = patterns.find((p) => matchesPattern(tabUrl, p));
   return pattern === undefined ? null : { mode, pattern };
+}
+
+/** Add `more` to `base`, skipping entries `base` already has by identity. */
+function mergeEntries(base: readonly string[], more: readonly string[]): string[] {
+  const merged = [...base];
+  const keys = new Set(base.map((entry) => siteLocationEntryKey(entry) ?? entry));
+  for (const entry of more) {
+    const key = siteLocationEntryKey(entry) ?? entry;
+    if (!keys.has(key)) {
+      keys.add(key);
+      merged.push(entry);
+    }
+  }
+  return merged;
+}
+
+/**
+ * The editor's chips plus what's still typed in the Sites input (which Save
+ * adds too), or the message for the first bad typed site.
+ */
+function editorEntriesWithPending(): { entries: string[]; error: string | null } {
+  const entries = editor?.entries ?? [];
+  const pending = editorControl?.readPending() ?? null;
+  if (pending === null) return { entries: [...entries], error: null };
+  if (pending.error !== null) return { entries: [...entries], error: pending.error };
+  return { entries: mergeEntries(entries, pending.entries), error: null };
+}
+
+/** Render the editor's sites as chips, each with a ✕. */
+function renderEntryChips(): void {
+  const list = el("siteLocationEntries");
+  if (!list) return;
+  clearChildren(list);
+  (editor?.entries ?? []).forEach((entry, index) => {
+    list.appendChild(buildEntryChip(entry, index));
+  });
+}
+
+function buildEntryChip(entry: string, index: number): HTMLElement {
+  const display = describeEntry(entry);
+  const chip = document.createElement("div");
+  chip.className = "entry-chip";
+  chip.setAttribute("role", "listitem");
+  chip.title = display.tooltip;
+
+  const text = document.createElement("span");
+  text.className = "entry-chip-text";
+  const title = document.createElement("span");
+  title.className = "entry-chip-title";
+  title.textContent = display.title;
+  text.appendChild(title);
+  if (display.meta !== null) {
+    text.appendChild(buildEntryMeta(display.meta, display.warning, "entry-chip-meta"));
+  }
+  chip.appendChild(text);
+
+  const label = `${t("filters_removeAriaLabel") || "Remove site"} ${display.title}`;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "entry-chip-remove";
+  remove.textContent = "✕";
+  remove.setAttribute("aria-label", label);
+  remove.title = label;
+  remove.disabled = saving;
+  remove.addEventListener("click", () => {
+    removeEntryChip(index);
+  });
+  chip.appendChild(remove);
+  return chip;
+}
+
+/** Drop a chip; focus moves to the ✕ that took its place, else the one before, else the input. */
+function removeEntryChip(index: number): void {
+  if (!editor || saving) return;
+  editor.entries.splice(index, 1);
+  renderEntryChips();
+  hideEditorError();
+  updateChosen();
+  updateEditorHints();
+  const buttons = el("siteLocationEntries")?.querySelectorAll<HTMLElement>(".entry-chip-remove");
+  const next = buttons?.[Math.min(index, buttons.length - 1)] ?? null;
+  const target = isFocusable(next) ? next : el("siteLocationPatterns");
+  if (isFocusable(target)) target.focus();
+}
+
+/**
+ * The add control's submit in the editor: add the sites as chips (typed
+ * sites may be comma-separated). One already there is skipped; more than
+ * {@link MAX_PATTERNS_PER_SITE_LOCATION} keeps the input and says so.
+ */
+function addEditorEntries(entries: string[]): Promise<EntrySubmitResult> {
+  if (!editor || saving) return Promise.resolve({ ok: false, message: notSavedText() });
+  const merged = mergeEntries(editor.entries, entries);
+  if (merged.length > MAX_PATTERNS_PER_SITE_LOCATION) {
+    return Promise.resolve({ ok: false, message: tooManySitesError() });
+  }
+  editor.entries = merged;
+  renderEntryChips();
+  hideEditorError();
+  // The input still holds the added text until this resolves; merging it again
+  // changes nothing, so the summary and hints are already right.
+  updateChosen();
+  updateEditorHints();
+  return Promise.resolve({ ok: true });
+}
+
+function notSavedText(): string {
+  return t("filters_notSaved") || "⚠ Change not saved";
 }
 
 async function handleAddToAllowlist(): Promise<void> {
@@ -810,14 +957,12 @@ function updateChosen(): void {
       : t("siteLocation_chosenNone") || "No location chosen yet";
   }
   if (!explainEl) return;
-  const { patterns, invalid } = parsePatternsField(
-    el<HTMLInputElement>("siteLocationPatterns")?.value ?? ""
-  );
-  if (!chosen || invalid !== null || patterns.length === 0) {
+  const { entries, error } = editorEntriesWithPending();
+  if (!chosen || error !== null || entries.length === 0) {
     explainEl.textContent = "";
     return;
   }
-  const sites = patterns.join(", ");
+  const sites = entries.map((entry) => describeEntry(entry).title).join(", ");
   explainEl.textContent =
     t("siteLocation_explain", [sites, chosen.name]) || `Pages on ${sites} will see ${chosen.name}.`;
 }
@@ -860,6 +1005,23 @@ function wireEditorOnce(): void {
   const editorEl = el("siteLocationEditor");
   if (!editorEl || editorEl.dataset.wired === "1") return;
   editorEl.dataset.wired = "1";
+
+  editorControl = createEntryAddControl({
+    ids: {
+      kind: "siteLocationAddKind",
+      input: "siteLocationPatterns",
+      button: "siteLocationAddEntry",
+      listbox: "siteLocationGroupListbox",
+      attribution: "siteLocationGroupAttribution",
+      error: "siteLocationError",
+    },
+    context: "siteLocation",
+    onSubmit: (entries) => addEditorEntries(entries),
+    showError: (message) => {
+      showEditorError(message);
+    },
+    hideError: hideEditorError,
+  });
 
   const patternsInput = el<HTMLInputElement>("siteLocationPatterns");
   patternsInput?.addEventListener("input", () => {
@@ -1034,6 +1196,9 @@ function saveErrorText(result: Extract<SiteLocationResponse, { error: unknown }>
         ownerId: null,
       };
     default:
+      if (isSiteGroupErrorCode(result.error)) {
+        return { text: siteGroupErrorText(result.error, result.pattern), ownerId: null };
+      }
       return { text: t("filters_notSaved") || "⚠ Change not saved", ownerId: null };
   }
 }
@@ -1044,11 +1209,13 @@ async function handleSave(): Promise<void> {
   const state = editor;
   hideEditorError();
 
+  // The chips, plus text still in the Sites input: Save adds it, as if Add
+  // had been pressed.
   const patternsInput = el<HTMLInputElement>("siteLocationPatterns");
-  const { patterns, invalid } = parsePatternsField(patternsInput?.value ?? "");
-  if (invalid !== null || patterns.length === 0) {
+  const { entries: patterns, error: pendingError } = editorEntriesWithPending();
+  if (pendingError !== null || patterns.length === 0) {
     patternsInput?.setAttribute("aria-invalid", "true");
-    showEditorError(patternError());
+    showEditorError(pendingError ?? patternError());
     patternsInput?.focus();
     return;
   }
@@ -1118,14 +1285,17 @@ async function handleSave(): Promise<void> {
     const aboutSites =
       failure?.error === "PATTERN_IN_USE" ||
       failure?.error === "INVALID_PATTERN" ||
-      failure?.error === "TOO_MANY_PATTERNS";
+      failure?.error === "TOO_MANY_PATTERNS" ||
+      isSiteGroupErrorCode(failure?.error);
     el(aboutSites ? "siteLocationPatterns" : "siteLocationSave")?.focus();
   }
 }
 
 /** The editor's controls, all disabled while a save is in flight. */
 const EDITOR_CONTROL_IDS = [
+  "siteLocationAddKind",
   "siteLocationPatterns",
+  "siteLocationAddEntry",
   "siteLocationSearch",
   "siteLocationFavorite",
   "siteLocationAddToAllowlist",
@@ -1151,6 +1321,11 @@ function setEditorSaving(on: boolean, entryId: string | null = null): void {
     const control = el<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(id);
     if (control) control.disabled = on;
   }
+  el("siteLocationEntries")
+    ?.querySelectorAll<HTMLButtonElement>(".entry-chip-remove")
+    .forEach((button) => {
+      button.disabled = on;
+    });
   syncSavingEntryLocks();
 }
 
@@ -1177,6 +1352,7 @@ export function __resetSiteLocationsForTest(): void {
   current = null;
   lineState = { kind: "none" };
   editor = null;
+  editorControl = null;
   saving = false;
   savingEntryId = null;
   reloadHintHost = null;

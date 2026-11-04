@@ -2857,6 +2857,272 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   outline-offset: 2px;
 }
 
+/* ───────────────────────────────────────────────────────────────────────────
+   Site groups and the shared add control (Filters and the per-site editor):
+   the type menu, the site group picker, entry meta lines, chips, and the
+   status line. A problem is spelled out in text with a ⚠ sign, never colour
+   alone.
+   ────────────────────────────────────────────────────────────────────── */
+
+.entry-listbox[hidden],
+.entry-picker-attribution[hidden],
+.site-groups-status[hidden],
+.scope-syntax-row[hidden] {
+  display: none !important;
+}
+
+.entry-kind-row {
+  margin-bottom: 8px;
+}
+
+.entry-kind-row select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* The editor's own gap spaces it there. */
+.site-location-editor .entry-kind-row {
+  margin-bottom: 0;
+}
+
+.entry-kind-row select:disabled,
+.scope-add-row input:disabled,
+.scope-add-row button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* The input, with the picker hung under it. */
+.entry-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-input-wrap input {
+  width: 100%;
+}
+
+.entry-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+}
+
+.entry-listbox {
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  box-shadow: var(--shadow-pop);
+}
+
+.entry-listbox-heading {
+  position: sticky;
+  top: 0;
+  padding: 6px 10px 4px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.entry-option {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 10px 6px 7px;
+  border-left: 3px solid transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.entry-option:hover {
+  background: var(--surface-hover);
+}
+
+/* The active option: a tinted row plus an edge bar, so it isn't colour alone. */
+.entry-option.active {
+  background: var(--surface-hover);
+  border-left-color: var(--brand);
+}
+
+.entry-option-label,
+.entry-option-secondary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-option-secondary {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.entry-listbox-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The picker's footer. #666 on #f5f5f5 is 5.3:1. */
+.entry-picker-attribution {
+  padding: 6px 10px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* Rows for exact addresses, site groups and links: the name, then a muted
+   meta line ("964 sites"). */
+.scope-site-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scope-site-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* #856404 on white is 5.9:1 (5.1:1 on the hover tint). */
+.scope-site-meta.warning {
+  color: var(--warn-text);
+  font-weight: 500;
+}
+
+/* The per-site editor's sites. --btn-secondary, not --badge-bg: #666 on
+   #e8e8e8 is 4.69:1. */
+.entry-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.entry-chips:empty {
+  display: none;
+}
+
+.entry-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px 3px 3px 10px;
+  background: var(--btn-secondary);
+  border-radius: 12px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.entry-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-chip-meta {
+  margin-left: 4px;
+  color: var(--text-muted);
+}
+
+/* On the chip, the warning colour would fall under 4.5:1; the ⚠ sign and the
+   weight carry it. */
+.entry-chip-meta.warning {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.entry-chip-remove {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.entry-chip-remove:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--surface-hover);
+}
+
+.entry-add-row {
+  display: flex;
+  gap: 8px;
+}
+
+.entry-add-button {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  background: var(--btn-secondary);
+  border: none;
+  border-radius: 8px;
+  color: var(--btn-secondary-text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.entry-add-button:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+}
+
+/* "Site group lists from Nov 4, 2026 · Update now". */
+.site-groups-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.site-groups-status .site-location-link {
+  margin-left: 0;
+}
+
+.site-groups-status .site-location-link[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.entry-kind-row select:focus-visible,
+.entry-chip-remove:focus-visible,
+.entry-add-button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
 /* ── Reduced motion ────────────────────────────────────────────────────────
    Honour the OS "reduce motion" setting. The popup's motion is all short
    transitions and a tab-content fade, none of which carry meaning — so for users

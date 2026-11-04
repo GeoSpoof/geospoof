@@ -625,16 +625,52 @@
             <span class="scope-list-count" id="scopeListCount">0</span>
           </div>
 
+          <!-- What the add box adds. Typing a marker (geosite:, =, *., an https
+               link to a list file) picks the type; a type picked here sticks.
+               Exact, Site group and List from a link are removed where site
+               groups are unavailable (src/popup/entry-add-control.ts). -->
+          <div class="entry-kind-row">
+            <select id="scopeAddKind" aria-label="Type" data-i18n-aria-label="filters_typeLabel">
+              <option value="site" data-i18n="filters_typeSite">Site and its subdomains</option>
+              <option value="exact" data-i18n="filters_typeExact">Exact address only</option>
+              <option value="subdomains" data-i18n="filters_typeSubdomains">Subdomains only</option>
+              <option value="group" data-i18n="filters_typeGroup">Site group</option>
+              <option value="link" data-i18n="filters_typeLink">List from a link</option>
+            </select>
+          </div>
+
           <div class="scope-add-row">
-            <input
-              type="text"
-              id="scopeAddInput"
-              placeholder="example.com, *.ru, site.com/app/*"
-              autocomplete="off"
-              spellcheck="false"
-              maxlength="2048"
-              data-i18n-placeholder="filters_addPlaceholder"
-            />
+            <!-- For "Site group" the input becomes an ARIA 1.2 combobox over
+                 #scopeGroupListbox. -->
+            <div class="entry-input-wrap">
+              <input
+                type="text"
+                id="scopeAddInput"
+                placeholder="example.com, *.ru, site.com/app/*"
+                autocomplete="off"
+                spellcheck="false"
+                maxlength="2048"
+                data-i18n-placeholder="filters_addPlaceholder"
+              />
+              <div class="entry-picker">
+                <div
+                  class="entry-listbox"
+                  id="scopeGroupListbox"
+                  role="listbox"
+                  aria-label="Site groups"
+                  data-i18n-aria-label="siteGroups_listboxLabel"
+                  hidden
+                ></div>
+                <div
+                  class="entry-picker-attribution"
+                  id="scopeGroupAttribution"
+                  data-i18n="siteGroups_attribution"
+                  hidden
+                >
+                  Site groups come from the v2fly domain list (MIT license).
+                </div>
+              </div>
+            </div>
             <button id="scopeAddButton" data-i18n="filters_addButton">Add</button>
           </div>
 
@@ -703,6 +739,26 @@
                   <dt><code>münchen.de</code></dt>
                   <dd data-i18n="filters_syntaxIdn">International domain names work too</dd>
                 </div>
+                <!-- data-site-groups-only rows hide where site groups are
+                     unavailable (Safari), with the matching type menu kinds. -->
+                <div class="scope-syntax-row" data-site-groups-only>
+                  <dt><code>=mail.example.com</code></dt>
+                  <dd data-i18n="filters_syntaxExact">
+                    Only that exact address, not its subdomains
+                  </dd>
+                </div>
+                <div class="scope-syntax-row" data-site-groups-only>
+                  <dt><code>geosite:google</code></dt>
+                  <dd data-i18n="filters_syntaxGroup">A site group: all of Google's sites</dd>
+                </div>
+                <div class="scope-syntax-row" data-site-groups-only>
+                  <dt><code>geosite:google@cn</code></dt>
+                  <dd data-i18n="filters_syntaxGroupTag">Only the group's sites with that tag</dd>
+                </div>
+                <div class="scope-syntax-row" data-site-groups-only>
+                  <dt><code>https://…/list.txt</code></dt>
+                  <dd data-i18n="filters_syntaxLink">A list from a link, updated weekly</dd>
+                </div>
               </dl>
               <p class="scope-syntax-note" data-i18n="filters_syntaxNotes">
                 Only * is a wildcard — no regular expressions.
@@ -729,6 +785,22 @@
           </div>
 
           <div class="scope-list" id="scopeList" role="list" aria-label="Scoped sites"></div>
+        </div>
+
+        <!-- Site group data status, shown when the active list or any site
+             location holds a site group or a list from a link. Outside the
+             list manager so it also shows in "All sites" mode when only site
+             locations use groups. -->
+        <div class="site-groups-status" id="siteGroupsStatus" hidden>
+          <span id="siteGroupsStatusText" role="status" aria-live="polite"></span>
+          <button
+            type="button"
+            class="site-location-link"
+            id="siteGroupsUpdateNow"
+            data-i18n="siteGroups_updateNow"
+          >
+            Update now
+          </button>
         </div>
 
         <!-- Per-site locations (#177): optional and secondary, so a collapsed disclosure
@@ -803,18 +875,72 @@
             <div class="site-location-editor" id="siteLocationEditor" hidden>
               <label
                 class="site-location-label"
+                id="siteLocationSitesLabel"
                 for="siteLocationPatterns"
                 data-i18n="siteLocation_sitesLabel"
                 >Sites</label
               >
-              <input
-                type="text"
-                id="siteLocationPatterns"
-                autocomplete="off"
-                spellcheck="false"
-                maxlength="2048"
-                aria-describedby="siteLocationPatternsHint"
-              />
+              <!-- The entry's sites as chips; the add control below adds to
+                   them, and text left in its input is added on Save. -->
+              <div
+                class="entry-chips"
+                id="siteLocationEntries"
+                role="list"
+                aria-labelledby="siteLocationSitesLabel"
+              ></div>
+              <div class="entry-kind-row">
+                <select
+                  id="siteLocationAddKind"
+                  aria-label="Type"
+                  data-i18n-aria-label="filters_typeLabel"
+                >
+                  <option value="site" data-i18n="filters_typeSite">Site and its subdomains</option>
+                  <option value="exact" data-i18n="filters_typeExact">Exact address only</option>
+                  <option value="subdomains" data-i18n="filters_typeSubdomains">
+                    Subdomains only
+                  </option>
+                  <option value="group" data-i18n="filters_typeGroup">Site group</option>
+                  <option value="link" data-i18n="filters_typeLink">List from a link</option>
+                </select>
+              </div>
+              <div class="entry-add-row">
+                <div class="entry-input-wrap">
+                  <input
+                    type="text"
+                    id="siteLocationPatterns"
+                    autocomplete="off"
+                    spellcheck="false"
+                    maxlength="2048"
+                    aria-describedby="siteLocationPatternsHint"
+                  />
+                  <div class="entry-picker">
+                    <div
+                      class="entry-listbox"
+                      id="siteLocationGroupListbox"
+                      role="listbox"
+                      aria-label="Site groups"
+                      data-i18n-aria-label="siteGroups_listboxLabel"
+                      hidden
+                    ></div>
+                    <div
+                      class="entry-picker-attribution"
+                      id="siteLocationGroupAttribution"
+                      data-i18n="siteGroups_attribution"
+                      hidden
+                    >
+                      Site groups come from the v2fly domain list (MIT license).
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="entry-add-button"
+                  id="siteLocationAddEntry"
+                  data-i18n="filters_addButton"
+                >
+                  Add
+                </button>
+              </div>
               <div
                 class="site-location-field-hint"
                 id="siteLocationPatternsHint"

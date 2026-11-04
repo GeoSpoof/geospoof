@@ -13,6 +13,7 @@ import { t } from "./i18n";
 import { renderFavorites } from "./favorites";
 import { renderScope, renderScopeLoadError } from "./scope";
 import { renderSiteLocations } from "./site-locations";
+import { loadPopupSiteGroups } from "./site-groups";
 import { reflectEarlyProtectionState } from "./early-protection";
 import { reflectDebuggerModeState } from "./debugger-mode";
 import { restoreAccuracyControl } from "./accuracy";
@@ -101,6 +102,11 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
     // `__SAFARI__` compiles it out on Chrome/Firefox, and proFeaturesBlocked is
     // only ever true for a non-Pro iOS user (macOS sends false).
     const proLocked = __SAFARI__ && settings.proFeaturesBlocked === true;
+
+    // Site group rows, the status line and the resolver calls below read the
+    // background's site group data. Nothing is sent when no entry uses one.
+    const siteGroupsLoading = loadPopupSiteGroups(settings);
+    if (siteGroupsLoading) await siteGroupsLoading;
 
     renderScope(settings, proLocked);
     const siteLocationApplies = await renderSiteLocations(settings, proLocked);

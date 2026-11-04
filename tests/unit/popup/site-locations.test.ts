@@ -36,6 +36,41 @@ import {
   renderSiteLocationsSection,
 } from "@/popup/site-locations";
 import { loadSettings } from "@/popup/settings";
+import { __resetPopupSiteGroupsForTest, loadPopupSiteGroups } from "@/popup/site-groups";
+
+const GOOGLE_TOKEN = "geosite:google";
+
+/** Load the popup's site group data as loadSettings does, with Google stored. */
+async function loadGroups(settings: Settings): Promise<void> {
+  sendMessage.mockResolvedValueOnce({
+    available: true,
+    status: {
+      release: "20261104112839",
+      releasedAt: "2026-11-04T11:28:50Z",
+      checkedAt: null,
+      lastError: null,
+      updating: false,
+    },
+    groups: {
+      [GOOGLE_TOKEN]: {
+        token: GOOGLE_TOKEN,
+        kind: "group",
+        name: "google",
+        count: 964,
+        skipped: 2,
+        updatedAt: 1,
+        d: "\ngoogle.com\nyoutube.com\n",
+        f: "\n",
+      },
+    },
+  });
+  const settingsWithToken = {
+    ...settings,
+    allowlist: [...settings.allowlist, GOOGLE_TOKEN],
+  };
+  await loadPopupSiteGroups(settingsWithToken);
+  sendMessage.mockClear();
+}
 
 const BODY = (() => {
   const html = readFileSync("assets/popup.html", "utf8");
@@ -104,10 +139,34 @@ function pickFavorite(id: string): void {
   select.dispatchEvent(new Event("change"));
 }
 
+/** Type into the Sites input; what's left there is added on Save. */
 function setPatterns(value: string): void {
   const input = byId<HTMLInputElement>("siteLocationPatterns");
   input.value = value;
   input.dispatchEvent(new Event("input"));
+}
+
+/** The editor's sites, as its chips show them. */
+function chipTitles(): string[] {
+  return Array.from(byId("siteLocationEntries").querySelectorAll(".entry-chip-title")).map(
+    (node) => node.textContent ?? ""
+  );
+}
+
+/** The ✕ of the chip titled `title`. */
+function chipRemoveButton(title: string): HTMLButtonElement {
+  const chip = Array.from(byId("siteLocationEntries").children).find(
+    (node) => node.querySelector(".entry-chip-title")?.textContent === title
+  );
+  const button = chip?.querySelector<HTMLButtonElement>(".entry-chip-remove");
+  if (!button) throw new Error(`no chip ${title}`);
+  return button;
+}
+
+/** Remove every chip, then type `value` into the Sites input. */
+function replaceSites(value: string): void {
+  for (const title of chipTitles()) chipRemoveButton(title).click();
+  setPatterns(value);
 }
 
 /**
@@ -139,6 +198,7 @@ function rowEditButton(id: string): HTMLButtonElement {
 beforeEach(() => {
   document.body.innerHTML = BODY;
   __resetSiteLocationsForTest();
+  __resetPopupSiteGroupsForTest();
   sendMessage.mockReset();
   vi.mocked(loadSettings).mockClear();
 });
@@ -375,7 +435,8 @@ describe("Main tab: the line when a site location applies", () => {
     expect(onFiltersTab).toHaveBeenCalledTimes(1);
     expect(disclosure().open).toBe(true);
     expect(isShown("siteLocationEditor")).toBe(true);
-    expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("chatgpt.com, openai.com");
+    expect(chipTitles()).toEqual(["chatgpt.com", "openai.com"]);
+    expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("");
     expect(text("siteLocationChosen")).toBe("Dublin");
     expect(document.activeElement).toBe(byId("siteLocationPatterns"));
 
@@ -626,12 +687,13 @@ describe("Editor", () => {
     byId("siteLocationsAddButton").click();
   }
 
-  test("pre-fills the current site without www. and is editable", () => {
+  test("pre-fills the current site without www. as a chip, and is editable", () => {
     openFromAdd();
     const input = byId<HTMLInputElement>("siteLocationPatterns");
     expect(isShown("siteLocationEditor")).toBe(true);
     expect(disclosure().contains(byId("siteLocationEditor"))).toBe(true);
-    expect(input.value).toBe("example.com");
+    expect(chipTitles()).toEqual(["example.com"]);
+    expect(input.value).toBe("");
     expect(input.readOnly).toBe(false);
     expect(document.activeElement).toBe(input);
 
@@ -713,7 +775,7 @@ describe("Editor", () => {
     test("ten sites plus an alias is at the cap, and sends the first spelling", async () => {
       openFromAdd();
       pickFavorite(FAVORITE.id);
-      setPatterns([...nine, "münchen.de", "xn--mnchen-3ya.de"].join(", "));
+      replaceSites([...nine, "münchen.de", "xn--mnchen-3ya.de"].join(", "));
       sendMessage.mockResolvedValue({ success: true, id: "new" });
       byId("siteLocationSave").click();
       await flush();
@@ -726,7 +788,7 @@ describe("Editor", () => {
     test("eleven sites plus an alias is still over the cap", async () => {
       openFromAdd();
       pickFavorite(FAVORITE.id);
-      setPatterns([...nine, "other.com", "xn--mnchen-3ya.de", "münchen.de"].join(", "));
+      replaceSites([...nine, "other.com", "xn--mnchen-3ya.de", "münchen.de"].join(", "));
       byId("siteLocationSave").click();
       await flush();
 
@@ -772,7 +834,7 @@ describe("Editor", () => {
     renderSiteLocationsSection(makeSettings(), "https://example.com/", false);
     rowEditButton(ENTRY_DUBLIN.id).click();
     expect(isShown("siteLocationsAddRow")).toBe(false);
-    setPatterns("chatgpt.com");
+    chipRemoveButton("openai.com").click();
     sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
     byId("siteLocationSave").click();
     await flush();
@@ -802,7 +864,8 @@ describe("Editor", () => {
     expect(isShown("siteLocationEditOwner")).toBe(true);
 
     byId("siteLocationEditOwner").click();
-    expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("twitch.tv");
+    expect(chipTitles()).toEqual(["twitch.tv"]);
+    expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("");
     expect(text("siteLocationChosen")).toBe("Mexico City");
     expect(isShown("siteLocationError")).toBe(false);
   });
@@ -830,7 +893,9 @@ describe("Editor", () => {
   // back, so nothing in the editor may look like it changes the save.
   describe("while a save is in flight", () => {
     const CONTROLS = [
+      "siteLocationAddKind",
       "siteLocationPatterns",
+      "siteLocationAddEntry",
       "siteLocationSearch",
       "siteLocationFavorite",
       "siteLocationAddToAllowlist",
@@ -923,6 +988,7 @@ describe("Editor", () => {
       byId("siteLocationSave").click();
       await flush();
       expect(disabledControls()).toEqual(CONTROLS);
+      expect(chipRemoveButton("example.com").disabled).toBe(true);
 
       // The search reply arrives: no result buttons appear.
       held.geocode({ results: [BERLIN] });
@@ -934,7 +1000,7 @@ describe("Editor", () => {
       pickFavorite(FAVORITE.id);
       rowEditButton(ENTRY_DUBLIN.id).click();
       expect(text("siteLocationChosen")).toBe("Work");
-      expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("example.com");
+      expect(chipTitles()).toEqual(["example.com"]);
 
       held.save({ success: true, id: "new" });
       await flush();
@@ -1082,6 +1148,211 @@ describe("Editor", () => {
   });
 });
 
+describe("Editor: sites as chips, added through the shared add control", () => {
+  const GROUP_ENTRY: SiteLocation = {
+    ...ENTRY_DUBLIN,
+    id: "group-entry",
+    patterns: ["chatgpt.com", GOOGLE_TOKEN],
+  };
+
+  function openFromAdd(settings = makeSettings()): void {
+    showFiltersView();
+    renderAll(settings, "https://www.example.com/page");
+    byId("siteLocationsAddButton").click();
+  }
+
+  function pressAdd(): void {
+    byId("siteLocationAddEntry").click();
+  }
+
+  async function save(): Promise<string[] | undefined> {
+    sendMessage.mockResolvedValue({ success: true, id: "new" });
+    byId("siteLocationSave").click();
+    await flush();
+    const [payload] = messagesOfType("SAVE_SITE_LOCATION") as Array<{ patterns: string[] }>;
+    return payload?.patterns;
+  }
+
+  test("a stored group shows as one chip with its name and size", async () => {
+    const settings = makeSettings({ siteLocations: [GROUP_ENTRY] });
+    await loadGroups(settings);
+    renderAll(settings, "https://example.com/");
+    rowEditButton(GROUP_ENTRY.id).click();
+
+    expect(chipTitles()).toEqual(["chatgpt.com", "Google"]);
+    const chip = chipRemoveButton("Google").closest(".entry-chip")!;
+    expect(chip.getAttribute("role")).toBe("listitem");
+    expect(chip.querySelector(".entry-chip-meta")?.textContent).toBe("964 sites · 2 rules skipped");
+    expect(chip.getAttribute("title")).toBe(GOOGLE_TOKEN);
+    expect(chipRemoveButton("Google").getAttribute("aria-label")).toBe("Remove site Google");
+    expect(chipRemoveButton("Google").type).toBe("button");
+    expect(byId("siteLocationEntries").getAttribute("role")).toBe("list");
+    expect(byId("siteLocationEntries").getAttribute("aria-labelledby")).toBe(
+      "siteLocationSitesLabel"
+    );
+    // The row names the group the same way.
+    const row = Array.from(byId("siteLocationsList").children).find(
+      (node) => (node as HTMLElement).dataset.siteLocationId === GROUP_ENTRY.id
+    );
+    expect(row?.querySelector(".site-location-patterns")?.textContent).toBe("chatgpt.com, Google");
+  });
+
+  test("a group without data shows 'Not available' with a warning sign, not colour alone", () => {
+    const settings = makeSettings({ siteLocations: [GROUP_ENTRY] });
+    renderAll(settings, "https://example.com/");
+    rowEditButton(GROUP_ENTRY.id).click();
+    const meta = chipRemoveButton("Google")
+      .closest(".entry-chip")!
+      .querySelector(".entry-chip-meta")!;
+    expect(meta.classList.contains("warning")).toBe(true);
+    expect(meta.textContent).toBe("⚠ Not available");
+    expect(meta.querySelector("[aria-hidden='true']")?.textContent).toBe("⚠ ");
+  });
+
+  test("typing geosite: picks Site group, and Add makes a chip next to the typed site", async () => {
+    openFromAdd();
+    pickFavorite(FAVORITE.id);
+    setPatterns("geosite:google");
+    expect(byId<HTMLSelectElement>("siteLocationAddKind").value).toBe("group");
+    expect(byId("siteLocationPatterns").getAttribute("role")).toBe("combobox");
+    pressAdd();
+    await flush();
+
+    expect(chipTitles()).toEqual(["example.com", "Google"]);
+    expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("");
+    // The auto-picked kind goes back to the default once the text is added.
+    expect(byId<HTMLSelectElement>("siteLocationAddKind").value).toBe("site");
+    expect(text("siteLocationExplain")).toBe("Pages on example.com, Google will see Work.");
+    expect(await save()).toEqual(["example.com", GOOGLE_TOKEN]);
+  });
+
+  test("Enter in the Sites input adds the typed sites as chips", async () => {
+    openFromAdd();
+    setPatterns("example.org, *.example.net, =mail.example.com");
+    byId("siteLocationPatterns").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true })
+    );
+    await flush();
+    expect(chipTitles()).toEqual([
+      "example.com",
+      "example.org",
+      "*.example.net",
+      "mail.example.com",
+    ]);
+    expect(isShown("siteLocationEditor")).toBe(true);
+  });
+
+  test("a group counts once toward the 10-site cap", async () => {
+    openFromAdd();
+    pickFavorite(FAVORITE.id);
+    replaceSites(Array.from({ length: 9 }, (_, i) => `site${i}.com`).join(", "));
+    pressAdd();
+    await flush();
+    setPatterns(GOOGLE_TOKEN);
+    pressAdd();
+    await flush();
+    expect(chipTitles()).toHaveLength(10);
+    expect(isShown("siteLocationError")).toBe(false);
+
+    // An eleventh is refused and stays in the input.
+    setPatterns("one-more.com");
+    pressAdd();
+    await flush();
+    expect(chipTitles()).toHaveLength(10);
+    expect(text("siteLocationErrorText")).toBe("One location can cover up to 10 sites.");
+    expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("one-more.com");
+
+    // Without it, the save carries the ten.
+    setPatterns("");
+    const sent = await save();
+    expect(sent).toHaveLength(10);
+    expect(sent).toContain(GOOGLE_TOKEN);
+  });
+
+  test("a site already there isn't added twice", async () => {
+    openFromAdd();
+    setPatterns("Example.com, xn--mnchen-3ya.de, münchen.de");
+    pressAdd();
+    await flush();
+    expect(chipTitles()).toEqual(["example.com", "xn--mnchen-3ya.de"]);
+  });
+
+  test("removing a chip drops it from the save and moves focus to the next chip", async () => {
+    const settings = makeSettings();
+    showFiltersView();
+    renderAll(settings, "https://example.com/");
+    rowEditButton(ENTRY_DUBLIN.id).click();
+    const remove = chipRemoveButton("chatgpt.com");
+    remove.focus();
+    remove.click();
+    expect(chipTitles()).toEqual(["openai.com"]);
+    expect(document.activeElement).toBe(chipRemoveButton("openai.com"));
+
+    chipRemoveButton("openai.com").click();
+    expect(chipTitles()).toEqual([]);
+    expect(document.activeElement).toBe(byId("siteLocationPatterns"));
+
+    // With no sites left, Save asks for one.
+    byId("siteLocationSave").click();
+    await flush();
+    expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+    expect(text("siteLocationErrorText")).toBe(
+      "Use a site like example.com, with no path and not just *."
+    );
+  });
+
+  test("text left in the input is added on Save", async () => {
+    openFromAdd();
+    pickFavorite(FAVORITE.id);
+    setPatterns("example.org, chatgpt.com");
+    expect(await save()).toEqual(["example.com", "example.org", "chatgpt.com"]);
+  });
+
+  test("an invalid group name in the input blocks Save with the group's message", async () => {
+    openFromAdd();
+    pickFavorite(FAVORITE.id);
+    setPatterns("geosite:not a group");
+    byId("siteLocationSave").click();
+    await flush();
+    expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+    expect(text("siteLocationErrorText")).toBe("No site group is called not a group.");
+    expect(byId("siteLocationPatterns").getAttribute("aria-invalid")).toBe("true");
+  });
+
+  test.each([
+    ["UNKNOWN_GROUP", "geosite:nope", "No site group is called nope."],
+    ["EMPTY_GROUP", "geosite:google@zz", "Google has no sites with that tag."],
+    [
+      "LINK_FAILED",
+      "list:https://example.com/a.txt",
+      "Couldn't download that list. Check the link and try again.",
+    ],
+    ["STORAGE_FULL", "geosite:google", "Site groups are out of space. Remove a large list first."],
+  ])("maps the save error %s to its message", async (error, pattern, message) => {
+    openFromAdd();
+    pickFavorite(FAVORITE.id);
+    sendMessage.mockResolvedValue({ error, pattern });
+    byId("siteLocationSave").click();
+    await flush();
+    expect(text("siteLocationErrorText")).toBe(message);
+  });
+
+  test("Escape with the group picker open closes only the picker", () => {
+    openFromAdd();
+    const kind = byId<HTMLSelectElement>("siteLocationAddKind");
+    kind.value = "group";
+    kind.dispatchEvent(new Event("change"));
+    const input = byId<HTMLInputElement>("siteLocationPatterns");
+    input.focus();
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(isShown("siteLocationEditor")).toBe(true);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(isShown("siteLocationEditor")).toBe(false);
+  });
+});
+
 describe("Hints only in context", () => {
   const allowlist: Partial<Settings> = { scopeMode: "allowlist", allowlist: ["example.com"] };
 
@@ -1107,7 +1378,7 @@ describe("Hints only in context", () => {
 
   test("allowlist conflict: the hint and one-tap show in the editor for a covered site", async () => {
     openFromAddAt("https://chatgpt.com/c/1", makeSettings(allowlist));
-    expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("chatgpt.com");
+    expect(chipTitles()).toEqual(["chatgpt.com"]);
     expect(isShown("siteLocationFiltersHint")).toBe(true);
     expect(text("siteLocationFiltersHintText")).toBe(
       "Filters don't spoof this site. Add it to the allowlist?"
@@ -1149,9 +1420,19 @@ describe("Hints only in context", () => {
   test("the hint follows the Sites field", () => {
     renderAll(makeSettings(allowlist), "https://chatgpt.com/c/1");
     byId("siteLocationsAddButton").click();
-    setPatterns("example.org");
+    replaceSites("example.org");
     expect(isShown("siteLocationFiltersHint")).toBe(false);
     setPatterns("example.org, chatgpt.com");
+    expect(isShown("siteLocationFiltersHint")).toBe(true);
+  });
+
+  test("a site group covering this tab counts as a conflict", async () => {
+    await loadGroups(makeSettings(allowlist));
+    renderAll(makeSettings(allowlist), "https://www.google.com/");
+    byId("siteLocationsAddButton").click();
+    replaceSites("");
+    expect(isShown("siteLocationFiltersHint")).toBe(false);
+    setPatterns("geosite:google");
     expect(isShown("siteLocationFiltersHint")).toBe(true);
   });
 

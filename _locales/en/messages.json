@@ -918,5 +918,261 @@
       }
     },
     "description": "Toolbar button tooltip when a site location applies to the current tab. $PLACE$ is the site location's name, $SITE$ the host name."
+  },
+  "filters_typeLabel": {
+    "message": "Type",
+    "description": "Accessible name of the menu next to the Filters add box (and the per-site location Sites field) that picks what the typed text is: a site, an exact address, subdomains, a site group, or a list from a link."
+  },
+  "filters_typeSite": {
+    "message": "Site and its subdomains",
+    "description": "Type menu option (default): the typed text is a site pattern such as example.com, which covers the site and all its subdomains."
+  },
+  "filters_typeExact": {
+    "message": "Exact address only",
+    "description": "Type menu option: the typed host matches only itself, not its subdomains. Also shown under an exact-address entry in the list."
+  },
+  "filters_typeSubdomains": {
+    "message": "Subdomains only",
+    "description": "Type menu option: the typed site's subdomains, not the site itself (stored as *.example.com)."
+  },
+  "filters_typeGroup": {
+    "message": "Site group",
+    "description": "Type menu option: pick a site group, a named list of a service's sites (for example all of Google's sites). Glossary term shared with the GeoSpoof app."
+  },
+  "filters_typeLink": {
+    "message": "List from a link",
+    "description": "Type menu option: download a list of sites from an https link (a .txt, .list, .conf or .yaml file). Glossary term shared with the GeoSpoof app."
+  },
+  "filters_placeholderExact": {
+    "message": "mail.example.com",
+    "description": "Placeholder in the add box when the type is 'Exact address only'. An example host; keep it as is."
+  },
+  "filters_placeholderSubdomains": {
+    "message": "example.com",
+    "description": "Placeholder in the add box when the type is 'Subdomains only'. An example host; keep it as is."
+  },
+  "filters_placeholderGroup": {
+    "message": "Search site groups, e.g. Google",
+    "description": "Placeholder in the add box when the type is 'Site group'; typing searches the site groups. 'Google' is a brand name."
+  },
+  "filters_placeholderLink": {
+    "message": "https://example.com/list.txt",
+    "description": "Placeholder in the add box when the type is 'List from a link'. An example URL; keep it as is."
+  },
+  "filters_errorExact": {
+    "message": "Enter one address, like mail.example.com, without *",
+    "description": "Inline error when the text typed as an exact address isn't a single host (for example it contains a * wildcard)."
+  },
+  "filters_syntaxExact": {
+    "message": "Only that exact address, not its subdomains",
+    "description": "Explains the exact-address form (e.g. =mail.example.com) in the syntax reference."
+  },
+  "filters_syntaxGroup": {
+    "message": "A site group: all of Google's sites",
+    "description": "Explains the site group form (e.g. geosite:google) in the syntax reference."
+  },
+  "filters_syntaxGroupTag": {
+    "message": "Only the group's sites with that tag",
+    "description": "Explains a site group with a tag (e.g. geosite:google@cn) in the syntax reference: only the group's sites that carry the tag."
+  },
+  "filters_syntaxLink": {
+    "message": "A list from a link, updated weekly",
+    "description": "Explains the list-from-a-link form (an https link to a list file) in the syntax reference."
+  },
+  "siteGroups_popular": {
+    "message": "Popular",
+    "description": "Heading of the first section in the site group picker: commonly used services."
+  },
+  "siteGroups_allGroups": {
+    "message": "All site groups",
+    "description": "Heading of the second section in the site group picker: every other site group."
+  },
+  "siteGroups_noMatch": {
+    "message": "No site groups match $QUERY$",
+    "placeholders": {
+      "query": {
+        "content": "$1",
+        "example": "googel"
+      }
+    },
+    "description": "Shown in the site group picker when the search finds nothing. $QUERY$ is what the user typed."
+  },
+  "siteGroups_listboxLabel": {
+    "message": "Site groups",
+    "description": "Accessible name of the site group picker's list of choices."
+  },
+  "siteGroups_attribution": {
+    "message": "Site groups come from the v2fly domain list (MIT license).",
+    "description": "Footer of the site group picker crediting the data source. 'v2fly' is a project name; keep it."
+  },
+  "siteGroups_count": {
+    "message": "$COUNT$ sites",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "964"
+      }
+    },
+    "description": "How many sites a site group or list holds, under its name. $COUNT$ is a formatted number."
+  },
+  "siteGroups_fromHost": {
+    "message": "from $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "raw.githubusercontent.com"
+      }
+    },
+    "description": "Under a list from a link: where the list is downloaded from. $HOST$ is the link's host name."
+  },
+  "siteGroups_skipped": {
+    "message": "$COUNT$ rules skipped",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "8"
+      }
+    },
+    "description": "Under a site group or list: how many of its rules GeoSpoof can't use (regular expressions and keywords). $COUNT$ is a formatted number."
+  },
+  "siteGroups_unavailable": {
+    "message": "Not available",
+    "description": "Under a site group or list whose data isn't on this device yet; it matches no sites until GeoSpoof downloads or rebuilds it."
+  },
+  "siteGroups_linkFailed": {
+    "message": "Couldn't update this list",
+    "description": "Under a list from a link whose last update failed; the last good copy is still used."
+  },
+  "siteGroups_statusFrom": {
+    "message": "Site group lists from $DATE$",
+    "placeholders": {
+      "date": {
+        "content": "$1",
+        "example": "Nov 4, 2026"
+      }
+    },
+    "description": "Status line under the Filters list: the date of the site group data in use. $DATE$ is a formatted date."
+  },
+  "siteGroups_statusFailed": {
+    "message": "Couldn't update site groups. Using lists from $DATE$.",
+    "placeholders": {
+      "date": {
+        "content": "$1",
+        "example": "Nov 4, 2026"
+      }
+    },
+    "description": "Status line when the last site group update failed; the older data stays in use. $DATE$ is its formatted date."
+  },
+  "siteGroups_statusUpdating": {
+    "message": "Updating site groups…",
+    "description": "Status line while site group data is being updated."
+  },
+  "siteGroups_statusUpToDate": {
+    "message": "Site groups are up to date (lists from $DATE$)",
+    "placeholders": {
+      "date": {
+        "content": "$1",
+        "example": "Nov 4, 2026"
+      }
+    },
+    "description": "Status line after 'Update now' found no newer site group data. $DATE$ is the formatted date of the data in use."
+  },
+  "siteGroups_updateNow": {
+    "message": "Update now",
+    "description": "Button next to the site group status line that checks for newer site group data and lists right away."
+  },
+  "siteGroups_errorUnknown": {
+    "message": "No site group is called $NAME$.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "googel"
+      }
+    },
+    "description": "Error when adding a site group name that doesn't exist. $NAME$ is the name as typed."
+  },
+  "siteGroups_errorEmpty": {
+    "message": "$NAME$ has no sites with that tag.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Google"
+      }
+    },
+    "description": "Error when a site group with a tag (geosite:name@tag) leaves no sites. $NAME$ is the group's name."
+  },
+  "siteGroups_errorLinkInvalid": {
+    "message": "Enter a link that starts with https://",
+    "description": "Error when the text typed as a list from a link isn't an https link."
+  },
+  "siteGroups_errorLinkFailed": {
+    "message": "Couldn't download that list. Check the link and try again.",
+    "description": "Error when the list at a link couldn't be downloaded. Nothing is added."
+  },
+  "siteGroups_errorLinkEmpty": {
+    "message": "That list has no sites GeoSpoof can use.",
+    "description": "Error when a downloaded list holds no usable sites (for example only regular expressions). Nothing is added."
+  },
+  "siteGroups_errorLinkTooLarge": {
+    "message": "That list is too large. GeoSpoof supports up to $MAX$ sites per list.",
+    "placeholders": {
+      "max": {
+        "content": "$1",
+        "example": "250,000"
+      }
+    },
+    "description": "Error when a downloaded list is over the size limit. $MAX$ is the formatted limit. Nothing is added."
+  },
+  "siteGroups_errorStorageFull": {
+    "message": "Site groups are out of space. Remove a large list first.",
+    "description": "Error when the stored site group data would pass its storage limit. Nothing is added."
+  },
+  "siteGroups_downloading": {
+    "message": "Downloading list…",
+    "description": "Shown on the Add button while a list from a link downloads; the add box is disabled meanwhile."
+  },
+  "siteGroups_addedLink": {
+    "message": "Added $NAME$: $COUNT$ sites.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "direct-list"
+      },
+      "count": {
+        "content": "$2",
+        "example": "110,197"
+      }
+    },
+    "description": "Screen reader confirmation after a list from a link is added. $NAME$ is the list's name (from its file name), $COUNT$ the formatted number of sites."
+  },
+  "siteGroups_addedLinkSkipped": {
+    "message": "Added $NAME$: $COUNT$ sites, $SKIPPED$ rules skipped.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "direct-list"
+      },
+      "count": {
+        "content": "$2",
+        "example": "110,197"
+      },
+      "skipped": {
+        "content": "$3",
+        "example": "8"
+      }
+    },
+    "description": "Screen reader confirmation after a list from a link is added and some of its rules can't be used. $NAME$ is the list's name, $COUNT$ the number of sites, $SKIPPED$ the number of rules skipped."
+  },
+  "siteGroups_nameAi": {
+    "message": "AI services",
+    "description": "Name of the featured site group of AI services (ChatGPT, Claude, Gemini and similar)."
+  },
+  "siteGroups_nameChina": {
+    "message": "China sites",
+    "description": "Name of the featured site group of sites based in China. Glossary term shared with the GeoSpoof app."
+  },
+  "siteGroups_nameOutsideChina": {
+    "message": "Sites outside China",
+    "description": "Name of the featured site group of sites not based in China. Glossary term shared with the GeoSpoof app."
   }
 }
