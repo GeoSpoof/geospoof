@@ -8,20 +8,21 @@ by key via `browser.i18n.getMessage()`.
 
 ## Current status
 
-| Locale  | Language             | Status                                      |
-| ------- | -------------------- | ------------------------------------------- |
-| `en`    | English              | ✅ Source of truth                          |
-| `ru`    | Russian              | ⚠️ Machine-translated — needs native review |
-| `es`    | Spanish              | ⚠️ Machine-translated — needs native review |
-| `pt_BR` | Brazilian Portuguese | ⚠️ Machine-translated — needs native review |
-| `de`    | German               | ⚠️ Machine-translated — needs native review |
-| `fr`    | French               | ⚠️ Machine-translated — needs native review |
-| `zh_CN` | Simplified Chinese   | ⚠️ Machine-translated — needs native review |
-| `ja`    | Japanese             | ⚠️ Machine-translated — needs native review |
-| `nl`    | Dutch                | ⚠️ Machine-translated — needs native review |
-| `vi`    | Vietnamese           | ⚠️ Machine-translated — needs native review |
-| `id`    | Indonesian           | ⚠️ Machine-translated — needs native review |
-| `sv`    | Swedish              | ⚠️ Machine-translated — needs native review |
+| Locale  | Language                     | Status                                                                      |
+| ------- | ---------------------------- | --------------------------------------------------------------------------- |
+| `en`    | English                      | ✅ Source of truth                                                          |
+| `ru`    | Russian                      | ⚠️ Machine-translated — needs native review                                 |
+| `es`    | Spanish                      | ⚠️ Machine-translated — needs native review                                 |
+| `pt_BR` | Brazilian Portuguese         | ⚠️ Machine-translated — needs native review                                 |
+| `de`    | German                       | ⚠️ Machine-translated — needs native review                                 |
+| `fr`    | French                       | ⚠️ Machine-translated — needs native review                                 |
+| `zh_CN` | Simplified Chinese           | ⚠️ Machine-translated — needs native review                                 |
+| `zh_TW` | Traditional Chinese (Taiwan) | ⚠️ Community translation (#191), completed by machine — needs native review |
+| `ja`    | Japanese                     | ⚠️ Machine-translated — needs native review                                 |
+| `nl`    | Dutch                        | ⚠️ Machine-translated — needs native review                                 |
+| `vi`    | Vietnamese                   | ⚠️ Machine-translated — needs native review                                 |
+| `id`    | Indonesian                   | ⚠️ Machine-translated — needs native review                                 |
+| `sv`    | Swedish                      | ⚠️ Machine-translated — needs native review                                 |
 
 Files marked machine-translated were produced by an LLM and intentionally
 merged without native review because any localization is better than none

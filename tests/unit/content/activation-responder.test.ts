@@ -54,6 +54,8 @@ describe("activation page boundary", () => {
     expect(isActivationPage("https://geospoof.com", "/activate/", true)).toBe(true);
     expect(isActivationPage("https://geospoof.com", "/de/activate", true)).toBe(true);
     expect(isActivationPage("https://geospoof.com", "/pt-BR/activate/", true)).toBe(true);
+    expect(isActivationPage("https://geospoof.com", "/zh-TW/activate", true)).toBe(true);
+    expect(isActivationPage("https://geospoof.com", "/zh-tw/activate", true)).toBe(false);
     expect(isActivationPage("https://geospoof.com", "/en/activate", true)).toBe(false);
     expect(isActivationPage("https://geospoof.com", "/de/other/activate", true)).toBe(false);
     expect(isActivationPage("https://geospoof.com", "/verify", true)).toBe(false);

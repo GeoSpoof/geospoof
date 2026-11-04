@@ -28,8 +28,9 @@
  * The extension ships more UI locales than the site renders — `nl`, `sv`, and
  * `vi` have popup translations but no website, so they map to `null`. Note the
  * separator difference too: the extension uses WebExtension underscores
- * (`pt_BR`, `zh_CN`) while the site uses BCP-47 hyphen segments (`pt-BR`,
- * `zh-CN`), so this can't be a naive string transform — it's an explicit map.
+ * (`pt_BR`, `zh_CN`, `zh_TW`) while the site uses BCP-47 hyphen segments
+ * (`pt-BR`, `zh-CN`, `zh-TW`), so this can't be a naive string transform — it's
+ * an explicit map.
  *
  * Source of truth for the site side: geospoof-site:src/lib/i18n/locale-data.mjs
  * (`localeList`). Keep this in sync when the website gains or drops a locale.
@@ -47,6 +48,7 @@ const SITE_LOCALE_SEGMENT: Readonly<Record<string, string | null>> = {
   sv: null, // no website locale — fall back to English
   vi: null, // no website locale — fall back to English
   zh_CN: "zh-CN",
+  zh_TW: "zh-TW",
 };
 
 /**

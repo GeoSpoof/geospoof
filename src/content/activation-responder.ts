@@ -11,7 +11,7 @@ export const ACTIVATION_ORIGINS = new Set(["https://geospoof.com", "https://www.
 
 // Keep this closed to the site's actual localized activation routes. A broad
 // suffix match would unnecessarily expose the responder to unrelated pages.
-const ACTIVATION_PATH_PATTERN = /^\/(?:(?:de|es|fr|id|ja|pt-BR|ru|zh-CN)\/)?activate\/?$/;
+const ACTIVATION_PATH_PATTERN = /^\/(?:(?:de|es|fr|id|ja|pt-BR|ru|zh-CN|zh-TW)\/)?activate\/?$/;
 
 const IS_DEVELOPMENT_BUILD = process.env.NODE_ENV === "development";
 

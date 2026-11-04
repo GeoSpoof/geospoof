@@ -12,6 +12,7 @@ import {
   isSupportedLocale,
   normalizeToSupportedLocale,
   resolveUiLocale,
+  toAppleLocaleCode,
 } from "@/shared/i18n/locales";
 
 const LOCALES_DIR = join(__dirname, "../../../_locales");
@@ -75,18 +76,54 @@ describe("normalizeToSupportedLocale", () => {
     expect(normalizeToSupportedLocale("PT-br")).toBe("pt_BR");
     expect(normalizeToSupportedLocale("RU")).toBe("ru");
   });
+
+  test("Chinese picks Traditional by script first, then by region", () => {
+    expect(normalizeToSupportedLocale("zh-TW")).toBe("zh_TW");
+    expect(normalizeToSupportedLocale("zh_TW")).toBe("zh_TW");
+    for (const tag of ["zh-HK", "zh-MO", "zh-Hant", "zh-Hant-TW", "zh-Hant-HK", "ZH-hant"]) {
+      expect(normalizeToSupportedLocale(tag)).toBe("zh_TW");
+    }
+  });
+
+  test("other Chinese tags stay on Simplified", () => {
+    for (const tag of ["zh-CN", "zh-SG", "zh-Hans", "zh-Hans-CN", "zh-Hans-HK", "zh"]) {
+      expect(normalizeToSupportedLocale(tag)).toBe("zh_CN");
+    }
+  });
+
+  test("Chinese ignores extension and private-use subtags", () => {
+    // `nu-hant` / `nu-hans` is a numbering-system preference, not the UI script.
+    expect(normalizeToSupportedLocale("zh-CN-u-nu-hant")).toBe("zh_CN");
+    expect(normalizeToSupportedLocale("zh-TW-u-nu-hans")).toBe("zh_TW");
+    expect(normalizeToSupportedLocale("zh-u-nu-hant")).toBe("zh_CN");
+    expect(normalizeToSupportedLocale("zh-Hans-x-tw")).toBe("zh_CN");
+    expect(normalizeToSupportedLocale("zh-Hant-u-nu-hans")).toBe("zh_TW");
+  });
+});
+
+describe("toAppleLocaleCode", () => {
+  test("keys Chinese by script and swaps the separator elsewhere", () => {
+    expect(toAppleLocaleCode("zh_TW")).toBe("zh-Hant");
+    expect(toAppleLocaleCode("zh_CN")).toBe("zh-Hans");
+    expect(toAppleLocaleCode("pt_BR")).toBe("pt-BR");
+    expect(toAppleLocaleCode("ja")).toBe("ja");
+  });
 });
 
 describe("resolveUiLocale", () => {
   test("a supported override wins over the browser tag", () => {
     expect(resolveUiLocale("ru", "en-US")).toBe("ru");
     expect(resolveUiLocale("pt-BR", "de")).toBe("pt_BR");
+    expect(resolveUiLocale("zh_TW", "zh-CN")).toBe("zh_TW");
+    expect(resolveUiLocale("zh_CN", "zh-TW")).toBe("zh_CN");
   });
 
   test("falls back to the browser tag when there is no override", () => {
     expect(resolveUiLocale("", "ru-RU")).toBe("ru");
     expect(resolveUiLocale(null, "ja")).toBe("ja");
     expect(resolveUiLocale(undefined, "zh-CN")).toBe("zh_CN");
+    expect(resolveUiLocale(undefined, "zh-TW")).toBe("zh_TW");
+    expect(resolveUiLocale(undefined, "zh-HK")).toBe("zh_TW");
   });
 
   test("falls back to English when neither is supported", () => {

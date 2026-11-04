@@ -32,6 +32,7 @@ remembering when a line feels tight.
 | sv      | Byt GPS direkt              | Systemomfattande GPS-simulering, / styrd från din iPhone  | 10 000+ användare     |
 | vi      | Đổi GPS tức thì             | Mô phỏng GPS toàn hệ thống, / điều khiển từ iPhone        | 10.000+ người dùng    |
 | zh-Hans | 即刻修改 GPS                | 全系统 GPS 模拟，在 iPhone 上操控                         | 1 万+ 用户            |
+| zh-Hant | 即刻變更 GPS                | 全系統 GPS 模擬，在 iPhone 上操控                         | 1 萬+ 使用者          |
 
 ## SS2
 
@@ -49,6 +50,7 @@ remembering when a line feels tight.
 | sv      | Byt plats i / Safari gratis             | Ställ in koordinaterna / Safari rapporterar       |
 | vi      | Đổi vị trí Safari / miễn phí            | Đặt toạ độ mà Safari báo cáo                      |
 | zh-Hans | 免费修改 Safari 位置                    | 设定 Safari 上报的坐标                            |
+| zh-Hant | 免費變更 Safari 位置                    | 設定 Safari 回報的座標                            |
 
 ## SS3
 
@@ -66,6 +68,7 @@ remembering when a line feels tight.
 | sv      | 100 %  | PRIVAT & / LOKALT      |
 | vi      | 100%   | RIÊNG TƯ & / NỘI BỘ    |
 | zh-Hans | 100%   | 私密与本地             |
+| zh-Hant | 100%   | 私密且在本機           |
 
 ## SS4
 
@@ -83,6 +86,7 @@ remembering when a line feels tight.
 | sv      | SAFARI | FILTRERA / SIDOR    |
 | vi      | SAFARI | LỌC / TRANG WEB     |
 | zh-Hans | SAFARI | 按站点筛选          |
+| zh-Hant | SAFARI | 依網站篩選          |
 
 ## SS5
 
@@ -100,3 +104,4 @@ remembering when a line feels tight.
 | sv      | ENKELT  | VÄLJ VAR / SOM HELST  |
 | vi      | DỄ DÀNG | CHỌN BẤT / CỨ ĐÂU     |
 | zh-Hans | 轻松    | 任意地点随心选        |
+| zh-Hant | 輕鬆    | 任意地點隨心選        |

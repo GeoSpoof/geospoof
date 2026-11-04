@@ -1,5 +1,8 @@
 # Chrome Web Store Listing — GeoSpoof
 
+Traditional Chinese (Taiwan) copy for the Chrome Web Store and AMO lives in
+[`listing-copy.zh-TW.md`](listing-copy.zh-TW.md).
+
 This file tracks the store listing copy. Where each field lives:
 
 | Field                                 | Source of truth                                      | Notes                                                                                                                  |
@@ -128,6 +131,9 @@ Links:
 
 # Firefox Add-on Listing (AMO) — GeoSpoof
 
+The Traditional Chinese (Taiwan) AMO description is in
+[`listing-copy.zh-TW.md`](listing-copy.zh-TW.md).
+
 AMO field sources:
 
 | Field                    | Source of truth                                                                  | Notes                                                                                                                                                                                                                                                                                    |
@@ -239,8 +245,8 @@ for search. Only three fields feed App Store search ranking:
 
 > **Source of truth for the App Store listing is `app/fastlane/metadata/<locale>/` in the
 > private `geospoof-ios` repo**, not this file. `fastlane deliver` uploads that tree
-> directly, so the hand-paste step is gone. Twelve locales ship: `en-US`, `de-DE`,
-> `es-ES`, `fr-FR`, `id`, `ja`, `nl-NL`, `pt-BR`, `ru`, `sv`, `vi`, `zh-Hans`. Field
+> directly, so the hand-paste step is gone. Thirteen locales ship: `en-US`, `de-DE`,
+> `es-ES`, `fr-FR`, `id`, `ja`, `nl-NL`, `pt-BR`, `ru`, `sv`, `vi`, `zh-Hans`, `zh-Hant`. Field
 > limits are enforced by `tests/unit/appstore-metadata-parity.unit.test.ts` there.
 >
 > The sections below keep the **English ASO reasoning** — why each token was chosen — which
@@ -290,7 +296,7 @@ description, which states plainly that Device GPS is Pro, Experimental, and need
 a Mac companion. If wrong-fit installs or AR-game reviews show up, that's the
 signal to revisit — not a style preference.
 
-All 11 localized subtitles lead with `GPS` too, verified by
+All 12 localized subtitles lead with `GPS` too, verified by
 `tests/unit/appstore-metadata-parity.unit.test.ts`. Two needed rewording to get
 there: German was `Safari-GPS & Zeitzone fälschen` and Swedish was
 `Spoofa GPS, Safari & tidszon`.
@@ -359,7 +365,7 @@ Structural notes for whoever edits it next:
   translation keeps the same paragraph and bullet counts as English.
 - The SUBSCRIPTIONS block is required by Guideline 3.1.2: billing period, renewal
   terms, cancellation window, and functional EULA + privacy links. The test asserts
-  both links survive in all 12 locales.
+  both links survive in all 13 locales.
 - `GeoSpoof Pro Monthly / Annual / Lifetime` are **also IAP display names**. The
   localized descriptions translate the period word and keep `GeoSpoof Pro` as brand
   (`GeoSpoof Pro Monatlich`), matching the app's own `Monthly`/`Annual`/`Lifetime`
@@ -375,7 +381,7 @@ updated in place — keeping a second copy here is what let it drift in the firs
 ## Screenshot copy
 
 Lives in `assets/store-listings/appstore/screenshot-copy.md` — the headlines
-burned into the screenshot images, in all 12 locales.
+burned into the screenshot images, in all 13 locales.
 
 ## macOS listing
 
