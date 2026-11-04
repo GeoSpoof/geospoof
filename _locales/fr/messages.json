@@ -1015,6 +1015,10 @@
     },
     "description": "How many sites a site group or list holds, under its name. $COUNT$ is a formatted number."
   },
+  "siteGroups_countOne": {
+    "message": "1 site",
+    "description": "siteGroups_count when the site group or list holds exactly one site."
+  },
   "siteGroups_fromHost": {
     "message": "de $HOST$",
     "placeholders": {
@@ -1034,6 +1038,10 @@
       }
     },
     "description": "Under a site group or list: how many of its rules GeoSpoof can't use (regular expressions and keywords). $COUNT$ is a formatted number."
+  },
+  "siteGroups_skippedOne": {
+    "message": "1 règle ignorée",
+    "description": "siteGroups_skipped when exactly one rule is skipped."
   },
   "siteGroups_unavailable": {
     "message": "Non disponible",

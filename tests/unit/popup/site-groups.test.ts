@@ -393,6 +393,22 @@ describe("describeEntry", () => {
     });
   });
 
+  test("one site and one skipped rule read in the singular", async () => {
+    await load(
+      reply({
+        "geosite:youtube@cn": group("geosite:youtube@cn", {
+          name: "youtube",
+          count: 1,
+          skipped: 1,
+        }),
+      })
+    );
+    expect(describeEntry("geosite:youtube@cn")).toMatchObject({
+      title: "YouTube @cn",
+      meta: "1 site · 1 rule skipped",
+    });
+  });
+
   test("a group without data shows 'Not available' as a warning", () => {
     expect(describeEntry("geosite:netflix")).toEqual({
       title: "Netflix",

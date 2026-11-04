@@ -360,13 +360,15 @@ export function formatCatalogDate(ms: number): string {
   }
 }
 
-/** "964 sites". */
+/** "964 sites", or "1 site" (WebExtension i18n has no plural forms). */
 export function siteCountText(n: number): string {
+  if (n === 1) return t("siteGroups_countOne") || "1 site";
   const count = formatCount(n);
   return t("siteGroups_count", [count]) || `${count} sites`;
 }
 
 function skippedText(n: number): string {
+  if (n === 1) return t("siteGroups_skippedOne") || "1 rule skipped";
   const count = formatCount(n);
   return t("siteGroups_skipped", [count]) || `${count} rules skipped`;
 }
