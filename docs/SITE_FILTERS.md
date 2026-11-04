@@ -144,9 +144,9 @@ A site group is a ready-made list of the domains one service or category uses, s
 
 **Skipped rules.** A few upstream rules are regular expressions or keyword rules. GeoSpoof doesn't run those (typed patterns don't allow regex either), so they're skipped, and the row says how many: "964 sites · 2 rules skipped". Everything else in the group matches as written: a plain entry covers the domain and its subdomains, and an upstream `full:` entry covers only that exact host.
 
-**Updates.** GeoSpoof ships with a copy of the lists. While you use at least one group or list from a link, it checks for newer lists about once a week, and **Update now** under the list checks right away. The status line shows the date of the lists in use. If an update fails, or a newer release drops a group you use, GeoSpoof keeps using the last good copy, and the status line or the row says so.
+**Updates.** GeoSpoof ships with a copy of the lists. While you use at least one group or list from a link, it checks for newer lists about once a week, and **Update now** under the list checks right away. The status line shows the date of the lists in use. If an update fails, the status line says so, and the lists already on your device stay in use. If a newer release drops a group you use or leaves it empty, GeoSpoof keeps using that group's last good copy; the row doesn't point this out.
 
-**"Not available".** If a group's data is missing (for example after browser storage was cleared, or on a browser where site groups aren't supported yet), the row shows **Not available** and the group matches no site until its data is rebuilt, which GeoSpoof does on its own at the next startup or update. While it matches nothing, an allowlist doesn't spoof that group's sites, and a denylist does spoof them. Your entry is never deleted.
+**"Not available".** If a group's data is missing, the row shows **Not available** and the group matches no site. After browser storage was cleared, GeoSpoof rebuilds the data on its own at the next startup or update. On a browser where site groups aren't supported yet (Safari, for now), the entry stays **Not available** and matches no site until they are. While it matches nothing, an allowlist doesn't spoof that group's sites, and a denylist does spoof them. Your entry is never deleted.
 
 ## Lists from a link
 
@@ -167,7 +167,9 @@ Pick **List from a link** and paste an `https://` link to a domain list you alre
 
 **Skipped rules.** `regexp:`, `keyword:`, `DOMAIN-KEYWORD,`, `DOMAIN-REGEX,`, other rule types (such as `IP-CIDR,`), wildcard forms and invalid hosts are skipped and counted on the row.
 
-**Limits.** A list can be up to 10 MB and 250,000 sites. The link must use `https://` and stay on `https://` through any redirect. A link with no usable sites, a failed download, or a list over the limit is rejected, and nothing is stored. If a weekly re-download fails, the last good copy stays in use and the row says "Couldn't update this list".
+**Limits.** A list can be up to 10 MB and 250,000 sites. The link must use `https://`, and after any redirects the download must end on an `https://` address. A link with no usable sites, a failed download, or a list over the limit is rejected, and nothing is stored. If a weekly re-download fails, the last good copy stays in use and the row says "Couldn't update this list".
+
+**Memory with Instant timezone protection (Firefox).** To set the time zone before a page's first script runs, GeoSpoof copies the sites of your groups and lists into the early script Firefox runs in pages. Each open site's page process holds that copy: in our tests, a 110,000-site list made each page process about 25 MB larger. Firefox gives each site its own process, so the cost grows with the number of sites you have open. Small groups cost little, and with Instant timezone protection off there is no copy.
 
 **Who sees the request.** The download goes from your browser straight to the link's host, without cookies. That host sees your IP address and that someone fetched the list, as with any download.
 

@@ -143,10 +143,14 @@ refuse it. See [cdk/README.md](../cdk/README.md#site-groups-catalog-publishing).
 - **Last good copy.** A token is rebuilt only from a newer release. If the newer
   release lacks the list or leaves it empty, the old entries stay and the token
   is flagged `missingUpstream`. A link whose re-download fails keeps its entries
-  and records `lastError`. The popup shows both on the row.
-- **Delivery.** When some token's entries changed, the background re-broadcasts to
-  tabs, updates the badge, re-registers the Firefox bootstrap and re-syncs
-  Engine-level Spoofing.
+  and records `lastError`. The popup's row shows a link's `lastError` ("Couldn't
+  update this list"); `missingUpstream` is kept in storage but not shown.
+- **Delivery.** When some token's entries changed, the data is written inside a
+  Firefox bootstrap write window, as a settings write is: the early scripts
+  built from the old data are removed first and the new ones registered after.
+  Then the background re-broadcasts to tabs, updates the badge and re-syncs
+  Engine-level Spoofing. An add that builds data for a token another entry
+  already references uses the same window.
 - **Safari.** `siteGroupsAvailable()` is false there, so none of this runs: no
   alarm and no request.
 
@@ -176,7 +180,9 @@ Nothing in CI deploys the CDK stack. From `cdk/`:
 3. `npm run deploy:prod`.
 4. Set the repository variable `SITE_GROUPS_PUBLISH_ROLE_ARN` to the
    `SiteGroupsPublishRoleArn` output. `EXT_CDN_BUCKET` and
-   `EXT_CDN_DISTRIBUTION_ID` are already set for the release workflow.
+   `EXT_CDN_DISTRIBUTION_ID` are already set for the release workflow. Until
+   this variable exists the workflow's job is skipped, so the weekly schedule
+   stays quiet between the merge and the deploy.
 5. Dispatch "Site groups catalog" from `main`.
 6. Check that `curl -sI https://cdn.geospoof.com/site-groups/v1/latest.json`
    returns 200 with `content-type: application/json`, and that the sha256 of the
