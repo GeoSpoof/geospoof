@@ -541,14 +541,14 @@
   },
   "advanced_debuggerMode": {
     "message": "Spoofing em nível de mecanismo",
-    "description": "Label for the Chrome-only toggle that spoofs the timezone deeper in the browser (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and applies before a page loads."
+    "description": "Label for the Chrome-only toggle that spoofs the timezone in the browser engine (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and cross-site frames, applied as early as Chrome allows."
   },
   "debuggerMode_infoAriaLabel": {
     "message": "Mais informações sobre o Spoofing em nível de mecanismo",
     "description": "Accessible label on the Engine-level Spoofing info icon."
   },
   "debuggerMode_tooltip": {
-    "message": "Apenas Chrome. Falsifica seu fuso horário em um nível mais profundo do navegador, abrangendo também os workers em segundo plano e sendo aplicado antes de a página carregar. Enquanto está ativo, o Chrome exibe uma barra com «GeoSpoof começou a depurar este navegador» — isso é normal. Deixe desativado para usar a proteção padrão.",
+    "message": "Apenas Chrome. Falsifica seu fuso horário no mecanismo do navegador, abrangendo também os workers em segundo plano e os frames de outros sites, e é aplicado o mais cedo que o Chrome permite. Enquanto está ativo, o Chrome exibe uma barra com «GeoSpoof começou a depurar este navegador» — isso é normal. Deixe desativado para usar a proteção padrão.",
     "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
   },
   "debuggerBannerHelp_text": {

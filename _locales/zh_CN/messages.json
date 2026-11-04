@@ -541,14 +541,14 @@
   },
   "advanced_debuggerMode": {
     "message": "引擎级伪造",
-    "description": "Label for the Chrome-only toggle that spoofs the timezone deeper in the browser (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and applies before a page loads."
+    "description": "Label for the Chrome-only toggle that spoofs the timezone in the browser engine (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and cross-site frames, applied as early as Chrome allows."
   },
   "debuggerMode_infoAriaLabel": {
     "message": "关于引擎级伪造的更多信息",
     "description": "Accessible label on the Engine-level Spoofing info icon."
   },
   "debuggerMode_tooltip": {
-    "message": "仅限 Chrome。在浏览器更深的层级伪造您的时区，因此也会覆盖后台 worker，并在页面加载前生效。开启时，Chrome 会显示“GeoSpoof 已开始调试此浏览器”提示栏——这是正常现象。如需使用标准保护，请保持关闭。",
+    "message": "仅限 Chrome。在浏览器引擎中伪造您的时区，因此也会覆盖后台 worker 和跨网站框架，并尽可能提早生效。开启时，Chrome 会显示“GeoSpoof 已开始调试此浏览器”提示栏——这是正常现象。如需使用标准保护，请保持关闭。",
     "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
   },
   "debuggerBannerHelp_text": {

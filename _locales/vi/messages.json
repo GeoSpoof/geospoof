@@ -541,14 +541,14 @@
   },
   "advanced_debuggerMode": {
     "message": "Giả mạo cấp engine",
-    "description": "Label for the Chrome-only toggle that spoofs the timezone deeper in the browser (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and applies before a page loads."
+    "description": "Label for the Chrome-only toggle that spoofs the timezone in the browser engine (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and cross-site frames, applied as early as Chrome allows."
   },
   "debuggerMode_infoAriaLabel": {
     "message": "Thêm thông tin về Giả mạo cấp engine",
     "description": "Accessible label on the Engine-level Spoofing info icon."
   },
   "debuggerMode_tooltip": {
-    "message": "Chỉ dành cho Chrome. Giả mạo múi giờ sâu hơn trong trình duyệt để cũng bao phủ các worker nền và có hiệu lực trước khi trang tải. Khi bật, Chrome hiển thị thanh “GeoSpoof started debugging this browser” — đó là điều bình thường. Hãy tắt nó để dùng bảo vệ tiêu chuẩn.",
+    "message": "Chỉ dành cho Chrome. Giả mạo múi giờ ngay trong engine của trình duyệt để cũng bao phủ các worker nền và khung của trang web khác, và có hiệu lực sớm nhất mà Chrome cho phép. Khi bật, Chrome hiển thị thanh “GeoSpoof started debugging this browser” — đó là điều bình thường. Hãy tắt nó để dùng bảo vệ tiêu chuẩn.",
     "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
   },
   "debuggerBannerHelp_text": {

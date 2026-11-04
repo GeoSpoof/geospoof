@@ -541,14 +541,14 @@
   },
   "advanced_debuggerMode": {
     "message": "Спуфинг на уровне движка",
-    "description": "Label for the Chrome-only toggle that spoofs the timezone deeper in the browser (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and applies before a page loads."
+    "description": "Label for the Chrome-only toggle that spoofs the timezone in the browser engine (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and cross-site frames, applied as early as Chrome allows."
   },
   "debuggerMode_infoAriaLabel": {
     "message": "Подробнее о спуфинге на уровне движка",
     "description": "Accessible label on the Engine-level Spoofing info icon."
   },
   "debuggerMode_tooltip": {
-    "message": "Только Chrome. Подменяет ваш часовой пояс глубже в браузере, поэтому защита также охватывает фоновые воркеры и действует ещё до загрузки страницы. Пока включено, Chrome показывает панель «GeoSpoof начал отладку этого браузера» — это нормально. Оставьте выключенным, чтобы использовать стандартную защиту.",
+    "message": "Только Chrome. Подменяет ваш часовой пояс в движке браузера, поэтому защита также охватывает фоновые воркеры и фреймы других сайтов и включается так рано, как позволяет Chrome. Пока включено, Chrome показывает панель «GeoSpoof начал отладку этого браузера» — это нормально. Оставьте выключенным, чтобы использовать стандартную защиту.",
     "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
   },
   "debuggerBannerHelp_text": {

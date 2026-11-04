@@ -541,14 +541,14 @@
   },
   "advanced_debuggerMode": {
     "message": "Pemalsuan tingkat mesin",
-    "description": "Label for the Chrome-only toggle that spoofs the timezone deeper in the browser (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and applies before a page loads."
+    "description": "Label for the Chrome-only toggle that spoofs the timezone in the browser engine (via the chrome.debugger API / Chrome DevTools Protocol) so it also covers background workers and cross-site frames, applied as early as Chrome allows."
   },
   "debuggerMode_infoAriaLabel": {
     "message": "Info selengkapnya tentang Pemalsuan tingkat mesin",
     "description": "Accessible label on the Engine-level Spoofing info icon."
   },
   "debuggerMode_tooltip": {
-    "message": "Hanya Chrome. Memalsukan zona waktu Anda lebih dalam di peramban sehingga juga mencakup worker latar belakang dan berlaku sebelum halaman dimuat. Saat aktif, Chrome menampilkan bilah “GeoSpoof mulai men-debug peramban ini” — itu normal. Biarkan nonaktif untuk menggunakan perlindungan standar.",
+    "message": "Hanya Chrome. Memalsukan zona waktu Anda di mesin peramban sehingga juga mencakup worker latar belakang dan frame lintas situs, serta berlaku sedini yang diizinkan Chrome. Saat aktif, Chrome menampilkan bilah “GeoSpoof mulai men-debug peramban ini” — itu normal. Biarkan nonaktif untuk menggunakan perlindungan standar.",
     "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
   },
   "debuggerBannerHelp_text": {

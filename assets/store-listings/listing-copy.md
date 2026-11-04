@@ -60,10 +60,10 @@ Pick a city, type exact coordinates, or let GeoSpoof match your VPN automaticall
 3️⃣ Auto background sync — switch VPN servers and your location follows automatically.
 4️⃣ Timezone too — clock and date match your location, so nothing gives you away.
 5️⃣ Block WebRTC leaks — keep your real IP hidden, even behind a VPN.
-6️⃣ Engine-level spoofing — deeper coverage that reaches workers and loads before the page.
+6️⃣ Engine-level spoofing — the browser engine applies your timezone, covering workers and cross-site frames, as early as Chrome allows.
 7️⃣ Anti-fingerprinting — every signal stays consistent, so your location holds up.
-8️⃣ Per-site control — allowlist or denylist which sites get spoofed.
-9️⃣ Save favorites — pin up to 10 places, switch in a tap.
+8️⃣ Per-site control — allowlist or denylist which sites get spoofed, or give a site its own location.
+9️⃣ Save favorites — pin up to 50 places, switch in a tap.
 🔟 No account, no tracking, no analytics — everything stays on your device.
 
 📍 Set your fake location any way you like
@@ -170,8 +170,8 @@ Pick a city, type exact coordinates, or let GeoSpoof match your VPN automaticall
 5. **Block WebRTC leaks** — keep your real IP hidden, even behind a VPN.
 6. **Worker-level timezone protection** — closes worker and cold-start leaks, with optional first-script coverage.
 7. **Anti-fingerprinting** — every signal stays consistent, so your location holds up.
-8. **Per-site control** — allowlist or denylist which sites get spoofed.
-9. **Save favorites** — pin up to 10 places, switch in a tap.
+8. **Per-site control** — allowlist or denylist which sites get spoofed, or give a site its own location.
+9. **Save favorites** — pin up to 50 places, switch in a tap.
 10. **No account, no tracking, no analytics** — everything stays on your device.
 
 **📍 Set your fake location any way you like**
