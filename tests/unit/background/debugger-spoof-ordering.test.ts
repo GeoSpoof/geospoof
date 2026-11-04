@@ -10,6 +10,7 @@ import type { Settings } from "@/shared/types/settings";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 import { storageData, sessionStorageData } from "../../setup";
 import { ENTRY_DUBLIN, TOKYO, TOKYO_TZ } from "../../helpers/site-locations";
+import { DELIVERY_WAIT_TIMEOUT_MS } from "@/background/debugger-sessions";
 
 type DebuggerSpoof = typeof import("@/background/debugger-spoof");
 
@@ -17,6 +18,54 @@ interface Call {
   target: ChromeDebugger.DebuggerSession;
   method: string;
   params?: Record<string, unknown>;
+}
+
+/**
+ * What a tab saw, in order: a zone command landing on one of its sessions,
+ * or a page delivery (push or GET_SETTINGS reply) and whether it lets the
+ * frames keep native Date/Intl (`native`: the realm's rule in
+ * settings-listener.ts, `engineTimezone` and `engineTimezoneSettled` not
+ * false).
+ */
+type TimelineEntry =
+  | { kind: "land"; target: ChromeDebugger.DebuggerSession; zone: unknown }
+  | { kind: "deliver"; tabId: number; zone: unknown; native: boolean };
+
+/** The timeline entry for a page payload delivered to `tabId`. */
+function deliveryEntry(
+  tabId: number,
+  payload:
+    | {
+        timezone?: { identifier?: string } | null;
+        engineTimezone?: boolean;
+        engineTimezoneSettled?: boolean;
+      }
+    | undefined
+): TimelineEntry {
+  return {
+    kind: "deliver",
+    tabId,
+    zone: payload?.timezone?.identifier,
+    native: payload?.engineTimezone === true && payload.engineTimezoneSettled !== false,
+  };
+}
+
+/**
+ * The zones that landed on the tab's sessions after a delivery that let its
+ * frames keep native Date/Intl, and differ from that delivery's zone: frames
+ * that trust their engine would then report another zone than their page's.
+ */
+function landedUnderNativeFrames(timeline: TimelineEntry[], tabId: number): unknown[] {
+  let page: Extract<TimelineEntry, { kind: "deliver" }> | undefined;
+  const wrong: unknown[] = [];
+  for (const e of timeline) {
+    if (e.kind === "deliver") {
+      if (e.tabId === tabId) page = e;
+    } else if (e.target.tabId === tabId && page?.native && e.zone !== page.zone) {
+      wrong.push(e.zone);
+    }
+  }
+  return wrong;
 }
 
 /** A promise and the function that resolves it. */
@@ -38,6 +87,8 @@ function target(url: string, attached: boolean): ChromeDebugger.TargetInfo {
 
 function fakeChromeDebugger() {
   const calls: Call[] = [];
+  /** Zone commands land here when they succeed; tests add page deliveries. */
+  const timeline: TimelineEntry[] = [];
   const gates: { method: string; settle: Promise<void> }[] = [];
   /** The next `method` command settles when the returned function is called: with an error, it rejects. */
   const holdNext = (method: string): ((error?: Error) => void) => {
@@ -68,7 +119,14 @@ function fakeChromeDebugger() {
       (t: ChromeDebugger.DebuggerSession, method: string, params?: Record<string, unknown>) => {
         calls.push({ target: t, method, params });
         const gate = gateFor(method);
-        return gate ? gate.then(() => undefined) : Promise.resolve(undefined);
+        const done = gate ? gate.then(() => undefined) : Promise.resolve(undefined);
+        if (method === "Emulation.setTimezoneOverride") {
+          void done.then(
+            () => timeline.push({ kind: "land", target: t, zone: params?.timezoneId }),
+            () => undefined
+          );
+        }
+        return done;
       }
     ),
     getTargets: vi.fn(() => lists.shift() ?? Promise.resolve(state.targets)),
@@ -81,7 +139,7 @@ function fakeChromeDebugger() {
     lists.push(d.promise);
     return d.resolve;
   };
-  return { dbg, calls, holdNext, holdTargets, state };
+  return { dbg, calls, timeline, holdNext, holdTargets, state };
 }
 
 /** The zones sent to one session, in order ("" is a revert). */
@@ -359,7 +417,21 @@ describe("a newer change delivered to a page while an older sync is in flight", 
   type Sent = { tabId: number; zone: unknown };
   let restoreTabs: () => void = () => {};
 
-  afterEach(() => restoreTabs());
+  afterEach(() => {
+    vi.useRealTimers();
+    restoreTabs();
+  });
+
+  /** The real `setTimeout`, kept for {@link runUntil} while fake timers stand in for it. */
+  const realSetTimeout = globalThis.setTimeout;
+
+  /** Let pending work run, without moving the fake clock, until `done()`. */
+  async function runUntil(done: () => boolean): Promise<void> {
+    for (let i = 0; i < 200 && !done(); i++) {
+      await new Promise((resolve) => realSetTimeout(resolve, 0));
+    }
+    expect(done()).toBe(true);
+  }
 
   /**
    * A held tab whose engine already reports LA, with a cross-site iframe's
@@ -397,8 +469,9 @@ describe("a newer change delivered to a page while an older sync is in flight", 
       { id: OTHER_TAB, url: "https://other.example/" },
     ]);
     browser.tabs.sendMessage = vi.fn(
-      (tabId: number, message: { payload?: { timezone?: { identifier?: string } } }) => {
+      (tabId: number, message: { payload?: Parameters<typeof deliveryEntry>[1] }) => {
         sent.push({ tabId, zone: message.payload?.timezone?.identifier });
+        fake.timeline.push(deliveryEntry(tabId, message.payload));
         if (tabId !== OTHER_TAB) return Promise.resolve(undefined);
         return held.get(++otherSends) ?? Promise.resolve(undefined);
       }
@@ -417,7 +490,16 @@ describe("a newer change delivered to a page while an older sync is in flight", 
         { latitude: point.latitude, longitude: point.longitude },
         { fromVpnSync: true, locationName: NAME }
       );
-    return { sent, hold, setLocation };
+    /** The tab's top frame asks for its settings; the reply goes on the timeline when it arrives. */
+    const getSettings = async () => {
+      const reply = (await messages.handleMessage(
+        { type: "GET_SETTINGS", payload: { topFrame: true } },
+        { frameId: 0, url: MAIN_URL, tab: { id: TAB, url: MAIN_URL } as browser.tabs.Tab }
+      )) as Parameters<typeof deliveryEntry>[1];
+      fake.timeline.push(deliveryEntry(TAB, reply));
+      return reply;
+    };
+    return { sent, hold, setLocation, getSettings };
   }
 
   const delivered = (sent: Sent[], tabId: number, zone: string): boolean =>
@@ -472,6 +554,85 @@ describe("a newer change delivered to a page while an older sync is in flight", 
     await older;
     await newer;
     expect(zonesSentTo(fake.calls.slice(atStart), CHILD)).not.toContain("Asia/Tokyo");
+    expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe(LA_ID);
+    expect(zonesSentTo(fake.calls, CHILD).at(-1)).toBe(LA_ID);
+  });
+
+  test("the older sync's root command lands after the newer push stopped waiting for it: that push lets no frame keep native Date/Intl", async () => {
+    const { sent, hold, setLocation, getSettings } = await heldOnLa();
+    const releaseRoot = fake.holdNext("Emulation.setTimezoneOverride");
+    const older = setLocation(TOKYO);
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe("Asia/Tokyo"));
+
+    // The newer change (LA) waits on the other tab before its own sync, and
+    // its push to this tab waits on the older root command, past the bound.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const releaseOther = hold(2);
+    const newer = setLocation(LA_POINT);
+    await runUntil(() => delivered(sent, OTHER_TAB, LA_ID));
+    await vi.advanceTimersByTimeAsync(DELIVERY_WAIT_TIMEOUT_MS - 1);
+    expect(delivered(sent, TAB, LA_ID)).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await runUntil(() => delivered(sent, TAB, LA_ID));
+    vi.useRealTimers();
+    expect(fake.timeline.filter((e) => e.kind === "deliver" && e.tabId === TAB).at(-1)).toEqual({
+      kind: "deliver",
+      tabId: TAB,
+      zone: LA_ID,
+      native: false,
+    });
+
+    // The older root command lands only now, then the newer sync runs.
+    releaseRoot();
+    await older;
+    releaseOther();
+    await newer;
+    expect(landedUnderNativeFrames(fake.timeline, TAB)).toEqual([]);
+    expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe(LA_ID);
+    expect(zonesSentTo(fake.calls, CHILD).at(-1)).toBe(LA_ID);
+    // With nothing older in flight, a delivery lets frames check their engine again.
+    expect((await getSettings())?.engineTimezoneSettled).toBe(true);
+  });
+
+  test("the older sync's root command lands after a GET_SETTINGS reply stopped waiting for it: that reply lets no frame keep native Date/Intl", async () => {
+    const { sent, hold, setLocation, getSettings } = await heldOnLa();
+    const releaseRoot = fake.holdNext("Emulation.setTimezoneOverride");
+    const older = setLocation(TOKYO);
+    await vi.waitFor(() => expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe("Asia/Tokyo"));
+
+    // The newer change (LA) is stored; its broadcast reaches only the other
+    // tab and waits there, before its own sync.
+    vi.mocked(browser.tabs.query).mockResolvedValueOnce([
+      { id: OTHER_TAB, url: "https://other.example/" },
+    ] as browser.tabs.Tab[]);
+    const releaseOther = hold(2);
+    const newer = setLocation(LA_POINT);
+    await vi.waitFor(() => expect(delivered(sent, OTHER_TAB, LA_ID)).toBe(true));
+
+    // The tab's top frame asks for its settings meanwhile. The reply waits on
+    // the older root command, past the bound.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let replied = false;
+    const reply = getSettings().finally(() => {
+      replied = true;
+    });
+    await vi.advanceTimersByTimeAsync(DELIVERY_WAIT_TIMEOUT_MS - 1);
+    expect(replied).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await runUntil(() => replied);
+    vi.useRealTimers();
+    expect(await reply).toMatchObject({
+      timezone: { identifier: LA_ID },
+      engineTimezone: true,
+      engineTimezoneSettled: false,
+    });
+
+    // The older root command lands only now, then the newer sync runs.
+    releaseRoot();
+    await older;
+    releaseOther();
+    await newer;
+    expect(landedUnderNativeFrames(fake.timeline, TAB)).toEqual([]);
     expect(zonesSentTo(fake.calls, ROOT).at(-1)).toBe(LA_ID);
     expect(zonesSentTo(fake.calls, CHILD).at(-1)).toBe(LA_ID);
   });

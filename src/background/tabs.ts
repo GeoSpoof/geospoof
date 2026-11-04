@@ -52,16 +52,18 @@ export async function sendSettingsToTab(
     return false;
   }
 
-  const payload = await buildPagePayload(settings, tab.url);
+  // Chromium Engine-level: from here an older settings sync can't change this
+  // tab's engine zone under the page. Waits for its commands in flight; if one
+  // can still land, no frame keeps native Date/Intl on this delivery.
+  const engineTimezoneSettled =
+    !__CHROMIUM__ || (await beforePageDelivery(tab.id, settings, tab.url));
+
+  const payload = await buildPagePayload(settings, tab.url, { engineTimezoneSettled });
   const message: UpdateSettingsMessage = {
     type: "UPDATE_SETTINGS",
     payload,
     ...revisionField(settings),
   };
-
-  // Chromium Engine-level: from here an older settings sync can't change this
-  // tab's engine zone under the page; waits for its commands in flight.
-  if (__CHROMIUM__) await beforePageDelivery(tab.id, settings, tab.url);
 
   try {
     await browser.tabs.sendMessage(tab.id, message);

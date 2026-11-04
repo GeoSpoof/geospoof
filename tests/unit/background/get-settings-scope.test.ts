@@ -292,8 +292,8 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
       }
 
       expect(seen).toEqual([
-        { prerendering: true, withoutSiteLocation: false },
-        { prerendering: false, withoutSiteLocation: false },
+        { prerendering: true, withoutSiteLocation: false, engineTimezoneSettled: true },
+        { prerendering: false, withoutSiteLocation: false, engineTimezoneSettled: true },
       ]);
     });
 

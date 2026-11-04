@@ -66,6 +66,13 @@ let spoofedLocale: SpoofedLocalePayload | null = null;
  */
 let engineTimezone = false;
 
+/**
+ * Mirrors the payload's `engineTimezoneSettled`: false when an older zone
+ * command to the tab can still land, so no realm keeps native Date/Intl on
+ * this delivery. Defaults to true.
+ */
+let engineTimezoneSettled = true;
+
 // Event name for settings updates (configurable for stealth)
 const EVENT_NAME: string = process.env.EVENT_NAME || "__x_evt";
 
@@ -108,6 +115,8 @@ interface SettingsEventDetail {
   timezone: Timezone | null;
   /** Engine-level Spoofing sets the zone in the engine for this page. */
   engineTimezone: boolean;
+  /** No older zone command to the tab can still land (see `engineTimezoneSettled`). */
+  engineTimezoneSettled: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   webrtcProtection: boolean;
@@ -151,6 +160,7 @@ function buildSettingsEventDetail(): SettingsEventDetail {
     location: spoofedLocation ? { ...spoofedLocation, accuracySetting, accuracySeed } : null,
     timezone: timezoneOverride,
     engineTimezone,
+    engineTimezoneSettled,
     debugLogging,
     verbosityLevel,
     webrtcProtection,
@@ -236,6 +246,7 @@ interface ReceivedSettings {
   location: Location | null;
   timezone: Timezone | null;
   engineTimezone?: boolean;
+  engineTimezoneSettled?: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   webrtcProtection?: boolean;
@@ -267,6 +278,7 @@ function applySettings(settings: ReceivedSettings, logLabel: string): void {
   spoofedLocation = settings.location;
   timezoneOverride = settings.timezone;
   engineTimezone = settings.engineTimezone ?? false;
+  engineTimezoneSettled = settings.engineTimezoneSettled ?? true;
   accuracySetting = settings.accuracySetting;
   accuracySeed = settings.accuracySeed;
   debugLogging = settings.debugLogging;

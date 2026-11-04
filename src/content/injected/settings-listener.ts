@@ -96,12 +96,17 @@ export function installSettingsListener(): void {
       // otherwise (a cross-site iframe in its own process, a refused or
       // cancelled session, an override that hasn't landed) it installs the
       // overrides for it, so every realm reports its top-level page's zone.
-      // Re-checked on every settings event.
+      // Re-checked on every settings event. When an older zone command to the
+      // tab can still land (`engineTimezoneSettled` false), what the engine
+      // reports now may not last, so the overrides take the zone; the realm
+      // stays in engine mode, so its workers keep re-checking the real zone.
       const engineMode = event.detail.engineTimezone === true;
+      const engineSettled = event.detail.engineTimezoneSettled !== false;
       setEngineTimezoneMode(engineMode);
       if (event.detail.timezone) {
         if (validateTimezoneData(event.detail.timezone)) {
-          const engineOwned = engineMode && engineReportsZone(event.detail.timezone.identifier);
+          const engineOwned =
+            engineMode && engineSettled && engineReportsZone(event.detail.timezone.identifier);
           setTimezoneData(engineOwned ? null : event.detail.timezone);
           // `document.lastModified` sits below the engine's emulation, so its
           // override still needs the zone where the engine owns Date/Intl.

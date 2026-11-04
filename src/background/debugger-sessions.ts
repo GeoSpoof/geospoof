@@ -68,7 +68,11 @@ export const CHILD_AUTO_ATTACH = {
 /** The bound on each step of setting up an attached child, before any resume. */
 export const CHILD_RESUME_TIMEOUT_MS = 1000;
 
-/** The bound on how long a page delivery waits for older zone commands to its tab. */
+/**
+ * The bound on how long a page delivery waits for older zone commands to its
+ * tab. A delivery that reaches it goes out unsettled (see {@link
+ * TabSessionTracker.deliver}).
+ */
 export const DELIVERY_WAIT_TIMEOUT_MS = 1000;
 
 /**
@@ -181,12 +185,16 @@ export class TabSessionTracker {
    * the page may keep native Date/Intl because its engine already reports
    * that zone, so from now on a reconcile that read older settings sends
    * nothing to the tab that would set another zone (see {@link allows}).
-   * Resolves once the commands such reconciles already have in flight to the
-   * tab settle, so the page checks its engine after they land, or after
-   * `timeoutMs`. A delivery with no revision, or an older one than the tab
-   * already had, isn't recorded. Never rejects.
+   * Waits, at most `timeoutMs`, for the commands such reconciles already have
+   * in flight to the tab. Resolves true when none of them can still land
+   * (none was in flight, or they all settled), so the page checks its engine
+   * after they did. Resolves false when one is still in flight at the bound:
+   * it can land after the page has checked its engine, so the delivery must
+   * not let a frame keep native Date/Intl (`engineTimezoneSettled` false). A
+   * delivery with no revision, or an older one than the tab already had,
+   * isn't recorded. Never rejects.
    */
-  deliver(tabId: number, plan: TabPlan, timeoutMs = DELIVERY_WAIT_TIMEOUT_MS): Promise<void> {
+  deliver(tabId: number, plan: TabPlan, timeoutMs = DELIVERY_WAIT_TIMEOUT_MS): Promise<boolean> {
     if (
       plan.revision !== undefined &&
       !isOlderRevision(plan.revision, this.delivered.get(tabId)?.revision)
@@ -196,11 +204,11 @@ export class TabSessionTracker {
     const older = [...(this.inFlight.get(tabId) ?? [])]
       .filter((c) => !this.allows(tabId, c.plan))
       .map((c) => c.done);
-    if (older.length === 0) return Promise.resolve();
+    if (older.length === 0) return Promise.resolve(true);
     return withTimeout(
-      Promise.allSettled(older).then(() => undefined),
+      Promise.allSettled(older).then(() => true),
       timeoutMs,
-      undefined
+      false
     );
   }
 

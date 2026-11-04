@@ -168,6 +168,14 @@ export async function handleMessage(
           (message.payload as GetSettingsPayload | undefined)?.topFrame === true;
         const pageUrl = topLevelUrlForSender(_sender, claimsTopFrame);
 
+        // Chromium Engine-level, as for a push (sendSettingsToTab). Not for a
+        // prerendering document: the tab's session doesn't reach it.
+        const engineTimezoneSettled =
+          !__CHROMIUM__ ||
+          senderTabId == null ||
+          isPrerendering(_sender) ||
+          (await beforePageDelivery(senderTabId, settings, pageUrl));
+
         // Effective_Enabled resolves to false when the URL is missing,
         // unparseable, restricted, or out of scope (Req 8.7). The shared
         // builder also sets `engineTimezone` in Chromium debugger mode, as the
@@ -178,6 +186,7 @@ export async function handleMessage(
         const payload = await buildPagePayload(settings, pageUrl, {
           prerendering: isPrerendering(_sender),
           withoutSiteLocation: isUndeterminedPrerenderedFrame(_sender, claimsTopFrame),
+          engineTimezoneSettled,
         });
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
@@ -201,11 +210,6 @@ export async function handleMessage(
         // from, so the content script can drop a reply built from settings
         // older than a push it has already applied.
         const reply: ContentSettingsReply = { ...payload, ...revisionField(settings) };
-        // Chromium Engine-level, as for a push (sendSettingsToTab). Not for a
-        // prerendering document: the tab's session doesn't reach it.
-        if (__CHROMIUM__ && senderTabId != null && !isPrerendering(_sender)) {
-          await beforePageDelivery(senderTabId, settings, pageUrl);
-        }
         return reply;
       }
 

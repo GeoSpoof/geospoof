@@ -705,31 +705,34 @@ describe("a page delivered newer settings", () => {
     const older = holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS, 1);
     await vi.waitFor(() => expect(zonesSentTo(calls, ROOT)).toEqual(["Asia/Tokyo"]));
     let delivered = false;
-    const delivery = tracker.deliver(TAB, { revision: 2, zone: LA }).then(() => {
+    const delivery = tracker.deliver(TAB, { revision: 2, zone: LA }).then((settled) => {
       delivered = true;
+      return settled;
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(delivered).toBe(false);
     release();
-    await delivery;
+    // Settled: nothing older can land after it.
+    expect(await delivery).toBe(true);
     expect(await older).toBe(false);
     expect(zonesSentTo(calls, CHILD)).toEqual([]);
   });
 
-  test("a command in flight that never settles holds the delivery for the bound only", async () => {
+  test("a command in flight that never settles holds the delivery for the bound only, which then goes out unsettled", async () => {
     vi.useFakeTimers();
     const { dbg } = fakeDebugger({ "Emulation.setTimezoneOverride": "hang" });
     const tracker = new TabSessionTracker();
     tracker.markHeld(TAB);
     void holdTab(dbg, tracker, TAB, "Asia/Tokyo", tracker.begin(TAB), OPTS, 1);
-    let delivered = false;
-    void tracker.deliver(TAB, { revision: 2, zone: LA }, 1000).then(() => {
-      delivered = true;
+    let settled: boolean | undefined;
+    void tracker.deliver(TAB, { revision: 2, zone: LA }, 1000).then((s) => {
+      settled = s;
     });
     await vi.advanceTimersByTimeAsync(999);
-    expect(delivered).toBe(false);
+    expect(settled).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
-    expect(delivered).toBe(true);
+    // The Tokyo command can still land, so no frame may keep native Date/Intl.
+    expect(settled).toBe(false);
   });
 
   test("a delivery doesn't wait for a command with its own zone", async () => {
@@ -739,7 +742,7 @@ describe("a page delivered newer settings", () => {
     const release = holdNext("Emulation.setTimezoneOverride");
     const hold = holdTab(dbg, tracker, TAB, LA, tracker.begin(TAB), OPTS, 1);
     await vi.waitFor(() => expect(zonesSentTo(calls, ROOT)).toEqual([LA]));
-    await tracker.deliver(TAB, { revision: 2, zone: LA });
+    expect(await tracker.deliver(TAB, { revision: 2, zone: LA })).toBe(true);
     release();
     expect(await hold).toBe(true);
   });

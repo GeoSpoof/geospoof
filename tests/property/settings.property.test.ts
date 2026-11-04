@@ -104,8 +104,10 @@ const REQUIRED_KEYS: (keyof UpdateSettingsPayload)[] = [
   "location",
   "timezone",
   // Engine-level Spoofing (Chromium): the engine sets the zone, and each frame
-  // keeps native Date/Intl only where it already reports it.
+  // keeps native Date/Intl only where it already reports it, and only once no
+  // older zone command to the tab can still land.
   "engineTimezone",
+  "engineTimezoneSettled",
   "debugLogging",
   "verbosityLevel",
   // webrtcProtection is forwarded to the injected script via the

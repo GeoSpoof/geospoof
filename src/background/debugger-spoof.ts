@@ -167,14 +167,17 @@ function planForTab(settings: Settings, url: string | undefined): TabPlan {
  * would set another zone, and this waits (at most
  * `DELIVERY_WAIT_TIMEOUT_MS`) for such commands already in flight to it, so
  * the frames check their engine after those land. Ordered by #205's settings
- * revision. No-op off Chromium. Never rejects.
+ * revision. Resolves the payload's `engineTimezoneSettled`: false when such a
+ * command is still in flight at the bound, so no frame keeps native Date/Intl
+ * on this delivery (the command can still move the engine to the older zone
+ * under it). True off Chromium. Never rejects.
  */
 export function beforePageDelivery(
   tabId: number,
   settings: Settings,
   pageUrl: string | undefined
-): Promise<void> {
-  if (!__CHROMIUM__) return Promise.resolve();
+): Promise<boolean> {
+  if (!__CHROMIUM__) return Promise.resolve(true);
   return tracker.deliver(tabId, planForTab(settings, pageUrl));
 }
 

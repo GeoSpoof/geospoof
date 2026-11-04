@@ -59,6 +59,13 @@ export interface SettingsEventDetail {
    * whose engine doesn't installs the overrides for it. Absent means false.
    */
   engineTimezone?: boolean;
+  /**
+   * With `engineTimezone`: false when an older zone command to the tab can
+   * still land, so the engine may yet move to another zone. No realm keeps
+   * native Date/Intl on this event; the overrides take `timezone`. Absent
+   * means true.
+   */
+  engineTimezoneSettled?: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   /**

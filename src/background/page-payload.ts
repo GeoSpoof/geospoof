@@ -48,6 +48,12 @@ export interface PagePayloadOptions {
    * builds aren't Chromium.
    */
   engineTimezone?: boolean;
+  /**
+   * The payload's `engineTimezoneSettled`: false when an older zone command
+   * to the tab was still in flight when `beforePageDelivery`'s wait ran out.
+   * Defaults to true.
+   */
+  engineTimezoneSettled?: boolean;
 }
 
 /**
@@ -91,6 +97,8 @@ export async function buildPagePayload(
   // can't make it reliably prompt-free). WebRTC is independent. Compiled out on
   // Firefox/Safari. A prerendering document gets `engineTimezone: false`: CDP
   // isn't attached to it, and its re-request when it's shown sets the flag.
+  // `engineTimezoneSettled` false (an older zone command can still land) keeps
+  // every frame on the injected overrides for this delivery.
   const debuggerActive =
     (options.engineTimezone ?? (__CHROMIUM__ && settings.debuggerModeEnabled)) &&
     options.prerendering !== true;
@@ -107,6 +115,7 @@ export async function buildPagePayload(
     location: await resolveCurrentPageLocation(r.settings),
     timezone: r.settings.timezone,
     engineTimezone: debuggerActive,
+    engineTimezoneSettled: options.engineTimezoneSettled ?? true,
     debugLogging: settings.debugLogging,
     verbosityLevel: settings.verbosityLevel,
     webrtcProtection: settings.webrtcProtection,

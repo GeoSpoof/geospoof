@@ -42,7 +42,12 @@ const HOST_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 /** A zone whose current offset differs from the host's. */
 const OTHER_ZONE = new Date().getTimezoneOffset() === -540 ? "America/Los_Angeles" : "Asia/Tokyo";
 
-function dispatch(state: State, identifier: string, engineTimezone?: boolean): void {
+function dispatch(
+  state: State,
+  identifier: string,
+  engineTimezone?: boolean,
+  engineTimezoneSettled?: boolean
+): void {
   const detail: Record<string, unknown> = {
     enabled: true,
     location: null,
@@ -54,6 +59,7 @@ function dispatch(state: State, identifier: string, engineTimezone?: boolean): v
     locale: null,
   };
   if (engineTimezone !== undefined) detail.engineTimezone = engineTimezone;
+  if (engineTimezoneSettled !== undefined) detail.engineTimezoneSettled = engineTimezoneSettled;
   window.dispatchEvent(new CustomEvent(state.EVENT_NAME, { detail }));
 }
 
@@ -73,6 +79,19 @@ describe("Engine-level Spoofing: per-realm ownership of the zone", () => {
     expect(state.timezoneData?.identifier).toBe(OTHER_ZONE);
     expect(state.engineTimezoneMode).toBe(true);
     expect(state.engineTimezoneData).toBeNull();
+  });
+
+  test("an older zone command can still land: the injected overrides take the zone, even the engine's own, in engine mode", async () => {
+    const { state } = await load();
+    dispatch(state, HOST_ZONE, true, false);
+    expect(state.timezoneData?.identifier).toBe(HOST_ZONE);
+    // Still engine mode, so the workers this realm starts re-check the real zone.
+    expect(state.engineTimezoneMode).toBe(true);
+    expect(state.engineTimezoneData).toBeNull();
+    // The next settled delivery checks the engine again.
+    dispatch(state, HOST_ZONE, true, true);
+    expect(state.timezoneData).toBeNull();
+    expect(state.engineTimezoneData?.identifier).toBe(HOST_ZONE);
   });
 
   test("without the flag, the zone is installed as before, even the engine's own", async () => {

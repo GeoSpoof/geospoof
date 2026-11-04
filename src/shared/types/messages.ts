@@ -167,6 +167,16 @@ export interface UpdateSettingsPayload {
    * is prerendering. The page world gets only this boolean, never the real zone.
    */
   engineTimezone: boolean;
+  /**
+   * With `engineTimezone`: false when an older zone command to this tab was
+   * still in flight after the background stopped waiting for it, so the
+   * engine can still move to another zone. No frame keeps native Date/Intl
+   * on such a delivery, whatever its engine reports when it arrives: the
+   * injected overrides take `timezone`, and the frame stays in Engine-level
+   * mode, so the workers it starts keep re-checking the engine's zone. True
+   * otherwise.
+   */
+  engineTimezoneSettled: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   /**
