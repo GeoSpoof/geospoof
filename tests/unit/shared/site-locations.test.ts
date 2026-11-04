@@ -7,7 +7,9 @@ import {
   MAX_SITE_LOCATIONS,
 } from "@/shared/types/settings";
 import { parsePattern } from "@/shared/utils/scope";
+import { createSiteGroupLookup, frameEntries } from "@/shared/site-groups/matcher";
 import {
+  compareSiteLocationScore,
   compareSpecificity,
   matchSiteLocation,
   parseSiteLocationPattern,
@@ -104,6 +106,10 @@ describe("siteLocationSpecificity", () => {
     ["127.0.0.1", [4, 0, 1, 0]],
     ["localhost", [1, 0, 1, 0]],
     ["localhost:3000", [1, 0, 1, 1]],
+    ["=www.example.com", [3, 2, 1, 0]],
+    ["=example.com", [2, 2, 1, 0]],
+    ["=https://example.com:8443", [2, 2, 2, 1]],
+    ["=localhost", [1, 2, 1, 0]],
   ] as const)("%s → %j", (pattern, expected) => {
     expect(siteLocationSpecificity(pattern)).toEqual(expected);
   });
@@ -191,6 +197,166 @@ describe("matchSiteLocation precedence", () => {
     expect(matchSiteLocation("https://xn--mnchen-3ya.de/", [entry])?.pattern).toBe("münchen.de");
     expect(matchSiteLocation("https://www.xn--mnchen-3ya.de/x", [entry])).not.toBeNull();
     expect(matchSiteLocation("https://muenchen.de/", [entry])).toBeNull();
+  });
+});
+
+/**
+ * Group data in the shape of the 2026-11-04 catalog sizes: YouTube (178) is
+ * narrower than Google (966), which is narrower than geolocation-!cn (25,205).
+ */
+const GROUP_LOOKUP = createSiteGroupLookup({
+  "geosite:youtube": { d: frameEntries(["youtube.com", "ytimg.com"]), f: frameEntries([]), n: 178 },
+  "geosite:google": {
+    d: frameEntries(["google.com", "google.ru", "youtube.com", "ytimg.com"]),
+    f: frameEntries([]),
+    n: 966,
+  },
+  "geosite:geolocation-!cn": {
+    d: frameEntries(["google.com", "google.ru", "youtube.com", "twitch.tv"]),
+    f: frameEntries([]),
+    n: 25_205,
+  },
+  "geosite:twitch": { d: frameEntries(["twitch.tv"]), f: frameEntries([]), n: 10 },
+  "list:https://example.org/streaming.txt": {
+    d: frameEntries(["twitch.tv"]),
+    f: frameEntries([]),
+    n: 10,
+  },
+});
+
+describe("matchSiteLocation precedence with site groups", () => {
+  const youtube = makeSiteLocation({ id: "youtube", patterns: ["geosite:youtube"] });
+  const google = makeSiteLocation({ id: "google", patterns: ["geosite:google"] });
+  const world = makeSiteLocation({ id: "world", patterns: ["geosite:geolocation-!cn"] });
+
+  it("the smaller group wins: YouTube beats Google beats geolocation-!cn", () => {
+    const all = [world, google, youtube];
+    expect(matchSiteLocation("https://www.youtube.com/", all, GROUP_LOOKUP)?.entry.id).toBe(
+      "youtube"
+    );
+    expect(matchSiteLocation("https://www.google.com/", all, GROUP_LOOKUP)?.entry.id).toBe(
+      "google"
+    );
+    expect(matchSiteLocation("https://www.twitch.tv/", all, GROUP_LOOKUP)?.entry.id).toBe("world");
+    expect(matchSiteLocation("https://www.youtube.com/", all, GROUP_LOOKUP)?.pattern).toBe(
+      "geosite:youtube"
+    );
+  });
+
+  it("a typed *.ru beats the Google group on google.ru", () => {
+    const ru = makeSiteLocation({ id: "ru", patterns: ["*.ru"] });
+    expect(matchSiteLocation("https://google.ru/", [google, ru], GROUP_LOOKUP)?.entry.id).toBe(
+      "ru"
+    );
+  });
+
+  it("a typed google.ru in the Google location takes it back", () => {
+    const ru = makeSiteLocation({ id: "ru", patterns: ["*.ru"] });
+    const googlePlus = makeSiteLocation({
+      id: "google",
+      patterns: ["geosite:google", "google.ru"],
+    });
+    const m = matchSiteLocation("https://google.ru/", [ru, googlePlus], GROUP_LOOKUP);
+    expect(m?.entry.id).toBe("google");
+    expect(m?.pattern).toBe("google.ru");
+  });
+
+  it("an entry scores its best match: its typed entry over its own group", () => {
+    const mixed = makeSiteLocation({ id: "mixed", patterns: ["geosite:youtube", "*.com"] });
+    expect(matchSiteLocation("https://www.youtube.com/", [mixed], GROUP_LOOKUP)?.pattern).toBe(
+      "*.com"
+    );
+  });
+
+  it("exact beats *. beats bare for one host", () => {
+    const exact = makeSiteLocation({ id: "exact", patterns: ["=www.example.com"] });
+    const bare = makeSiteLocation({ id: "bare", patterns: ["www.example.com"] });
+    const sub = makeSiteLocation({ id: "sub", patterns: ["*.example.com"] });
+    const apex = makeSiteLocation({ id: "apex", patterns: ["example.com"] });
+    const url = "https://www.example.com/";
+    expect(matchSiteLocation(url, [apex, sub, bare, exact])?.entry.id).toBe("exact");
+    expect(matchSiteLocation(url, [apex, sub, bare])?.entry.id).toBe("bare");
+    expect(matchSiteLocation(url, [apex, sub])?.entry.id).toBe("sub");
+    const apexExact = makeSiteLocation({ id: "apexExact", patterns: ["=example.com"] });
+    expect(matchSiteLocation("https://example.com/", [apex, apexExact])?.entry.id).toBe(
+      "apexExact"
+    );
+    expect(matchSiteLocation(url, [apexExact])).toBeNull();
+  });
+
+  it("groups of one size tie on updatedAt, then id", () => {
+    const a = makeSiteLocation({ id: "a", updatedAt: 1, patterns: ["geosite:twitch"] });
+    const b = makeSiteLocation({
+      id: "b",
+      updatedAt: 2,
+      patterns: ["list:https://example.org/streaming.txt"],
+    });
+    const url = "https://www.twitch.tv/";
+    expect(matchSiteLocation(url, [a, b], GROUP_LOOKUP)?.entry.id).toBe("b");
+    expect(matchSiteLocation(url, [b, a], GROUP_LOOKUP)?.entry.id).toBe("b");
+    const b2 = { ...b, updatedAt: 1 };
+    expect(matchSiteLocation(url, [b2, a], GROUP_LOOKUP)?.entry.id).toBe("a");
+  });
+
+  it("without a lookup, or for a token without data, groups match nothing", () => {
+    expect(matchSiteLocation("https://www.youtube.com/", [youtube])).toBeNull();
+    const netflix = makeSiteLocation({ patterns: ["geosite:netflix"] });
+    expect(matchSiteLocation("https://netflix.com/", [netflix], GROUP_LOOKUP)).toBeNull();
+    expect(matchSiteLocation("not a url", [youtube], GROUP_LOOKUP)).toBeNull();
+  });
+
+  it("compareSiteLocationScore orders tiers, then specificity or size", () => {
+    expect(
+      compareSiteLocationScore({ tier: 1, spec: [1, 1, 0, 0] }, { tier: 0, size: 1 })
+    ).toBeGreaterThan(0);
+    expect(
+      compareSiteLocationScore({ tier: 0, size: 178 }, { tier: 0, size: 966 })
+    ).toBeGreaterThan(0);
+    expect(compareSiteLocationScore({ tier: 0, size: 5 }, { tier: 0, size: 5 })).toBe(0);
+    expect(
+      compareSiteLocationScore({ tier: 1, spec: [2, 0, 1, 0] }, { tier: 1, spec: [2, 1, 1, 0] })
+    ).toBeLessThan(0);
+  });
+});
+
+describe("resolveSiteSettings with site groups", () => {
+  it("passes the lookup to Filters and the per-site match", () => {
+    const youtube = makeSiteLocation({ id: "youtube", patterns: ["geosite:youtube"] });
+    const settings = makeSettings({
+      scopeMode: "allowlist",
+      allowlist: ["geosite:google"],
+      siteLocations: [youtube],
+    });
+    const r = resolveSiteSettings(
+      settings,
+      "https://www.youtube.com/",
+      isRestrictedUrl,
+      GROUP_LOOKUP
+    );
+    expect(r.enabled).toBe(true);
+    expect(r.siteLocation).toBe(youtube);
+    expect(r.matchedPattern).toBe("geosite:youtube");
+    // Without the lookup the allowlist group matches nothing, so it is off.
+    expect(resolveSiteSettings(settings, "https://www.youtube.com/", isRestrictedUrl).enabled).toBe(
+      false
+    );
+  });
+
+  it("a denylist group keeps its sites off and the entry unapplied", () => {
+    const youtube = makeSiteLocation({ id: "youtube", patterns: ["geosite:youtube"] });
+    const settings = makeSettings({
+      scopeMode: "denylist",
+      denylist: ["geosite:google"],
+      siteLocations: [youtube],
+    });
+    const r = resolveSiteSettings(
+      settings,
+      "https://www.youtube.com/",
+      isRestrictedUrl,
+      GROUP_LOOKUP
+    );
+    expect(r.enabled).toBe(false);
+    expect(r.siteLocation).toBeNull();
   });
 });
 
@@ -399,6 +565,52 @@ describe("validateSiteLocations", () => {
     const bad = { ...makeSiteLocation({ id: "x", patterns: ["a.com"] }), kind: "proxy" };
     const good = makeSiteLocation({ id: "x", patterns: ["a.com"] });
     expect(validateSiteLocations([bad, good])).toEqual([good]);
+  });
+
+  it("keeps exact, group and link entries, canonicalized", () => {
+    const [out] = validateSiteLocations([
+      {
+        ...valid,
+        patterns: [
+          "GeoSite:Google@CN",
+          "=Mail.Example.com",
+          "list:https://example.org/a.txt#x",
+          "=1.2.3.4",
+          "geosite:",
+          "=example.com/path",
+        ],
+      },
+    ]);
+    expect(out.patterns).toEqual([
+      "geosite:google@cn",
+      "=mail.example.com",
+      "list:https://example.org/a.txt",
+      "1.2.3.4",
+    ]);
+  });
+
+  it("an entry holding only a group token survives", () => {
+    const entry = makeSiteLocation({ patterns: ["geosite:google"] });
+    expect(validateSiteLocations([entry])).toEqual([entry]);
+  });
+
+  it("a token has one owner across entries; exact and bare are different entries", () => {
+    const a = makeSiteLocation({ id: "a", patterns: ["geosite:google", "=example.com"] });
+    const b = makeSiteLocation({ id: "b", patterns: ["geosite:google", "example.com"] });
+    const c = makeSiteLocation({ id: "c", patterns: ["GEOSITE:google", "=EXAMPLE.com"] });
+    const out = validateSiteLocations([a, b, c]);
+    expect(out.map((e) => [e.id, e.patterns])).toEqual([
+      ["a", ["geosite:google", "=example.com"]],
+      ["b", ["example.com"]],
+    ]);
+  });
+
+  it(`a group counts once toward the cap of ${MAX_PATTERNS_PER_SITE_LOCATION}`, () => {
+    const typed = Array.from({ length: MAX_PATTERNS_PER_SITE_LOCATION - 1 }, (_, i) => `s${i}.com`);
+    const patterns = ["geosite:google", "geosite:google", ...typed, "overflow.com"];
+    const [out] = validateSiteLocations([{ ...valid, patterns }]);
+    expect(out.patterns).toEqual(["geosite:google", ...typed]);
+    expect(out.patterns).toHaveLength(MAX_PATTERNS_PER_SITE_LOCATION);
   });
 
   it(`caps patterns at ${MAX_PATTERNS_PER_SITE_LOCATION}`, () => {

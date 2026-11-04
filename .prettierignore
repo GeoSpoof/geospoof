@@ -30,5 +30,6 @@ coverage
 
 # Generated files
 package-lock.json
+assets/site-groups/catalog.json
 
 
