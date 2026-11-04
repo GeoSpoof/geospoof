@@ -161,7 +161,7 @@ It stays off unless you turn it on, because it visibly changes browsing: many si
 
 ## Languages
 
-GeoSpoof is available in 12 languages: English, German, Spanish, French, Indonesian, Japanese, Dutch, Portuguese (Brazil), Russian, Swedish, Vietnamese, and Simplified Chinese.
+GeoSpoof is available in 13 languages: English, German, Spanish, French, Indonesian, Japanese, Dutch, Portuguese (Brazil), Russian, Swedish, Vietnamese, Simplified Chinese, and Traditional Chinese (Taiwan).
 
 Both the browser extension popup and the Safari app for iPhone, iPad, and Mac are translated. Everything except English is machine-translated and awaiting review by native speakers, so you may hit the occasional awkward phrase — corrections are very welcome, either as a GitHub issue or through TestFlight feedback.
 

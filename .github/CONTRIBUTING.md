@@ -119,7 +119,7 @@ tests/
 ## Adding User-Facing Strings
 
 Two separate localization systems, because the extension and the native Safari app
-have different runtimes. Both ship the same 12 languages and must agree on
+have different runtimes. Both ship the same 13 languages and must agree on
 terminology. The shared glossary (`TRANSLATION.md`) and the native app's catalog
 live in the private `geospoof-ios` repo; `_locales/` in this repo is the
 source of truth the app's translations are derived from.
