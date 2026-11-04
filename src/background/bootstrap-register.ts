@@ -38,6 +38,14 @@
  *   - A denylist entry excludes its whole host on every scheme and port; a
  *     denylist that matches every host (`*`) means no scripts at all.
  *   - `file:` and other non-http(s) pages are never seeded.
+ *   - Exact entries (`=host`) get exact-host match patterns.
+ *   - Site group and link tokens can't be match patterns. A script that must
+ *     honor them inlines the groups' `"\n"`-framed strings into a small host
+ *     gate in front of the seed (`buildBootstrapCode`), which runs the same
+ *     test as `hostInGroupStrings`. Per-site-location scripts never get group
+ *     data: they seed typed patterns only, which beat any group, and in
+ *     denylist mode they leave out any typed pattern whose hosts a denied group
+ *     touches (`groupsTouchHost`).
  *
  * Why Firefox-only:
  *   - Firefox: `userScripts` is an *optional-only* permission. The user grants
@@ -59,13 +67,21 @@
  */
 
 import type { Settings, SiteLocation } from "@/shared/types/settings";
+import {
+  hostInGroupStrings,
+  unionGroupStrings,
+  type SiteGroupStrings,
+} from "@/shared/site-groups/matcher";
+import { isSiteGroupToken } from "@/shared/site-groups/tokens";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { EXACT_PREFIX, isTypedEntry } from "@/shared/utils/filter-entries";
 import { hostToASCII } from "@/shared/utils/idn";
 import { computeEffectiveSiteLocations, decomposePattern, isValidIpv4 } from "@/shared/utils/scope";
 import { compareSpecificity, siteLocationSpecificity } from "@/shared/utils/site-locations";
 import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 import { buildBootstrapPayload } from "./page-payload";
 import { RESTRICTED_DOMAINS } from "./restricted-url";
+import { currentSiteGroupData } from "./site-groups-store";
 
 /* eslint-disable no-var */
 declare var process: { env: Record<string, string | undefined> };
@@ -76,11 +92,17 @@ const logger = createLogger("BG");
 /** Stable id for the main-location bootstrap user script. */
 const SCRIPT_ID = "gs-tz-bootstrap";
 
+/** Id of the allowlist's site-group script (main location, gated on the allowed groups). */
+const GROUPS_SCRIPT_ID = "gs-tz-bootstrap-groups";
+
 /** Id prefix for the per-site-location bootstrap scripts. */
 const SITE_SCRIPT_ID_PREFIX = "gs-tz-bootstrap-site-";
 
 /** The match pattern for every http(s) page; excluding it excludes everything. */
 const ALL_HOSTS = "*://*/*";
+
+/** Every http(s) page (not `<all_urls>`, so `file:` pages aren't seeded). */
+const HTTP_HOSTS = ["http://*/*", "https://*/*"];
 
 /**
  * Global name the bootstrap code writes to. MUST match `BOOT_KEY` in
@@ -111,16 +133,55 @@ function getUserScriptsApi(): UserScriptsApi | null {
   return null;
 }
 
-/** Build the inline bootstrap code that stashes settings in the page global. */
-function buildBootstrapCode(payload: unknown): string {
+/**
+ * The site group checks a script runs on the page's hostname before it seeds.
+ * Each field is the union of some groups' `"\n"`-framed strings.
+ */
+export interface BootstrapGate {
+  /** Seed only when the host is in these groups (the allowlist's groups). */
+  allow?: SiteGroupStrings;
+  /** Don't seed when the host is in these groups (the denylist's groups). */
+  deny?: SiteGroupStrings;
+  /** Don't seed when the host is in these groups (the site locations' groups). */
+  skip?: SiteGroupStrings;
+}
+
+/**
+ * The gate's prelude: `h` is the page's hostname and `m(d, f)` is
+ * `hostInGroupStrings(d, f, h)`, written for a page script. It runs at
+ * document_start in the MAIN world, before any page script can patch
+ * `location` or `String.prototype`. An empty hostname seeds nothing.
+ */
+const GATE_PRELUDE =
+  '(function(){var h=location.hostname;function m(d,f){if(f.indexOf("\\n"+h+"\\n")>=0)return true;' +
+  'var s=h;while(s.length>0){if(d.indexOf("\\n"+s+"\\n")>=0)return true;var i=s.indexOf(".");' +
+  "if(i<0)return false;s=s.slice(i+1);}return false;}if(!h)return;";
+
+/** The gate's call of `m` for one pair of framed strings. */
+function gateCall(g: SiteGroupStrings): string {
+  return `m(${JSON.stringify(g.d)},${JSON.stringify(g.f)})`;
+}
+
+/**
+ * Build the inline bootstrap code that stashes settings in the page global.
+ * With no gate the code is the bare seed. With a gate, the seed runs inside a
+ * function that returns first when the host is in `skip` or `deny`, or isn't
+ * in `allow`.
+ */
+export function buildBootstrapCode(payload: unknown, gate: BootstrapGate | null = null): string {
   // Non-enumerable so it doesn't show up in a casual `Object.keys(window)`
   // sweep; the injected script deletes it on first read regardless.
   const json = JSON.stringify(payload);
   const key = JSON.stringify(BOOT_KEY);
-  return (
+  const seed =
     `try{Object.defineProperty(globalThis,${key},` +
-    `{value:${json},configurable:true,enumerable:false,writable:true});}catch(e){}`
-  );
+    `{value:${json},configurable:true,enumerable:false,writable:true});}catch(e){}`;
+  if (gate === null) return seed;
+  let checks = "";
+  if (gate.skip) checks += `if(${gateCall(gate.skip)})return;`;
+  if (gate.deny) checks += `if(${gateCall(gate.deny)})return;`;
+  if (gate.allow) checks += `if(!${gateCall(gate.allow)})return;`;
+  return `${GATE_PRELUDE}${checks}${seed}})();`;
 }
 
 // ─────────────────────────────── Planner ───────────────────────────────
@@ -133,13 +194,19 @@ export interface BootstrapPlanItem {
   allFrames: boolean;
   /** The effective settings for this script's pages (main, or overlaid by a site location). */
   settings: Settings;
+  /**
+   * The site group checks the script's code runs before seeding. Absent when
+   * there are none, so a plan for settings without site groups is unchanged.
+   */
+  gate?: BootstrapGate;
 }
 
 /**
- * A canonical pattern's host, in the A-label form URLs carry:
+ * A canonical typed entry's host, in the A-label form URLs carry:
  *   - `any`: `*`
  *   - `subdomains`: `*.L` (GeoSpoof excludes the apex `L`)
  *   - `exact`: an IPv4 literal
+ *   - `host`: the host of an exact entry `=L` (that hostname only)
  *   - `domain`: a bare `L` (GeoSpoof matches `L` and its subdomains; this
  *     includes `localhost`, which compiles to `{*.}?localhost` like any name)
  * Null when the host can't be converted to ASCII; such a pattern never matches
@@ -147,11 +214,19 @@ export interface BootstrapPlanItem {
  * and no exclusion.
  */
 interface PatternHost {
-  kind: "any" | "subdomains" | "exact" | "domain";
+  kind: "any" | "subdomains" | "exact" | "host" | "domain";
   ascii: string;
 }
 
-function patternHost(host: string): PatternHost | null {
+/** `host` is from an exact entry (`=` stripped) when `exact` is true. */
+function patternHost(host: string, exact = false): PatternHost | null {
+  if (exact) {
+    // `=*` and `=*.L` never compile (`patternToInit`), so they never match.
+    if (host === "*" || host.startsWith("*.")) return null;
+    if (isValidIpv4(host)) return { kind: "exact", ascii: host };
+    const ascii = hostToASCII(host);
+    return ascii === null ? null : { kind: "host", ascii };
+  }
   if (host === "*") return { kind: "any", ascii: "" };
   if (host.startsWith("*.")) {
     const ascii = hostToASCII(host.slice(2));
@@ -168,6 +243,7 @@ function matchHost(h: PatternHost): string {
     case "any":
       return "*";
     case "exact":
+    case "host":
       return h.ascii;
     case "subdomains":
     case "domain":
@@ -180,6 +256,24 @@ function isSameOrSubdomain(host: string, base: string): boolean {
   return host === base || host.endsWith("." + base);
 }
 
+/** A canonical typed entry's pieces: a pattern, or an exact entry with its `=` stripped. */
+function typedParts(entry: string): {
+  scheme: string;
+  host: string;
+  port: string;
+  path: string;
+  exact: boolean;
+} {
+  const exact = entry.startsWith(EXACT_PREFIX);
+  return { ...decomposePattern(exact ? entry.slice(EXACT_PREFIX.length) : entry), exact };
+}
+
+/** A canonical typed entry's host. */
+function entryHost(entry: string): PatternHost | null {
+  const { host, exact } = typedParts(entry);
+  return patternHost(host, exact);
+}
+
 /**
  * Match patterns covering a SUBSET of the URLs `p` matches. Empty for a port
  * or path (match patterns can't express either) or an unconvertible host. An
@@ -187,9 +281,9 @@ function isSameOrSubdomain(host: string, base: string): boolean {
  * which the caller must exclude (`apexExcludes`).
  */
 function toMatchUnder(p: string): string[] {
-  const { scheme, host, port, path } = decomposePattern(p);
+  const { scheme, host, port, path, exact } = typedParts(p);
   if (port !== "" || path !== "") return [];
-  const h = patternHost(host);
+  const h = patternHost(host, exact);
   if (h === null) return [];
   const schemes = scheme === "" ? ["http", "https"] : [scheme];
   return schemes.map((s) => `${s}://${matchHost(h)}/*`);
@@ -200,14 +294,14 @@ function toMatchUnder(p: string): string[] {
  * scheme, port, and path on its host. A `*` host gives `ALL_HOSTS`.
  */
 function toMatchOver(p: string): string[] {
-  const h = patternHost(decomposePattern(p).host);
+  const h = entryHost(p);
   return h === null ? [] : [`*://${matchHost(h)}/*`];
 }
 
 /** Necessary for two patterns to match one URL: one host literal is a label-suffix of the other. */
 function hostsMayOverlap(p: string, q: string): boolean {
-  const a = patternHost(decomposePattern(p).host);
-  const b = patternHost(decomposePattern(q).host);
+  const a = entryHost(p);
+  const b = entryHost(q);
   if (a === null || b === null) return false;
   if (a.kind === "any" || b.kind === "any") return true;
   return isSameOrSubdomain(a.ascii, b.ascii) || isSameOrSubdomain(b.ascii, a.ascii);
@@ -226,38 +320,86 @@ function schemeCovers(a: string, p: string): boolean {
  * because it only narrows `p`.
  */
 function covers(a: string, p: string): boolean {
-  const A = decomposePattern(a);
-  const P = decomposePattern(p);
+  const A = typedParts(a);
+  const P = typedParts(p);
   if (A.path !== "" || A.port !== "" || P.path !== "") return false;
   if (!schemeCovers(A.scheme, P.scheme)) return false;
-  const ha = patternHost(A.host);
-  const hp = patternHost(P.host);
+  const ha = patternHost(A.host, A.exact);
+  const hp = patternHost(P.host, P.exact);
   if (ha === null || hp === null) return false;
   if (ha.kind === "any") return true;
   if (hp.kind === "any") return false;
   if (ha.kind === "exact" || hp.kind === "exact") {
     return ha.kind === hp.kind && ha.ascii === hp.ascii;
   }
+  if (ha.kind === "host") return hp.kind === "host" && hp.ascii === ha.ascii;
   if (ha.kind === "domain") return isSameOrSubdomain(hp.ascii, ha.ascii);
-  // `a` is `*.L_a`: `p` must sit strictly below `L_a`.
-  if (hp.kind === "domain") return hp.ascii.endsWith("." + ha.ascii);
-  return isSameOrSubdomain(hp.ascii, ha.ascii);
+  // `a` is `*.L_a`: a `*.L_p` must sit at or below `L_a`, any other `p`
+  // strictly below it.
+  if (hp.kind === "subdomains") return isSameOrSubdomain(hp.ascii, ha.ascii);
+  return hp.ascii.endsWith("." + ha.ascii);
 }
 
 /**
  * Excludes for the apex `L` of every `*.L` pattern in `seeded`, since the
  * match pattern `*.L` also matches `L`. Skipped when one of `covering` covers
- * the bare `L` on http and https, i.e. the apex is right for the script anyway.
+ * the host `L` on http and https, i.e. the apex is right for the script anyway.
  */
 function apexExcludes(seeded: readonly string[], covering: readonly string[]): string[] {
   const out: string[] = [];
   for (const p of seeded) {
-    const h = patternHost(decomposePattern(p).host);
+    const h = entryHost(p);
     if (h === null || h.kind !== "subdomains") continue;
-    if (covering.some((c) => covers(c, h.ascii))) continue;
+    // `=L` is the apex alone, so an exact entry for it covers it too.
+    const apex = `${EXACT_PREFIX}${h.ascii}`;
+    if (covering.some((c) => covers(c, apex))) continue;
     out.push(`*://${h.ascii}/*`);
   }
   return out;
+}
+
+/**
+ * True when some group in `g` may contain a host that the typed entry `p`
+ * matches, so a script seeding `p` could seed a host the groups decide
+ * differently. Plan-time substring searches over the framed strings:
+ *   - the host or one of its label suffixes is a `domain` entry;
+ *   - for a bare `L` or an exact entry: the host is a `full` entry;
+ *   - for a bare `L` or `*.L`: some entry sits below the host (`"." + host + "\n"`).
+ */
+function groupsTouchHost(g: SiteGroupStrings, p: string): boolean {
+  const h = entryHost(p);
+  if (h === null) return false; // never matches, so it's never seeded
+  if (h.kind === "any") return true;
+  if (hostInGroupStrings(g.d, "\n", h.ascii)) return true;
+  const full = `\n${h.ascii}\n`;
+  const below = `.${h.ascii}\n`;
+  switch (h.kind) {
+    case "exact":
+    case "host":
+      return g.f.includes(full);
+    case "domain":
+      return g.f.includes(full) || g.d.includes(below) || g.f.includes(below);
+    case "subdomains":
+      return g.d.includes(below) || g.f.includes(below);
+  }
+}
+
+/** A gate from its checks, or null when it has none. */
+function makeGate(checks: {
+  allow?: SiteGroupStrings | null;
+  deny?: SiteGroupStrings | null;
+  skip?: SiteGroupStrings | null;
+}): BootstrapGate | null {
+  const gate: BootstrapGate = {};
+  if (checks.allow) gate.allow = checks.allow;
+  if (checks.deny) gate.deny = checks.deny;
+  if (checks.skip) gate.skip = checks.skip;
+  return Object.keys(gate).length > 0 ? gate : null;
+}
+
+/** `item` with `gate` attached when there is one. */
+function withGate(item: BootstrapPlanItem, gate: BootstrapGate | null): BootstrapPlanItem {
+  return gate === null ? item : { ...item, gate };
 }
 
 function dedupeSorted(list: readonly string[]): string[] {
@@ -266,10 +408,16 @@ function dedupeSorted(list: readonly string[]): string[] {
 
 /**
  * Plan the Firefox bootstrap registrations for `settings`: the main script
- * first, then one per site location (sorted by id). Pure. See the module doc
- * for the invariant every item satisfies.
+ * first, then the allowlist's site-group script, then one per site location
+ * (sorted by id). `groups` is the site group data by token (the background
+ * passes `currentSiteGroupData()`); a token without data matches nothing, as
+ * on the async path. Pure. See the module doc for the invariant every item
+ * satisfies.
  */
-export function planBootstrapScripts(settings: Settings): BootstrapPlanItem[] {
+export function planBootstrapScripts(
+  settings: Settings,
+  groups: Readonly<Record<string, SiteGroupStrings>> = {}
+): BootstrapPlanItem[] {
   if (!settings.enabled) return [];
 
   const entries: SiteLocation[] = [
@@ -283,10 +431,32 @@ export function planBootstrapScripts(settings: Settings): BootstrapPlanItem[] {
   // The async path says `enabled: false` on restricted hosts.
   const restricted = RESTRICTED_DOMAINS.map((d) => `*://*.${d}/*`);
 
+  // Site group and link tokens match by hostname, so they never become match
+  // patterns; the gates check them in the page instead.
+  const allow =
+    mode === "allowlist"
+      ? unionGroupStrings(groups, settings.allowlist.filter(isSiteGroupToken))
+      : null;
+  const deny =
+    mode === "denylist"
+      ? unionGroupStrings(groups, settings.denylist.filter(isSiteGroupToken))
+      : null;
+  const skip = unionGroupStrings(
+    groups,
+    entries.flatMap((e) => e.patterns.filter(isSiteGroupToken))
+  );
+  const typedAllowlist = settings.allowlist.filter(isTypedEntry);
+
   const filterExcludes: string[] = [];
   if (mode === "denylist") {
-    for (const d of settings.denylist) filterExcludes.push(...toMatchOver(d));
+    for (const d of settings.denylist.filter(isTypedEntry)) filterExcludes.push(...toMatchOver(d));
     if (filterExcludes.includes(ALL_HOSTS)) return [];
+  }
+
+  // Every host a typed site-location pattern could match.
+  const siteExcludes: string[] = [];
+  for (const entry of entries) {
+    for (const p of entry.patterns.filter(isTypedEntry)) siteExcludes.push(...toMatchOver(p));
   }
 
   const plan: BootstrapPlanItem[] = [];
@@ -297,44 +467,74 @@ export function planBootstrapScripts(settings: Settings): BootstrapPlanItem[] {
     const excludes = [...restricted, ...filterExcludes];
     if (mode === "allowlist") {
       // Only path-free, port-free entries have an under-approximation.
-      const seeded = settings.allowlist.filter((a) => toMatchUnder(a).length > 0);
+      const seeded = typedAllowlist.filter((a) => toMatchUnder(a).length > 0);
       matches = seeded.flatMap(toMatchUnder);
       excludes.push(...apexExcludes(seeded, seeded));
     } else {
       // Not <all_urls>, so file: (restricted) pages aren't seeded.
-      matches = ["http://*/*", "https://*/*"];
+      matches = [...HTTP_HOSTS];
     }
-    for (const entry of entries) {
-      for (const p of entry.patterns) excludes.push(...toMatchOver(p));
-    }
+    excludes.push(...siteExcludes);
     if (matches.length > 0) {
-      plan.push({
-        id: SCRIPT_ID,
-        matches: dedupeSorted(matches),
-        excludeMatches: dedupeSorted(excludes),
-        allFrames,
-        settings,
-      });
+      plan.push(
+        withGate(
+          {
+            id: SCRIPT_ID,
+            matches: dedupeSorted(matches),
+            excludeMatches: dedupeSorted(excludes),
+            allFrames,
+            settings,
+          },
+          makeGate({ deny, skip })
+        )
+      );
+    }
+
+    // Allowlist groups: every http(s) page, seeded in the page only when its
+    // host is in an allowed group and in no site location's group.
+    if (allow !== null) {
+      plan.push(
+        withGate(
+          {
+            id: GROUPS_SCRIPT_ID,
+            matches: [...HTTP_HOSTS],
+            excludeMatches: dedupeSorted([...restricted, ...siteExcludes]),
+            allFrames: false,
+            settings,
+          },
+          makeGate({ allow, skip })
+        )
+      );
     }
   }
 
-  // Entry scripts: a site location's pages that it certainly wins.
+  // Entry scripts: a site location's pages that it certainly wins. Typed
+  // patterns only: they beat any group, so other entries' groups can't take
+  // these pages, and the entry's own groups get no seed.
   entries.forEach((entry, n) => {
-    let seeded = entry.patterns.filter((p) => decomposePattern(p).port === "");
+    const typed = entry.patterns.filter(isTypedEntry);
+    let seeded = typed.filter((p) => typedParts(p).port === "");
     if (mode === "allowlist") {
-      seeded = seeded.filter((p) => settings.allowlist.some((a) => covers(a, p)));
+      seeded = seeded.filter((p) => typedAllowlist.some((a) => covers(a, p)));
     }
     const matches = seeded.flatMap(toMatchUnder);
     if (matches.length === 0) return;
 
     const excludes = [...restricted, ...filterExcludes, ...apexExcludes(seeded, seeded)];
+    // A denied group turns GeoSpoof off on its hosts: leave out every pattern
+    // whose hosts it may touch.
+    if (deny !== null) {
+      for (const p of seeded) {
+        if (groupsTouchHost(deny, p)) excludes.push(...toMatchOver(p));
+      }
+    }
     // Wherever another entry's pattern could match with at least equal
     // specificity, that entry might win, so leave its whole host unseeded.
-    for (const p of entry.patterns) {
+    for (const p of typed) {
       const sp = siteLocationSpecificity(p);
       for (const other of entries) {
         if (other === entry) continue;
-        for (const q of other.patterns) {
+        for (const q of other.patterns.filter(isTypedEntry)) {
           if (hostsMayOverlap(p, q) && compareSpecificity(siteLocationSpecificity(q), sp) >= 0) {
             excludes.push(...toMatchOver(q));
           }
@@ -551,7 +751,11 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
     await api.unregister();
     if (gen !== generation) return; // a newer call registers its own settings
 
-    const plan = planBootstrapScripts(settings);
+    // Timed for the real-browser checks: build plus register.
+    const started = Date.now();
+    // The cached site group data, which loadSettings() loaded for these
+    // settings. A data change re-registers through updateBootstrapRegistration.
+    const plan = planBootstrapScripts(settings, currentSiteGroupData());
 
     // Payloads come from the shared page-payload module, so the inlined point
     // and locale match what the async path delivers moments later.
@@ -566,7 +770,7 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
         allFrames: item.allFrames,
         runAt: "document_start",
         world: "MAIN",
-        js: [{ code: buildBootstrapCode(payload) }],
+        js: [{ code: buildBootstrapCode(payload, item.gate ?? null) }],
       };
       if (item.excludeMatches.length > 0) {
         registration.excludeMatches = item.excludeMatches;
@@ -592,9 +796,9 @@ async function registerNow(settings: Settings, gen: number): Promise<void> {
       logger.debug("[bootstrap] overtaken while registering; removed its scripts");
       return;
     }
-    logger.debug("[bootstrap] registered document_start bootstrap scripts", {
-      ids: plan.map((item) => item.id),
-    });
+    logger.debug(
+      `[bootstrap] registered ${plan.map((item) => item.id).join(", ")} in ${Date.now() - started} ms`
+    );
   } catch (error) {
     // Never let bootstrap registration break settings flow — the async
     // CustomEvent path still delivers settings, just slightly later.

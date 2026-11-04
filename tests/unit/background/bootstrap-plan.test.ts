@@ -287,6 +287,133 @@ describe("planBootstrapScripts: unit cases", () => {
   });
 });
 
+describe("planBootstrapScripts: exact entries and tokens", () => {
+  test("an exact allowlist entry seeds its host only, on http and https", () => {
+    const plan = planBootstrapScripts(
+      makeSettings({
+        scopeMode: "allowlist",
+        allowlist: ["=mail.example.com", "=https://a.org", "=b.org:8080", "=c.org/app"],
+      })
+    );
+    expect(plan).toHaveLength(1);
+    expect(plan[0].matches).toEqual([
+      "http://mail.example.com/*",
+      "https://a.org/*",
+      "https://mail.example.com/*",
+    ]);
+    expect(matching(plan, "https://mail.example.com/")).toHaveLength(1);
+    expect(matching(plan, "http://mail.example.com/")).toHaveLength(1);
+    expect(matching(plan, "https://www.mail.example.com/")).toEqual([]);
+    expect(matching(plan, "https://example.com/")).toEqual([]);
+    expect(matching(plan, "http://a.org/")).toEqual([]);
+    expect(matching(plan, "https://b.org:8080/")).toEqual([]);
+    expect(matching(plan, "https://c.org/app")).toEqual([]);
+  });
+
+  test("allowlist: an exact entry for the apex keeps a *.L entry's apex seeded", () => {
+    const plan = planBootstrapScripts(
+      makeSettings({ scopeMode: "allowlist", allowlist: ["*.d.org", "=d.org"] })
+    );
+    expect(plan[0].excludeMatches).not.toContain("*://d.org/*");
+    expect(matching(plan, "https://d.org/")).toHaveLength(1);
+    expect(matching(plan, "https://x.d.org/")).toHaveLength(1);
+  });
+
+  test("an exact denylist entry excludes its host only", () => {
+    const plan = planBootstrapScripts(
+      makeSettings({ scopeMode: "denylist", denylist: ["=mail.example.com"] })
+    );
+    expect(plan).toHaveLength(1);
+    expect(plan[0].excludeMatches).toContain("*://mail.example.com/*");
+    expect(matching(plan, "https://mail.example.com/")).toEqual([]);
+    expect(matching(plan, "https://www.mail.example.com/")).toHaveLength(1);
+    expect(matching(plan, "https://example.com/")).toHaveLength(1);
+  });
+
+  test("an exact site-location entry seeds its host, and main leaves only that host", () => {
+    const plan = planBootstrapScripts(
+      makeSettings({ siteLocations: [entry("1", ["=www.example.com"])] })
+    );
+    expect(plan.map((i) => i.id)).toEqual(["gs-tz-bootstrap", "gs-tz-bootstrap-site-0"]);
+    expect(plan[0].excludeMatches).toContain("*://www.example.com/*");
+    expect(plan[1].matches).toEqual(["http://www.example.com/*", "https://www.example.com/*"]);
+    expect(matching(plan, "https://www.example.com/")).toEqual([plan[1]]);
+    expect(matching(plan, "https://a.www.example.com/")).toEqual([plan[0]]);
+    expect(matching(plan, "https://example.com/")).toEqual([plan[0]]);
+  });
+
+  test("an exact entry outranks a broader entry on its host only", () => {
+    const plan = planBootstrapScripts(
+      makeSettings({
+        siteLocations: [
+          entry("1", ["example.com"]),
+          entry("2", ["=www.example.com"], { timezone: MEXICO_CITY_TZ }),
+        ],
+      })
+    );
+    const [, broad, exact] = plan;
+    expect(broad.excludeMatches).toContain("*://www.example.com/*");
+    expect(exact.excludeMatches).not.toContain("*://*.example.com/*");
+    expect(matching(plan, "https://www.example.com/")).toEqual([exact]);
+    expect(matching(plan, "https://a.www.example.com/")).toEqual([broad]);
+    expect(matching(plan, "https://example.com/")).toEqual([broad]);
+  });
+
+  test("allowlist: an exact allowlist entry covers the same exact entry, not the whole site", () => {
+    const plan = planBootstrapScripts(
+      makeSettings({
+        scopeMode: "allowlist",
+        allowlist: ["=chatgpt.com", "=openai.com"],
+        siteLocations: [
+          entry("1", ["=chatgpt.com"]),
+          entry("2", ["openai.com"], { timezone: MEXICO_CITY_TZ }),
+        ],
+      })
+    );
+    expect(plan.map((i) => i.id)).toEqual(["gs-tz-bootstrap", "gs-tz-bootstrap-site-0"]);
+    const site = plan[1];
+    expect(site.matches).toEqual(["http://chatgpt.com/*", "https://chatgpt.com/*"]);
+    expect(matching(plan, "https://chatgpt.com/")).toEqual([site]);
+    expect(matching(plan, "https://openai.com/")).toEqual([]);
+  });
+
+  test("site group and link tokens never become match patterns", () => {
+    const tokens = ["geosite:google", "geosite:google@cn", "list:https://example.org/a.txt"];
+    const shape = (plan: BootstrapPlanItem[]) =>
+      plan.map((i) => ({
+        id: i.id,
+        matches: i.matches,
+        excludeMatches: i.excludeMatches,
+        allFrames: i.allFrames,
+      }));
+    for (const scopeMode of ["all", "allowlist", "denylist"] as const) {
+      const typed = {
+        scopeMode,
+        allowlist: ["example.com"],
+        denylist: ["example.net"],
+        siteLocations: [entry("1", ["twitch.tv"])],
+      };
+      const plan = planBootstrapScripts(
+        makeSettings({
+          scopeMode,
+          allowlist: [...tokens, "example.com"],
+          denylist: ["example.net", ...tokens],
+          siteLocations: [entry("1", [tokens[0], "twitch.tv", tokens[2]])],
+        })
+      );
+      expect(plan.length, scopeMode).toBeGreaterThan(0);
+      for (const item of plan) {
+        for (const p of [...item.matches, ...item.excludeMatches]) {
+          expect(p, scopeMode).not.toMatch(/geosite|list:|example\.org/);
+        }
+        // No group data was passed, so there's nothing to gate on.
+        expect(item, scopeMode).not.toHaveProperty("gate");
+      }
+      expect(shape(plan), scopeMode).toEqual(shape(planBootstrapScripts(makeSettings(typed))));
+    }
+  });
+});
+
 // ─────────────────────────────── Property ───────────────────────────────
 
 /** Patterns site locations may use (unique across entries). */
