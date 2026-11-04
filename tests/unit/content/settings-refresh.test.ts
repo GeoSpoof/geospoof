@@ -380,7 +380,7 @@ describe("content script settings revision", () => {
     captured.stop();
   });
 
-  test("the revision never reaches the page: every detail has exactly the eight keys", async () => {
+  test("the revision never reaches the page: every detail has exactly the nine keys", async () => {
     const loaded = await loadContentScript();
     const details: Array<Record<string, unknown>> = [];
     const handler = (event: Event): void => {
@@ -400,6 +400,7 @@ describe("content script settings revision", () => {
         expect(Object.keys(detail).sort()).toEqual([
           "debugLogging",
           "enabled",
+          "engineTimezone",
           "locale",
           "location",
           "preserveGeolocationPrompt",
