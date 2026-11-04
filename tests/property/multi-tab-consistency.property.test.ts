@@ -124,6 +124,9 @@ describe("Property 23: Multi-Tab Consistency", () => {
             enabled: settings.enabled,
             location: settings.location,
             timezone: settings.timezone,
+            // Engine-level Spoofing is Chromium-only; this build isn't.
+            engineTimezone: false,
+            engineTimezoneSettled: true,
             debugLogging: settings.debugLogging,
             verbosityLevel: settings.verbosityLevel,
             webrtcProtection: settings.webrtcProtection,

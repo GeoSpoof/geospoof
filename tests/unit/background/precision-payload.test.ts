@@ -10,7 +10,7 @@
 
 import { describe, test, expect, vi } from "vitest";
 import type { Location, Settings } from "@/shared/types/settings";
-import type { Message, UpdateSettingsPayload } from "@/shared/types/messages";
+import type { ContentSettingsReply, Message, UpdateSettingsPayload } from "@/shared/types/messages";
 import { clockBucket, resolvePageLocation } from "@/shared/precision/cadence";
 import {
   deferred,
@@ -212,6 +212,7 @@ describe("every page-bound builder offsets the location (Req 5.2)", () => {
       ).mock.calls.at(-1)?.[0];
       expect(listener, "tabs.onCreated listener was not registered").toBeDefined();
 
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url: "https://example.com/new" });
       listener!({ id: 42, url: "https://example.com/new" });
       // The handler loads settings asynchronously, then defers the send.
       await vi.waitFor(() => expect(sent.length).toBeGreaterThan(0), { timeout: 2000 });
@@ -254,9 +255,16 @@ describe("every page-bound builder offsets the location (Req 5.2)", () => {
       );
     }
 
-    for (const f of ["tabs.ts", "messages.ts", "index.ts"]) {
+    for (const f of ["tabs.ts", "messages.ts"]) {
       expect(read(f), `${f} doesn't use the shared builder`).toContain("buildPagePayload(");
     }
+    // index.ts's pushes (the injection-check alarm, tabs.onCreated) go through
+    // sendSettingsToTab, which builds the payload and stamps the settings
+    // revision on the envelope, so an inline sender there still fails.
+    expect(read("index.ts"), "index.ts sends through sendSettingsToTab").toContain(
+      "sendSettingsToTab("
+    );
+    expect(read("index.ts")).not.toContain('type: "UPDATE_SETTINGS"');
     expect(read("bootstrap-register.ts")).toContain("buildBootstrapPayload(");
 
     const index = read("index.ts");
@@ -328,6 +336,7 @@ describe("location-precision cadence through the page-bound builders", () => {
       const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
         ((tab: { id?: number; url?: string }) => void) | undefined;
       expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url: "https://example.com/new" });
       vi.useFakeTimers();
       try {
         onCreated!({ id: 42, url: "https://example.com/new" });
@@ -400,18 +409,21 @@ describe("location-precision cadence through the page-bound builders", () => {
       await bg.broadcastSettingsToTabs(s);
       payloads.push(sent.find((m) => m.tabId === 1)!.payload);
 
-      // 2. Content-script GET_SETTINGS.
-      payloads.push(
-        (await bg.handleMessage(
-          { type: "GET_SETTINGS" },
-          { tab: { id: 2, url: URL } as browser.tabs.Tab }
-        )) as UpdateSettingsPayload
-      );
+      // 2. Content-script GET_SETTINGS. The reply also carries the settings
+      // revision it was built from (pushes carry it on the envelope instead),
+      // so the payload is the rest.
+      const { revision, ...reply } = (await bg.handleMessage(
+        { type: "GET_SETTINGS" },
+        { tab: { id: 2, url: URL } as browser.tabs.Tab }
+      )) as ContentSettingsReply;
+      expect(typeof revision).toBe("number");
+      payloads.push(reply);
 
       // 3. tabs.onCreated, sent after its 100ms delay.
       const onCreated = mocks.onCreatedAddListener().mock.calls.at(-1)?.[0] as
         ((tab: { id?: number; url?: string }) => void) | undefined;
       expect(onCreated, "tabs.onCreated listener was not registered").toBeDefined();
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 42, url: URL });
       vi.useFakeTimers();
       try {
         onCreated!({ id: 42, url: URL });
@@ -471,7 +483,8 @@ describe("location-precision cadence through the page-bound builders", () => {
       gate.resolve();
       await Promise.all([pa, pb]);
 
-      expect(userScripts.log).toEqual(["unregister", "register", "unregister", "register"]);
+      // The first call was overtaken, so it only unregisters (review F19).
+      expect(userScripts.log).toEqual(["unregister", "unregister", "register"]);
       expect(lastRegisteredPayload(userScripts.register).location).toEqual(
         resolvePageLocation(b, null)
       );

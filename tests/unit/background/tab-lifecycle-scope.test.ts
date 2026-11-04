@@ -137,6 +137,7 @@ describe("Tab-lifecycle per-tab scope resolution (task 5.3)", () => {
       const byTab = captureUpdateMessages();
 
       const tab = { id: 7, url: "https://notlisted.com/page" } as browser.tabs.Tab;
+      browser.tabs.get = vi.fn().mockResolvedValue(tab);
       onCreated(tab);
       await flushMicrotasks();
       await new Promise((r) => setTimeout(r, 150)); // onCreated defers the send 100ms
@@ -158,6 +159,7 @@ describe("Tab-lifecycle per-tab scope resolution (task 5.3)", () => {
       const byTab = captureUpdateMessages();
 
       const tab = { id: 8, url: "https://app.allowed.com/x" } as browser.tabs.Tab;
+      browser.tabs.get = vi.fn().mockResolvedValue(tab);
       onCreated(tab);
       await flushMicrotasks();
       await new Promise((r) => setTimeout(r, 150));
@@ -173,6 +175,7 @@ describe("Tab-lifecycle per-tab scope resolution (task 5.3)", () => {
       const byTab = captureUpdateMessages();
 
       const tab = { id: 9, url: undefined } as browser.tabs.Tab;
+      browser.tabs.get = vi.fn().mockResolvedValue(tab);
       onCreated(tab);
       await flushMicrotasks();
       await new Promise((r) => setTimeout(r, 150));
@@ -180,6 +183,40 @@ describe("Tab-lifecycle per-tab scope resolution (task 5.3)", () => {
 
       const payload = byTab.get(9)!.payload as unknown as Record<string, unknown>;
       expect(payload.enabled).toBe(false);
+    });
+
+    test("a tab opened straight at a URL is judged by its URL when the push is sent", async () => {
+      // A link opened in a new tab or window.open: the tab is created as
+      // about:blank (Firefox) or with no URL yet (Chrome's pendingUrl), and its
+      // page can already be listening when the delayed push goes out. Judging
+      // the creation-time snapshot would send enabled:false to an in-scope page.
+      const s = makeSettings({ scopeMode: "allowlist", allowlist: ["allowed.com"] });
+      const { onCreated } = await captureHandlers(s);
+      const byTab = captureUpdateMessages();
+      browser.tabs.get = vi.fn().mockResolvedValue({ id: 10, url: "https://allowed.com/page" });
+
+      onCreated({ id: 10, url: "about:blank" } as browser.tabs.Tab);
+      await flushMicrotasks();
+      await new Promise((r) => setTimeout(r, 150));
+      await flushMicrotasks();
+
+      expect(browser.tabs.get).toHaveBeenCalledWith(10);
+      const payload = byTab.get(10)!.payload as unknown as Record<string, unknown>;
+      expect(payload.enabled).toBe(true);
+    });
+
+    test("a tab closed before the push is sent gets nothing", async () => {
+      const s = makeSettings({ scopeMode: "all" });
+      const { onCreated } = await captureHandlers(s);
+      const byTab = captureUpdateMessages();
+      browser.tabs.get = vi.fn().mockRejectedValue(new Error("No tab with id: 11"));
+
+      onCreated({ id: 11, url: "https://example.com/" } as browser.tabs.Tab);
+      await flushMicrotasks();
+      await new Promise((r) => setTimeout(r, 150));
+      await flushMicrotasks();
+
+      expect(byTab.has(11)).toBe(false);
     });
   });
 

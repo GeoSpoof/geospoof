@@ -63,7 +63,14 @@
  * timezone (inherent to worker process isolation — we can't reach them).
  */
 
-import { timezoneData, localeData, spoofingEnabled, ANNOUNCE_EVENT_NAME } from "./state";
+import {
+  timezoneData,
+  localeData,
+  spoofingEnabled,
+  nativeFractionalOffset,
+  engineTimezoneMode,
+  ANNOUNCE_EVENT_NAME,
+} from "./state";
 import {
   registerOverride,
   disguiseAsNative,
@@ -487,7 +494,18 @@ function generateInlineWorkerPayload(originalScriptUrl: string): string {
   // these large code blobs — or inside a user-supplied timezone id / locale tag
   // — are passed through literally. WORKER_WRAPPER needs the same treatment
   // below for the same reason.
-  const core = buildWorkerSpoofCore(timezoneData?.identifier ?? null, localeData);
+  //
+  // The worker gets this realm's getTimezoneOffset precision as a literal
+  // rather than probing its own, so it can't disagree with the page. Nested
+  // workers reuse this core and carry the same value. In Engine-level
+  // Spoofing the engine's zone can change under the worker (an override that
+  // lands after it starts), so it re-checks the real zone it caches.
+  const core = buildWorkerSpoofCore(
+    timezoneData?.identifier ?? null,
+    localeData,
+    nativeFractionalOffset,
+    engineTimezoneMode
+  );
   const originalUrlJson = JSON.stringify(originalScriptUrl);
   const coreJson = JSON.stringify(core);
   const wrapperJson = JSON.stringify(WORKER_WRAPPER);

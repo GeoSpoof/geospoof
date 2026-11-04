@@ -73,7 +73,7 @@ Control which sites GeoSpoof spoofs on. In the **Filters** tab, choose **All** (
 
 ### Per-site locations
 
-Give specific sites their own location while every other site keeps your **main location** (the one you set on the Main tab). For example, `twitch.tv` can see Mexico City and `chatgpt.com` can see Dublin, while everything else sees Tokyo.
+Give specific sites their own location while every other site keeps your **main location** (the one you set on the Main tab), if you've set one. For example, `twitch.tv` can see Mexico City and `chatgpt.com` can see Dublin, while everything else sees Tokyo.
 
 **What it changes, and what it doesn't.** A site's own location changes what that site's pages can read from your browser: the location they get if they ask for it, the time zone in dates and clocks, and the language if **Reported Language** is set to **Match my location**. It doesn't change your IP address, your account details, or where you legally live, and those are what services usually use for ads, prices, and which terms apply to you. So giving a site its own location won't, by itself, remove ads that are decided by your IP, and it won't change how a service classifies your account. For the most consistent result, pair it with a VPN exit in the same place.
 
@@ -81,7 +81,7 @@ Give specific sites their own location while every other site keeps your **main 
 
 **One location, several sites.** A service often spans more than one domain. ChatGPT, for example, can send you through `openai.com` to sign in, so list both, `chatgpt.com, openai.com`, under one location. Then the same company sees one location throughout.
 
-**Embedded content goes with the page.** Everything inside a page, such as embedded videos and sign-in frames, sees that page's location. A Twitch player embedded on another site gets that other site's location.
+**Embedded content goes with the page.** Content inside a page, such as embedded videos and sign-in frames, sees that page's location wherever GeoSpoof can reach it. [Known Limitations](API.md#known-limitations) lists the exceptions. A Twitch player embedded on another site gets that other site's location.
 
 **Trackers that work across sites.** A tracker embedded on many sites may notice your time zone changing from site to site while your IP address stays the same. Picking per-site locations in the same time zone as your main location avoids this.
 
@@ -116,7 +116,7 @@ Give specific sites their own location while every other site keeps your **main 
 3. Search for a place, or pick one of your favorites, then click **Save**.
 4. Reload the site's open pages so every page picks up the change.
 
-Back on the Main tab, a short line under your location shows it while you're on that site, for example `On twitch.tv: Mexico City`, with **Edit** and **Use main location** (go back to your main location on this site). Sites without their own location show nothing extra. **Per-site locations** on the Filters tab lists them all, where you can add, edit, or remove them. The **Details** tab shows a site's own location, under **On this site**, only on a site that has one.
+Back on the Main tab, a short line under your location shows it while you're on that site, for example `On twitch.tv: Mexico City`, with **Edit**, and **Use main location** when you have a main location set, the rule is just for this site (such as `twitch.tv`), and removing it puts the site back on your main location. A broader rule, like `*.ru` or a parent domain, would change other sites too, an overlapping rule could keep another location here, and with no main location set the site would end up with no location at all, so in those cases the line offers only **Edit**. Sites without their own location show nothing extra. **Per-site locations** on the Filters tab lists them all, where you can add, edit, or remove them. The **Details** tab shows a site's own location, under **On this site**, only on a site that has one.
 
 If Filters keep GeoSpoof off for the site you're editing, the editor says so. In Allowlist mode it offers **Add to allowlist** in one click.
 

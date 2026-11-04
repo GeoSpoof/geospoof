@@ -754,7 +754,7 @@
     "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
   },
   "siteLocation_hintAllowlist": {
-    "message": "筛选规则不会对此网站进行伪装。要将其添加到允许列表吗？",
+    "message": "筛选规则不会对此网站进行伪造。要将其添加到允许列表吗？",
     "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
   },
   "siteLocation_addToAllowlist": {
@@ -762,7 +762,7 @@
     "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
   },
   "siteLocation_hintDenylist": {
-    "message": "此网站在你的拒绝列表中，因此筛选规则不会对其进行伪装。",
+    "message": "此网站在你的拒绝列表中，因此筛选规则不会对其进行伪造。",
     "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
   },
   "siteLocation_hintVpn": {
@@ -770,7 +770,7 @@
     "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
   },
   "siteLocation_reloadHint": {
-    "message": "请重新加载此网站的页面，使更改在所有地方生效。",
+    "message": "请重新加载受影响的页面以应用更改。",
     "description": "Hint shown right after a site location change made from the popup, because already-open pages keep their old values until reloaded."
   },
   "siteLocation_sitesLabel": {
@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "$SITES$ 上的页面及其中嵌入的所有内容将看到 $PLACE$。其他网站保持你的主位置。",
+    "message": "$SITES$ 上的页面将看到 $PLACE$。",
     "placeholders": {
       "sites": {
         "content": "$1",
