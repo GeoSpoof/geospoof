@@ -8,9 +8,11 @@
  * multi-key stand-in, because the global mock only persists `settings`.
  */
 
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 import type { Settings } from "@/shared/types/settings";
+import { updateBootstrapRegistration } from "@/background/bootstrap-register";
+import { loadSettings } from "@/background/settings";
 import {
   BUNDLED_CATALOG_PATH,
   MAX_LINK_BYTES,
@@ -50,6 +52,8 @@ import {
   storedGroups,
   type LocalStore,
 } from "../../helpers/site-groups";
+import { flush, installUserScriptsMock, until, type UserScriptsMock } from "../../helpers/cadence";
+import { TOKYO, TOKYO_NAME, TOKYO_TZ } from "../../helpers/site-locations";
 
 const gate = vi.hoisted(() => ({ available: true }));
 vi.mock("@/shared/site-groups/availability", () => ({
@@ -661,6 +665,93 @@ describe("the refresh alarm", () => {
   test("is not created when nothing is referenced", async () => {
     await ensureSiteGroupRefreshAlarm(settingsWith({ allowlist: ["example.com"] }));
     expect(browser.alarms.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("the Firefox early scripts around a group data change", () => {
+  let userScripts: UserScriptsMock;
+
+  beforeEach(() => {
+    userScripts = installUserScriptsMock();
+    // Log each group data write in order with the userScripts calls.
+    const set = store.set.getMockImplementation()!;
+    store.set.mockImplementation((obj: Record<string, unknown>) => {
+      if (SITE_GROUP_DATA_KEY in obj) userScripts.log.push("store group data");
+      return set(obj);
+    });
+  });
+
+  afterEach(() => {
+    userScripts.restore();
+  });
+
+  function storeDenylist(denylist: string[]): void {
+    storeSettings({
+      scopeMode: "denylist",
+      denylist,
+      location: TOKYO,
+      timezone: TOKYO_TZ,
+      locationName: TOKYO_NAME,
+    });
+  }
+
+  /** Register the early scripts for the stored settings, then clear the log. */
+  async function registerStored(): Promise<void> {
+    await updateBootstrapRegistration(await loadSettings());
+    expect(userScripts.register).toHaveBeenCalledTimes(1);
+    userScripts.log.length = 0;
+  }
+
+  /** The main script's code in the latest registration. */
+  function mainScriptCode(): string {
+    const calls = userScripts.register.mock.calls as Array<
+      [Array<{ id: string; js: Array<{ code: string }> }>]
+    >;
+    return calls.at(-1)![0].find((r) => r.id === "gs-tz-bootstrap")!.js[0].code;
+  }
+
+  const REPLACED = ["unregister", "store group data", "unregister", "register"];
+
+  test("a refresh that changes a deny group removes the old scripts before storing it", async () => {
+    storeDenylist([GOOGLE]);
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [GOOGLE]: storedGroup(["google.com"]) } };
+    await registerStored();
+    expect(mainScriptCode()).not.toContain("google.de");
+    routeFetch(await cdnRoutes(CATALOG_B));
+
+    await refreshSiteGroups({ manual: false });
+    await until(() => userScripts.register.mock.calls.length === 2, "the new early scripts");
+
+    // A page that loads before the new scripts gets no seed, not the old gate's.
+    expect(userScripts.log).toEqual(REPLACED);
+    expect(mainScriptCode()).toContain("google.de");
+  });
+
+  test("an add that builds data for a token another entry already uses removes the old scripts first", async () => {
+    storeDenylist([GOOGLE]);
+    await registerStored();
+    // Without data the deny group matches nothing, so the main script has no gate.
+    expect(mainScriptCode().startsWith("try{")).toBe(true);
+
+    expect(await withSiteGroupData([GOOGLE], () => Promise.resolve("ok"))).toMatchObject({
+      ok: true,
+    });
+    await until(() => userScripts.register.mock.calls.length === 2, "the new early scripts");
+
+    expect(userScripts.log).toEqual(REPLACED);
+    expect(mainScriptCode()).toContain("google.com");
+  });
+
+  test("a refresh that changes no entries leaves the early scripts alone", async () => {
+    storeDenylist([GOOGLE]);
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups: { [GOOGLE]: storedGroup(["google.com"]) } };
+    await registerStored();
+    routeFetch(await cdnRoutes(CATALOG_A));
+
+    await refreshSiteGroups({ manual: false });
+    await flush();
+
+    expect(userScripts.log).toEqual([]);
   });
 });
 

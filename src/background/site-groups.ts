@@ -66,7 +66,7 @@ import { loadSettings } from "./settings";
 import { broadcastSettingsToTabs } from "./tabs";
 import { updateBadge } from "./badge";
 import { syncDebuggerSpoofing } from "./debugger-spoof";
-import { updateBootstrapRegistration } from "./bootstrap-register";
+import { openBootstrapWriteWindow } from "./bootstrap-register";
 import {
   currentSiteGroupData,
   loadSiteGroupCache,
@@ -513,6 +513,32 @@ async function materializeToken(token: string): Promise<Materialized> {
 }
 
 /**
+ * Store group data that changes what a referenced token matches. On Firefox
+ * this opens a bootstrap write window, as a settings write does: the early
+ * scripts built from the old data are removed first (waiting at most
+ * BOOTSTRAP_INVALIDATION_TIMEOUT_MS) and the scripts for the stored data are
+ * registered after, so a page that loads in between gets no early value
+ * rather than one the async path then contradicts. Rejects when the write
+ * does, after registering the scripts for what's still stored. Call inside a
+ * site-group job; the bootstrap queue never waits on it, so the wait can't
+ * deadlock.
+ */
+async function writeSiteGroupDataReplacingBootstrap(
+  groups: Record<string, StoredSiteGroup>
+): Promise<void> {
+  const bootstrapWrite = __FIREFOX__ ? openBootstrapWriteWindow() : null;
+  if (bootstrapWrite?.removed) await bootstrapWrite.removed; // bounded, never rejects
+  try {
+    await writeSiteGroupData(groups);
+  } catch (error) {
+    // loadSettings never rejects.
+    if (bootstrapWrite) await bootstrapWrite.failed(loadSettings);
+    throw error;
+  }
+  if (bootstrapWrite) bootstrapWrite.stored(await loadSettings());
+}
+
+/**
  * Make sure every token in `tokens` has stored data, then run `write` (the
  * settings write that adds them).
  *
@@ -564,19 +590,27 @@ export async function withSiteGroupData<T>(
       const failure = await runSiteGroupJob(
         async (): Promise<"STORAGE_FULL" | "STORAGE_ERROR" | null> => {
           const data = currentSiteGroupData();
-          const keep = keptTokens(await loadSettings());
+          const settings = await loadSettings();
+          const keep = keptTokens(settings);
+          const referenced = new Set(referencedSiteGroupTokens(settings));
           const next: Record<string, StoredSiteGroup> = {};
           let total = 0;
+          // A token some entry already references (a bridged entry, lost data)
+          // starts matching with this write, so the early scripts change too.
+          let startsMatching = false;
           for (const token of keep) {
             // Data an overlapping add or refresh stored meanwhile wins.
-            const group = Object.hasOwn(data, token) ? data[token] : fresh[token];
+            const stored = Object.hasOwn(data, token);
+            const group = stored ? data[token] : fresh[token];
             if (group === undefined) continue;
             next[token] = group;
             total += group.d.length + group.f.length;
+            if (!stored && referenced.has(token)) startsMatching = true;
           }
           if (total > MAX_SITE_GROUP_CHARS) return "STORAGE_FULL";
           try {
-            await writeSiteGroupData(next);
+            if (startsMatching) await writeSiteGroupDataReplacingBootstrap(next);
+            else await writeSiteGroupData(next);
           } catch (error) {
             logger.warn("Couldn't store site group data:", error);
             return "STORAGE_ERROR";
@@ -657,9 +691,10 @@ function rebuildToken(
 /**
  * In the site-group queue: rebuild every kept token's data from the catalog
  * in use and the given link downloads, drop tokens that are neither
- * referenced nor pending, and store the result when it differs. Resolves true
- * when some kept token's entries changed (pages must be told), false
- * otherwise.
+ * referenced nor pending, and store the result when it differs. When some
+ * kept token's entries changed, the Firefox early scripts are replaced around
+ * the write. Resolves true when some kept token's entries changed (pages must
+ * be told), false otherwise.
  */
 async function reconcileSiteGroupData(
   links: ReadonlyMap<string, LinkListResult>
@@ -690,7 +725,8 @@ async function reconcileSiteGroupData(
         if (!sameStrings(old, next[token])) entries = true;
       }
     }
-    if (stored) await writeSiteGroupData(next);
+    if (entries) await writeSiteGroupDataReplacingBootstrap(next);
+    else if (stored) await writeSiteGroupData(next);
     return entries;
   });
 }
@@ -711,15 +747,16 @@ function pruneSiteGroupData(): Promise<boolean> {
 }
 
 /**
- * Tell every surface that group data changed: tabs, badges, the Firefox head
- * start and Engine-level spoofing. A failed step is logged and the rest run.
+ * Tell every surface that group data changed: tabs, badges and Engine-level
+ * spoofing. The Firefox head start was already replaced with the write
+ * (`writeSiteGroupDataReplacingBootstrap`). A failed step is logged and the
+ * rest run.
  */
 async function deliverSiteGroupChange(): Promise<void> {
   const settings = await loadSettings();
   const steps: Array<[string, () => Promise<void>]> = [
     ["broadcast", () => broadcastSettingsToTabs(settings)],
     ["badge", () => updateBadge()],
-    ["bootstrap", () => updateBootstrapRegistration(settings)],
     ["engine-level sync", () => syncDebuggerSpoofing(settings)],
   ];
   for (const [name, step] of steps) {
