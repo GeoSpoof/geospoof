@@ -1,6 +1,6 @@
 # Privacy Policy for GeoSpoof
 
-**Last Updated:** October 18, 2026
+**Last Updated:** November 3, 2026
 
 ## Overview
 
@@ -10,12 +10,14 @@ GeoSpoof is committed to protecting your privacy. This extension is designed to 
 
 ## Data Collection
 
-**GeoSpoof does not collect any personal data.** The extension:
+**The GeoSpoof extension does not collect any personal data.** It:
 
 - Does NOT track your browsing activity
 - Does NOT collect analytics or telemetry
 - Does NOT store data on external servers
 - Does NOT share data with third parties for advertising or marketing
+
+The developer does keep records of App Store purchases, which reach the website's server from Apple, not from the extension or the app. See "In-App Purchases and Subscriptions" below.
 
 ## Website Analytics
 
@@ -44,10 +46,10 @@ This data never leaves your device and is only accessible by the extension.
 
 When you use certain features, GeoSpoof communicates with external services. Both
 the Safari extension and the companion app (iOS, iPadOS, macOS) may make these
-requests, depending on which surface you're using. With one exception, the
-developer operates no server and receives none of this data, and all such HTTPS
-requests go directly from your device to the third party (the STUN requests below
-are direct UDP from your device). **The exception is the timezone boundary data
+requests, depending on which surface you're using. With one exception, none of
+these requests reach a developer server, the developer receives none of this
+data, and all such HTTPS requests go directly from your device to the third party
+(the STUN requests below are direct UDP from your device). **The exception is the timezone boundary data
 (section 2 below), which the extension fetches from the developer's own
 content-delivery endpoint, `cdn.geospoof.com`.** See that section for what that
 means for your IP address.
@@ -161,9 +163,26 @@ The app offers paid options through Apple's In-App Purchase system:
 - **GeoSpoof Pro** — _iOS, iPadOS, and macOS._ Unlocks Pro features such as automatic background VPN sync, per-site allowlist/denylist rules, widgets and controls, custom accuracy, the on-map location picker, and device-level GPS. Pro is available either as an auto-renewable subscription (monthly or annual), which renews automatically until cancelled and can be managed or cancelled anytime in your Apple Account settings, or as a **one-time "lifetime" purchase** (a non-consumable that unlocks the same features permanently and does not renew). Pro is a **Universal Purchase**, so a single purchase covers your iPhone, iPad, and Mac at no additional cost. A free, fully functional tier remains available without any purchase. Device-level GPS is the one Pro feature limited by platform: it sets the real system location of an iPhone or iPad, and is driven from the Mac app rather than applying to the Mac itself.
 - **Tips** — _iOS, iPadOS, and macOS._ Optional one-time purchases that let you support development and unlock no features or functionality.
 
-**All payments are processed by Apple via In-App Purchase. The developer never receives your payment details, card information, Apple Account identifier, or any personal data from a purchase or subscription.** Billing, receipts, renewals, and refunds are handled entirely by Apple under its terms. That payment processing is governed by Apple's own privacy policy, and Apple acts as an independent data controller for it.
+**All payments are processed by Apple via In-App Purchase. The developer never receives your name, email address, payment details, card information, or Apple Account identifier.** Billing, receipts, renewals, and refunds are handled entirely by Apple under its terms. That payment processing is governed by Apple's own privacy policy, and Apple acts as an independent data controller for it.
 
-**How your Pro status is determined.** Your entitlement — whether you are a subscriber, a lifetime purchaser, or a grandfathered "founding" user — is resolved entirely on your device using Apple's StoreKit framework. Founder status is derived from your App Store purchase history (the original app version your Apple Account first downloaded) via StoreKit's `AppTransaction`; this needs no account, no sign-in, and no developer backend, and is read directly from Apple on-device. The resolved status is cached locally on your device only and is **never transmitted to the developer** — there is no developer-side record of who is or isn't a subscriber, and GeoSpoof maintains no user accounts.
+**How your Pro status is determined.** Your entitlement — whether you are a subscriber, a lifetime purchaser, or a grandfathered "founding" user — is resolved entirely on your device using Apple's StoreKit framework. Founder status is derived from your App Store purchase history (the original app version your Apple Account first downloaded) via StoreKit's `AppTransaction`; this needs no account, no sign-in, and no developer backend, and is read directly from Apple on-device. The resolved status is cached locally on your device only and is **never transmitted to the developer**, and GeoSpoof maintains no user accounts. The purchase records described below play no part in deciding your Pro access.
+
+**Purchase records the developer keeps.** Whenever a Pro or tip purchase, renewal, refund, or other subscription event happens, Apple sends a signed App Store Server Notification to the GeoSpoof website's server (`geospoof.com`, hosted on Vercel). The server checks Apple's signature, then uses the notification in two ways:
+
+- **A message to the developer's private Discord channel**, for sales, renewals, and refunds only. It shows the product, the price and currency, the App Store country (storefront), a short description of the event and its dates (such as "new subscriber" or the next renewal date), Apple's original transaction ID for the purchase, and the day's running totals. The only other App Store notification posted there is a test that the developer can ask Apple to send to check the connection. It shows no product, price, country, or transaction ID; like the purchase messages, it ends with the day's running totals.
+- **A revenue tally** in a database hosted by Upstash and connected through Vercel. It holds the date the tally started, the day's counts of sales, renewals, and refunds and their amounts per currency, the daily changes in the number of paying Monthly and Annual subscribers, and the net number of Lifetime purchases since that date (refunds and revocations subtracted). To count each subscription only once, it also keeps a record for each Pro subscription or Lifetime purchase: the plan, whether it is paying, in a free trial, or ended, and the time of the latest event that updated it. Only a purchase, free-trial start, renewal, upgrade, redeemed offer, refund, reversed refund, or loss of access (such as an expired subscription) can update the record; other events, such as turning auto-renew off, don't. That record is filed under a one-way hash of Apple's original transaction ID, not the ID itself. In the tally, tips appear only in the day's totals.
+
+**Morning summary.** Each morning the server downloads GeoSpoof's Sales and Subscription reports for the previous day from App Store Connect, Apple's portal for developers, and posts a summary to the same Discord channel: units sold per product, refunds, proceeds, and active subscriptions per plan. These reports contain totals, not individual purchases. The only figures the server keeps from them are the Monthly and Annual subscriber counts, which correct the tally.
+
+**Exchange rates.** To show totals in approximate US dollars, the server fetches the day's currency exchange rates from [Frankfurter](https://frankfurter.dev/) and keeps them in the database for up to 4 days. The request asks only for the rates and carries no purchase or personal data.
+
+**What the transaction ID is.** Apple's original transaction ID identifies a purchase and contains no name or account details, but Apple can link it to the Apple Account that made the purchase. The ID and its hash are therefore pseudonymous identifiers: they don't name you, but they can be linked to you with Apple's records. GeoSpoof sets no account token (Apple's `appAccountToken`) on purchases, and Apple's notifications contain no name, email address, or Apple Account identifier. Neither the Discord messages nor the database hold a name, email address, Apple Account identifier, device identifier, or card or payment-method details.
+
+**How long purchase records are kept.** A Monthly or Annual subscription's record is kept until 400 days after the latest event that updated it. A Lifetime purchase's record has no expiry, so a refund years later can still be subtracted from the Lifetime count. The ID of each notification the tally counts or posts to Discord (Apple's `notificationUUID`) is kept for 30 days, so a notification Apple delivers twice is counted once and normally posted once. If the server, the database, or the connection to Discord fails partway through, the same message can occasionally be posted twice. The running totals hold no per-subscription data. Each day's totals of sales, renewals, and refunds are deleted within 3 days after the day ends. Each day's changes in paying Monthly and Annual subscribers are normally deleted by the morning summary about 9 days later. If the summary stops running, they stay until it runs again. The Lifetime count, the latest Monthly and Annual counts from Apple's reports, and the date the tally started have no expiry. Discord messages stay in the channel until the developer deletes them.
+
+**Who handles these records.** Apple sends the notifications and provides the reports. Vercel runs the website's server, Upstash hosts the database, and Discord hosts the channel (see the privacy policies of [Vercel](https://vercel.com/legal/privacy-policy), [Upstash](https://upstash.com/trust/privacy.pdf), and [Discord](https://discord.com/privacy)). Frankfurter receives no purchase data.
+
+**Asking about or deleting your records.** To ask what is held about your purchase, or to have it deleted, contact [support@geospoof.com](mailto:support@geospoof.com). Because the records contain no name or contact details, the developer can find yours only from details of the purchase that you provide, such as the order ID on Apple's receipt email.
 
 ## Permissions Explained
 
@@ -177,8 +196,8 @@ The extension requires the following permissions. Exact permissions vary slightl
 - **idle** (Firefox/Chromium only): Part of the VPN-sync re-check scheduling
 - **`<all_urls>` / host access to all websites**: To inject location spoofing on every website you visit
 - **webRequest permissions** (Firefox only): To repair the timezone leak inside Web Workers at the network layer
-- **debugger** (Chrome/Chromium only): Powers the optional "Engine-level Spoofing" mode. This mode is **off by default** and only runs if you turn it on. When enabled, GeoSpoof attaches to your tabs via Chrome's debugger interface to apply the timezone override deeper in the browser engine (using `Emulation.setTimezoneOverride`), so it also covers background workers and takes effect before a page's first script runs. GeoSpoof uses this **only to set the timezone override** — it does not read page content, network traffic, passwords, or browsing history through it. While the mode is on, Chrome shows a "GeoSpoof started debugging this browser" notice; that is Chrome's standard warning for any extension using this interface, and the notice disappears when you turn the mode off. The permission is declared as required (Chrome does not allow it to be optional), but it does nothing unless you enable Engine-level Spoofing, and it adds no new install warning beyond the "access your data on all websites" prompt already covered by site access.
-- **webNavigation** (Chrome/Chrothemium only): Requested at runtime (not at install) only when you enable Engine-level Spoofing. It lets GeoSpoof apply the timezone override at the very start of a navigation, before the page loads, so there is no brief window where real timezone leaks. It is used solely for this timing and not to record or transmit the pages you visit.
+- **debugger** (Chrome/Chromium only): Powers the optional "Engine-level Spoofing" mode. This mode is **off by default** and only runs if you turn it on. When enabled, GeoSpoof attaches to your tabs via Chrome's debugger interface to apply the timezone override deeper in the browser engine (using `Emulation.setTimezoneOverride`), so it also covers background workers and cross-site frames, and in a tab where the mode is already active it applies before a page's first script runs, unless that page's timezone differs from the previous page's. GeoSpoof uses this **only to set the timezone override** — it does not read page content, network traffic, passwords, or browsing history through it. While the mode is on, Chrome shows a "GeoSpoof started debugging this browser" notice; that is Chrome's standard warning for any extension using this interface, and the notice disappears when you turn the mode off. The permission is declared as required (Chrome does not allow it to be optional), but it does nothing unless you enable Engine-level Spoofing, and it adds no new install warning beyond the "access your data on all websites" prompt already covered by site access.
+- **webNavigation** (Chrome/Chromium only): Requested at runtime (not at install) only when you enable Engine-level Spoofing. It lets GeoSpoof apply the timezone override when a navigation starts and again when it commits, which narrows the window in which a page can read your real timezone; it doesn't close it on a tab's first page. It is used solely for this timing and not to record or transmit the pages you visit.
 
 These permissions are used solely for the extension's functionality and not for data collection.
 
@@ -216,18 +235,20 @@ You can change or revoke any of these at any time in **Safari → Settings → E
 ## Data Security
 
 - All settings are stored locally using the browser's secure storage API
-- No data is transmitted to the developer for collection, analytics, or profiling
+- The extension transmits no data to the developer for collection, analytics, or profiling
 - The one request that reaches developer-controlled infrastructure — fetching timezone boundary data from `cdn.geospoof.com` — is a static-file download that is not used to track or identify you (see "Third-Party API Usage")
 - All third-party API calls use HTTPS encryption
-- The developer maintains no user accounts and runs no backend application or database; `cdn.geospoof.com` (the timezone boundary data) serves only static files, and the website (`geospoof.com`) uses only cookieless, privacy-friendly analytics (see "Website Analytics")
+- The developer maintains no user accounts, and `cdn.geospoof.com` (the timezone boundary data) serves only static files
+- The website (`geospoof.com`) uses only cookieless, privacy-friendly analytics (see "Website Analytics"). The only personal data its server stores is the pseudonymous purchase records described under "In-App Purchases and Subscriptions", in an Upstash database protected by a secret access token
 
 ## Your Rights
 
-You have complete control over your data:
+You have complete control over your extension data:
 
 - All settings can be cleared by disabling or removing the extension
 - You can view all stored data in your browser's extension storage inspector
 - No account or registration is required
+- Removing the extension or the app doesn't affect the purchase records described under "In-App Purchases and Subscriptions". To ask about or delete yours, contact [support@geospoof.com](mailto:support@geospoof.com)
 
 ## For Users in the European Economic Area, United Kingdom, and Switzerland
 
@@ -235,13 +256,13 @@ If you are located in the EEA, UK, or Switzerland, the following applies to you 
 
 **Controller:** GeoSpoof LLC, a New York limited liability company based in the United States, acts as the data controller for any personal data processed by this extension. You can contact the controller at [support@geospoof.com](mailto:support@geospoof.com).
 
-**Legal basis for processing:** Two kinds of personal data may be processed, both limited to your public IP address. (1) When you explicitly enable the "Sync with VPN" feature, your public IP is sent to the IP-detection and geolocation services listed above; we rely on your consent (GDPR Art. 6(1)(a)), which you give by enabling the feature and can withdraw at any time by disabling "Sync with VPN" in the extension popup. (2) Whenever the extension resolves a timezone, it fetches boundary data from `cdn.geospoof.com`, which — like any web request — transmits your IP to the developer's content-delivery host (Amazon CloudFront/S3); we rely on legitimate interests (GDPR Art. 6(1)(f)) in delivering the boundary data needed for the location-spoofing you requested, and the IP is used only to serve the file and is not retained or otherwise processed by the developer. Withdrawing consent does not affect the lawfulness of processing based on consent before its withdrawal.
+**Legal basis for processing:** Two kinds of personal data may be processed by the extension, both limited to your public IP address. (1) When you explicitly enable the "Sync with VPN" feature, your public IP is sent to the IP-detection and geolocation services listed above; we rely on your consent (GDPR Art. 6(1)(a)), which you give by enabling the feature and can withdraw at any time by disabling "Sync with VPN" in the extension popup. (2) Whenever the extension resolves a timezone, it fetches boundary data from `cdn.geospoof.com`, which — like any web request — transmits your IP to the developer's content-delivery host (Amazon CloudFront/S3); we rely on legitimate interests (GDPR Art. 6(1)(f)) in delivering the boundary data needed for the location-spoofing you requested, and the IP is used only to serve the file and is not retained or otherwise processed by the developer. Withdrawing consent does not affect the lawfulness of processing based on consent before its withdrawal.
 
-**International transfers:** The third-party services listed above (AWS, Cloudflare, Akamai, ipify, GeoJS, FreeIPAPI, ReallyFreeGeoIP, ipinfo.io, Google STUN, Nominatim, and, for the companion app, Apple's MapKit and geocoding services) are operated outside the EEA, including in the United States; each is an independent controller and determines its own transfer mechanisms. Separately, the timezone boundary data is served from the developer's own domain `cdn.geospoof.com`, hosted on Amazon Web Services (CloudFront/S3), whose infrastructure is also located outside the EEA, including in the United States. (Older extension versions that still fetch from `geospoof.com` use the developer's Vercel host, likewise located in the United States.) When you use features that contact any of these endpoints, your public IP is transferred to that infrastructure. Apart from serving that static boundary data, the extension developer operates no server and performs no other cross-border transfer of its own.
+**International transfers:** The third-party services listed above (AWS, Cloudflare, Akamai, ipify, GeoJS, FreeIPAPI, ReallyFreeGeoIP, ipinfo.io, Google STUN, Nominatim, and, for the companion app, Apple's MapKit and geocoding services) are operated outside the EEA, including in the United States; each is an independent controller and determines its own transfer mechanisms. Separately, the timezone boundary data is served from the developer's own domain `cdn.geospoof.com`, hosted on Amazon Web Services (CloudFront/S3), whose infrastructure is also located outside the EEA, including in the United States. (Older extension versions that still fetch from `geospoof.com` use the developer's Vercel host, likewise located in the United States.) When you use features that contact any of these endpoints, your public IP is transferred to that infrastructure. Apart from that static boundary data, the extension sends nothing to a developer server. The purchase records described under "In-App Purchases and Subscriptions" are handled by Vercel, Upstash, and Discord, which are United States companies, so those records may be processed outside the EEA, including in the United States.
 
-**Your rights under GDPR / UK GDPR:** you have the right to access, rectify, erase, restrict, object to, and port your personal data, and to withdraw consent at any time. Because the extension stores no personal data on any server controlled by the developer, most of these rights are exercised directly by you within the extension: uninstalling the extension or disabling "Sync with VPN" fully erases everything the developer could ever access. You also have the right to lodge a complaint with your local data protection authority.
+**Your rights under GDPR / UK GDPR:** you have the right to access, rectify, erase, restrict, object to, and port your personal data, and to withdraw consent at any time. Because the extension stores no personal data on any server controlled by the developer, most of these rights are exercised directly by you within the extension: uninstalling the extension or disabling "Sync with VPN" fully erases everything the extension holds. The purchase records described under "In-App Purchases and Subscriptions" are the exception: to access or erase yours, contact [support@geospoof.com](mailto:support@geospoof.com). You also have the right to lodge a complaint with your local data protection authority.
 
-**Retention:** Your public IP is held only in volatile memory for the current browser session and cleared when you disable the feature or close your browser. No retention period applies because no storage occurs.
+**Retention:** Your public IP is held only in volatile memory for the current browser session and cleared when you disable the feature or close your browser. No retention period applies to it because no storage occurs. Purchase records are kept for the periods given under "In-App Purchases and Subscriptions".
 
 ## For California Residents
 
@@ -249,9 +270,9 @@ If you are a California resident, the California Consumer Privacy Act (CCPA), as
 
 **We do not sell or share your personal information** as those terms are defined under the CCPA/CPRA. We do not disclose personal information for cross-context behavioral advertising. We do not knowingly handle the personal information of consumers under 16.
 
-**Categories collected:** The only category of personal information touched by the extension is an internet identifier (your public IP address). This happens in two cases: when you enable "Sync with VPN" (sent to the IP-detection and geolocation services), and when the extension fetches timezone boundary data from `cdn.geospoof.com` (your IP reaches the developer's content-delivery host, Amazon CloudFront/S3, as part of an ordinary web request). In both cases the IP is used only for the purposes described above and is not retained by the developer.
+**Categories collected:** The only category of personal information touched by the extension is an internet identifier (your public IP address). This happens in two cases: when you enable "Sync with VPN" (sent to the IP-detection and geolocation services), and when the extension fetches timezone boundary data from `cdn.geospoof.com` (your IP reaches the developer's content-delivery host, Amazon CloudFront/S3, as part of an ordinary web request). In both cases the IP is used only for the purposes described above and is not retained by the developer. Separately, the website receives and keeps the purchase records described under "In-App Purchases and Subscriptions".
 
-**Your rights:** You have the right to know what personal information is collected, the right to delete personal information, the right to correct inaccurate personal information, the right to opt out of sale or sharing (there is nothing to opt out of here), and the right not to receive discriminatory treatment for exercising these rights. Because no personal information is retained by the developer, these rights are effectively exercised by uninstalling the extension or disabling the feature. For any inquiry, contact [support@geospoof.com](mailto:support@geospoof.com).
+**Your rights:** You have the right to know what personal information is collected, the right to delete personal information, the right to correct inaccurate personal information, the right to opt out of sale or sharing (there is nothing to opt out of here), and the right not to receive discriminatory treatment for exercising these rights. The extension retains no personal information, so for it these rights are effectively exercised by uninstalling the extension or disabling the feature. For the purchase records, or any other inquiry, contact [support@geospoof.com](mailto:support@geospoof.com).
 
 ## Children's Privacy
 
@@ -259,7 +280,7 @@ GeoSpoof is not directed to children under 13, and we do not knowingly collect p
 
 ## Security Incidents
 
-Because the extension stores no personal data on any developer-operated server, there is no developer-side database that can be breached. In the unlikely event of a security issue affecting the extension itself (for example, a vulnerability in the extension code), we will publish an advisory on the project's GitHub page and release a patched version through the relevant browser stores. Where required by applicable law, we will notify affected users and the relevant data protection authority.
+The extension stores no personal data on any developer-operated server. The one developer-side database is the website's purchase tally (see "In-App Purchases and Subscriptions"); it and the Discord channel hold no names, email addresses, or card or payment-method details. In the unlikely event of a security issue affecting the extension itself (for example, a vulnerability in the extension code), we will publish an advisory on the project's GitHub page and release a patched version through the relevant browser stores. Where required by applicable law, we will notify affected users and the relevant data protection authority.
 
 ## Changes to This Policy
 

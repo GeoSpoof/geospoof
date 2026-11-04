@@ -44,11 +44,24 @@ function reply(timezoneId: string): Record<string, unknown> {
 
 const runtime = browser.runtime as unknown as { sendMessage: Mock };
 
+/** A reply or push payload stamped with a settings revision (any value, to test the reader). */
+function stamped(timezoneId: string, revision: unknown): Record<string, unknown> {
+  return { ...reply(timezoneId), revision };
+}
+
+type MessageListener = (message: {
+  type: string;
+  payload?: Record<string, unknown>;
+  revision?: unknown;
+}) => unknown;
+
 interface Loaded {
   /** Pending GET_SETTINGS replies, oldest first. */
   replies: Deferred[];
   pageshow: EventListener | undefined;
   prerenderingchange: EventListener | undefined;
+  /** This module's runtime.onMessage listener (UPDATE_SETTINGS pushes, PING). */
+  onMessage: MessageListener;
 }
 
 /** GET_SETTINGS requests sent since the last mockClear. */
@@ -71,20 +84,36 @@ async function loadContentScript(): Promise<Loaded> {
 
   const windowSpy = vi.spyOn(window, "addEventListener");
   const documentSpy = vi.spyOn(document, "addEventListener");
+  const onMessageSpy = vi.spyOn(browser.runtime.onMessage, "addListener");
   windowSpy.mockClear();
   documentSpy.mockClear();
+  onMessageSpy.mockClear();
   await import("@/content/index");
 
   const find = (spy: typeof windowSpy, type: string): EventListener | undefined =>
     spy.mock.calls.find((c) => c[0] === type)?.[1] as EventListener | undefined;
+  const onMessage = onMessageSpy.mock.calls.at(-1)?.[0] as MessageListener | undefined;
+  expect(onMessage, "the content script registered no runtime.onMessage listener").toBeDefined();
   const loaded: Loaded = {
     replies,
     pageshow: find(windowSpy, "pageshow"),
     prerenderingchange: find(documentSpy, "prerenderingchange"),
+    onMessage: onMessage!,
   };
   windowSpy.mockRestore();
   documentSpy.mockRestore();
+  onMessageSpy.mockRestore();
   return loaded;
+}
+
+/** Deliver an UPDATE_SETTINGS push to the loaded module. */
+function push(loaded: Loaded, timezoneId: string, revision?: unknown): void {
+  const message: Parameters<MessageListener>[0] = {
+    type: "UPDATE_SETTINGS",
+    payload: reply(timezoneId),
+  };
+  if (revision !== undefined) message.revision = revision;
+  loaded.onMessage(message);
 }
 
 function pageshowEvent(persisted: boolean): Event {
@@ -159,6 +188,42 @@ describe("content script settings refresh", () => {
     captured.stop();
   });
 
+  test("engineTimezone is forwarded to the MAIN world, and defaults to false", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve({ ...reply("Asia/Tokyo"), engineTimezone: true });
+    await settle();
+    const last = captured.details.at(-1) as { engineTimezone?: boolean } | undefined;
+    expect(last?.engineTimezone).toBe(true);
+
+    loaded.pageshow!(pageshowEvent(true));
+    loaded.replies[1].resolve(reply("Asia/Tokyo"));
+    await settle();
+    const refreshed = captured.details.at(-1) as { engineTimezone?: boolean } | undefined;
+    expect(refreshed?.engineTimezone).toBe(false);
+    captured.stop();
+  });
+
+  test("engineTimezoneSettled is forwarded to the MAIN world, and defaults to true", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve({
+      ...reply("Asia/Tokyo"),
+      engineTimezone: true,
+      engineTimezoneSettled: false,
+    });
+    await settle();
+    const last = captured.details.at(-1) as { engineTimezoneSettled?: boolean } | undefined;
+    expect(last?.engineTimezoneSettled).toBe(false);
+
+    loaded.pageshow!(pageshowEvent(true));
+    loaded.replies[1].resolve(reply("Asia/Tokyo"));
+    await settle();
+    const refreshed = captured.details.at(-1) as { engineTimezoneSettled?: boolean } | undefined;
+    expect(refreshed?.engineTimezoneSettled).toBe(true);
+    captured.stop();
+  });
+
   test("a non-persisted pageshow (ordinary load) sends nothing", async () => {
     const loaded = await loadContentScript();
     loaded.pageshow!(pageshowEvent(false));
@@ -229,5 +294,152 @@ describe("content script settings refresh", () => {
   test("no event-handler property is assigned on the page's window", async () => {
     await loadContentScript();
     expect(window.onpageshow).toBeNull();
+  });
+});
+
+/**
+ * F22: every reply and push carries the settings revision it was built from.
+ * One strictly older than the newest this page applied is dropped; an equal
+ * or missing one applies, and a missing one doesn't move the mark.
+ */
+describe("content script settings revision", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
+  });
+
+  test("a push at 10, then a load reply at 9: the reply is dropped", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    push(loaded, "Asia/Tokyo", 10);
+    await settle();
+    const afterPush = captured.details.length;
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Asia/Tokyo");
+
+    loaded.replies[0].resolve(stamped("Europe/Paris", 9));
+    await settle();
+    expect(captured.details.length).toBe(afterPush);
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Asia/Tokyo");
+    captured.stop();
+  });
+
+  test("a reply at 9 and a push at 10 apply; a later push at 9 is dropped", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve(stamped("Europe/Paris", 9));
+    await settle();
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Europe/Paris");
+
+    push(loaded, "Asia/Tokyo", 10);
+    await settle();
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Asia/Tokyo");
+    const afterPush = captured.details.length;
+
+    push(loaded, "America/Mexico_City", 9);
+    await settle();
+    expect(captured.details.length).toBe(afterPush);
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Asia/Tokyo");
+    captured.stop();
+  });
+
+  test("a push equal to the applied revision applies (a rollover re-sends the same settings)", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve(stamped("Europe/Paris", 9));
+    await settle();
+
+    push(loaded, "Asia/Tokyo", 9);
+    await settle();
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Asia/Tokyo");
+    captured.stop();
+  });
+
+  test("a missing revision applies and doesn't move the mark", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    push(loaded, "Asia/Tokyo", 10);
+    await settle();
+
+    push(loaded, "Europe/Paris");
+    await settle();
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Europe/Paris");
+    const afterMissing = captured.details.length;
+
+    push(loaded, "America/Mexico_City", 9);
+    await settle();
+    expect(captured.details.length).toBe(afterMissing);
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Europe/Paris");
+    captured.stop();
+  });
+
+  test('Infinity, NaN, -1 and "10" apply as missing, and a later 5 still applies', async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve(reply("Asia/Tokyo"));
+    await settle();
+
+    const unusable: Array<[unknown, string]> = [
+      [Infinity, "Europe/Paris"],
+      [NaN, "America/Mexico_City"],
+      [-1, "Europe/Dublin"],
+      ["10", "Australia/Sydney"],
+    ];
+    for (const [revision, zone] of unusable) {
+      push(loaded, zone, revision);
+      await settle();
+      expect(captured.details.at(-1)?.timezone?.identifier, String(revision)).toBe(zone);
+    }
+
+    push(loaded, "Asia/Kolkata", 5);
+    await settle();
+    expect(captured.details.at(-1)?.timezone?.identifier).toBe("Asia/Kolkata");
+    captured.stop();
+  });
+
+  test("the revision never reaches the page: every detail has exactly the ten keys", async () => {
+    const loaded = await loadContentScript();
+    const details: Array<Record<string, unknown>> = [];
+    const handler = (event: Event): void => {
+      details.push((event as CustomEvent<Record<string, unknown>>).detail);
+    };
+    window.addEventListener(EVENT_NAME, handler);
+    try {
+      loaded.replies[0].resolve(stamped("Asia/Tokyo", 9));
+      await settle();
+      push(loaded, "Europe/Paris", 10);
+      await settle();
+      push(loaded, "Europe/Dublin");
+      await settle();
+
+      expect(details.length).toBeGreaterThan(0);
+      for (const detail of details) {
+        expect(Object.keys(detail).sort()).toEqual([
+          "debugLogging",
+          "enabled",
+          "engineTimezone",
+          "engineTimezoneSettled",
+          "locale",
+          "location",
+          "preserveGeolocationPrompt",
+          "timezone",
+          "verbosityLevel",
+          "webrtcProtection",
+        ]);
+        expect(JSON.stringify(detail)).not.toContain("revision");
+        expect(Object.keys(detail.location as Record<string, unknown>).sort()).toEqual([
+          "accuracy",
+          "accuracySeed",
+          "accuracySetting",
+          "latitude",
+          "longitude",
+        ]);
+      }
+    } finally {
+      window.removeEventListener(EVENT_NAME, handler);
+    }
   });
 });

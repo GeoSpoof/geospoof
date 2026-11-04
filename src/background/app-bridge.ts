@@ -27,7 +27,12 @@ import {
   validateSiteLocations,
 } from "./settings";
 import { computeOffsets } from "./timezone";
-import { localSiteLocationEdits, runSiteLocationJob } from "./site-location-queue";
+import {
+  changedSiteLocationIds,
+  localSiteLocationEdits,
+  noteAdoptedSiteLocationChange,
+  runSiteLocationJob,
+} from "./site-location-queue";
 import {
   applyPrecisionCadence,
   handleSetLocation,
@@ -359,10 +364,12 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
           round4(settings.location.latitude) !== round4(pending.latitude) ||
           round4(settings.location.longitude) !== round4(pending.longitude);
         if (changed || !settings.vpnSyncEnabled) {
+          // enableVpnSync stores vpnSyncEnabled: true in the location's write.
           await handleSetLocation(
             { latitude: pending.latitude, longitude: pending.longitude },
             {
               fromVpnSync: true,
+              enableVpnSync: true,
               timezoneHint: pending.timezone,
               locationName: {
                 city: "",
@@ -374,17 +381,23 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
             }
           );
         }
-        await updateSettings({ vpnSyncEnabled: true });
+        // Only when no location was written above.
+        if (!changed && settings.vpnSyncEnabled) {
+          await updateSettings({ vpnSyncEnabled: true });
+        }
       } else {
         // No coords from the app — the extension owns IP detection + geolocation.
         const needSync = pending.resync === true || !settings.vpnSyncEnabled;
+        let wrote = false;
         if (needSync) {
           const result = await syncVpnLocation(true);
           if (!("error" in result)) {
-            await handleSetLocation(
+            // enableVpnSync stores vpnSyncEnabled: true in the location's write.
+            wrote = await handleSetLocation(
               { latitude: result.latitude, longitude: result.longitude },
               {
                 fromVpnSync: true,
+                enableVpnSync: true,
                 locationName: {
                   city: result.city,
                   country: result.country,
@@ -401,7 +414,10 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
             logger.warn("adoptPendingSettingsFromApp: VPN sync failed:", result);
           }
         }
-        await updateSettings({ vpnSyncEnabled: true });
+        // Only when no location was written above (no sync, or it failed).
+        if (!wrote) {
+          await updateSettings({ vpnSyncEnabled: true });
+        }
       }
     } else if (pending.cleared) {
       if (settings.location || settings.vpnSyncEnabled) {
@@ -616,8 +632,10 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
     // run in the site-location queue. A save or remove written after the
     // newer-than check wins over this older snapshot, and so does a newer app
     // snapshot that passed its own check meanwhile (strictly newer, so the same
-    // snapshot adopted twice still applies). Its own try/catch so a failure
-    // here never undoes the steps above.
+    // snapshot adopted twice still applies). Each entry the adopted list
+    // changes or removes is stamped with the app's action time, so a popup
+    // save older than that action yields for it. Its own try/catch so a
+    // failure here never undoes the steps above.
     if (typeof pending.siteLocations === "string") {
       try {
         const parsed: unknown = JSON.parse(pending.siteLocations);
@@ -629,6 +647,17 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
           const latestForSites = await loadSettings();
           if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
             const updated = await updateSettings({ siteLocations: next });
+            // The app acted at pendingAtMs. A popup save that arrived before
+            // that and is still on its lookups yields for the entries this
+            // snapshot changed; one that arrives later still wins. Never later
+            // than now, so a skewed clock can't block later edits. A non-finite
+            // time records nothing: NaN would sit in the tracker and disable
+            // supersession.
+            if (Number.isFinite(pendingAtMs)) {
+              const at = Math.min(pendingAtMs, Date.now());
+              for (const id of changedSiteLocationIds(latestForSites.siteLocations, next))
+                noteAdoptedSiteLocationChange(id, at);
+            }
             await broadcastSettingsToTabs(updated);
             await updateBadge();
           }

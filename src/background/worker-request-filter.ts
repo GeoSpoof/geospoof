@@ -128,6 +128,7 @@ import { isRestrictedUrl } from "./tabs";
 import { computeEffectiveEnabled, computeEffectiveSiteLocations } from "@/shared/utils/scope";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 
 const logger = createLogger("BG");
 
@@ -284,6 +285,9 @@ let beforeSendHeadersListener: ((details: WebRequestDetailsWithHeaders) => void)
  */
 let cachedSettings: Settings | undefined;
 
+/** The settings revision of `cachedSettings`, when it carries one; an older snapshot never replaces it. */
+let cachedRevision: number | undefined;
+
 /**
  * Short-lived allowlist of worker script URLs the content script has
  * announced it's about to fetch. Retained as a secondary classifier
@@ -333,10 +337,25 @@ function isAllowlisted(url: string): boolean {
 /**
  * Update the cached settings snapshot that the listeners read.
  * Called from background/tabs.ts → broadcastSettingsToTabs on every
- * settings change, and from the initialize() path at startup.
+ * settings change, from the initialize() path at startup, and by the
+ * install-time prime. A snapshot whose settings revision is older than the
+ * cached one is ignored, so a caller that loaded settings before a write can't
+ * put them back after the write's broadcast.
  */
 export function updateWorkerFilterSettings(settings: Settings): void {
+  const r = readRevision(settings.revision);
+  if (isOlderRevision(r, cachedRevision)) {
+    logger.debug(`[worker-filter] kept settings revision ${cachedRevision} over older ${r}`);
+    return;
+  }
   cachedSettings = settings;
+  if (r !== undefined) cachedRevision = r;
+}
+
+/** Test seam: forget the cached settings snapshot and its revision. */
+export function _resetWorkerFilterSettingsForTest(): void {
+  cachedSettings = undefined;
+  cachedRevision = undefined;
 }
 
 /**
@@ -400,7 +419,9 @@ export function workerPayloadFor(
     effective.proFeaturesBlocked
   );
   return identifier || locale
-    ? buildStandaloneWorkerPayload(identifier, locale, backgroundFractionalOffset())
+    ? // Engine-level Spoofing is Chromium-only, so the zone this Firefox path
+      // sees can't change under the worker.
+      buildStandaloneWorkerPayload(identifier, locale, backgroundFractionalOffset(), false)
     : "";
 }
 
@@ -1029,9 +1050,11 @@ export async function installWorkerRequestFilter(): Promise<void> {
   //
   // Prime the settings cache. Until this lands the listeners short-circuit on
   // `!cachedSettings` and pass through. broadcastSettingsToTabs also refreshes
-  // this on every settings change, so a missed prime self-heals.
+  // this on every settings change, so a missed prime self-heals. Primed through
+  // updateWorkerFilterSettings, so a prime that resolves after a broadcast
+  // keeps the broadcast's newer snapshot.
   try {
-    cachedSettings = await loadSettings();
+    updateWorkerFilterSettings(await loadSettings());
   } catch (err) {
     logger.warn(
       "[worker-filter] failed to prime settings cache:",

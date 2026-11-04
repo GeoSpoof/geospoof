@@ -76,9 +76,10 @@ export interface SetPreserveGeoPromptPayload {
 }
 
 /**
- * Toggles browser-level (chrome.debugger / CDP) geo+timezone spoofing.
- * Chromium only — the popup requests the optional `debugger` permission before
- * sending `enabled: true`, and revokes it after sending `enabled: false`.
+ * Toggles Engine-level (chrome.debugger / CDP) timezone spoofing. Chromium
+ * only. `debugger` is a required permission there; the popup requests the
+ * optional `webNavigation` permission when it sends `enabled: true`, and
+ * removes it after sending `enabled: false`.
  */
 export interface SetDebuggerModePayload {
   enabled: boolean;
@@ -156,6 +157,26 @@ export interface UpdateSettingsPayload {
   enabled: boolean;
   location: Location | null;
   timezone: Timezone | null;
+  /**
+   * Engine-level Spoofing (Chromium's `chrome.debugger` mode) sets the zone in
+   * the engine for this page. `timezone` is still this page's zone: each frame
+   * keeps its native Date/Intl only where the engine already reports that zone,
+   * and installs the injected overrides for it where it doesn't (a cross-site
+   * iframe in its own process, a refused or cancelled session, an override that
+   * hasn't landed yet). False on Firefox and Safari, and for a document Chrome
+   * is prerendering. The page world gets only this boolean, never the real zone.
+   */
+  engineTimezone: boolean;
+  /**
+   * With `engineTimezone`: false when an older zone command to this tab was
+   * still in flight after the background stopped waiting for it, so the
+   * engine can still move to another zone. No frame keeps native Date/Intl
+   * on such a delivery, whatever its engine reports when it arrives: the
+   * injected overrides take `timezone`, and the frame stays in Engine-level
+   * mode, so the workers it starts keep re-checking the engine's zone. True
+   * otherwise.
+   */
+  engineTimezoneSettled: boolean;
   debugLogging: boolean;
   verbosityLevel: string;
   /**
@@ -209,6 +230,16 @@ export interface UpdateSettingsPayload {
    */
   locale: SpoofedLocalePayload | null;
 }
+
+/** The UPDATE_SETTINGS message a tab receives. `revision` rides on the envelope, never in the payload. */
+export interface UpdateSettingsMessage {
+  type: "UPDATE_SETTINGS";
+  payload: UpdateSettingsPayload;
+  revision?: number;
+}
+
+/** A content script's GET_SETTINGS reply: its page payload plus the revision it was built from. Isolated world only. */
+export type ContentSettingsReply = UpdateSettingsPayload & { revision?: number };
 
 /**
  * Optional GET_SETTINGS payload. Extension pages send none.

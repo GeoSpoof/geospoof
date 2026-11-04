@@ -37,8 +37,7 @@ import {
   ensurePrecisionRollover,
   reschedulePrecisionRollover,
 } from "./precision-cadence";
-import { buildPagePayload } from "./page-payload";
-import { installDebuggerWatchers, syncDebuggerSpoofing, ensureTabSpoofed } from "./debugger-spoof";
+import { installDebuggerWatchers, syncDebuggerSpoofing, claimTab } from "./debugger-spoof";
 import {
   installWorkerRequestFilter,
   updateWorkerFilterSettings,
@@ -314,9 +313,11 @@ async function initialize(): Promise<void> {
     try {
       const result = await syncVpnLocation(false);
       if (!("error" in result)) {
+        // onlyWhileVpnSync: a manual location or a Disable made during the
+        // sync's network calls is kept.
         await handleSetLocation(
           { latitude: result.latitude, longitude: result.longitude },
-          { fromVpnSync: true, timezoneHint: result.timezone }
+          { fromVpnSync: true, onlyWhileVpnSync: true, timezoneHint: result.timezone }
         );
       }
     } catch (error) {
@@ -448,22 +449,15 @@ async function onAlarm(alarm: Alarms.Alarm): Promise<void> {
       } catch {
         tabUrl = undefined;
       }
-      // Built by the shared page-payload module, never inline here. Duplicated
-      // builders once delivered the raw precision anchor on this path (a user
-      // who enabled approximate location still got their EXACT coordinates),
-      // and a consumer someone forgot to update is the likeliest bug for any
-      // per-tab feature, so every page-bound payload goes through
-      // `page-payload.ts`.
-      const scopedPayload = await buildPagePayload(settings, tabUrl);
-
-      try {
-        await browser.tabs.sendMessage(tabId, {
-          type: "UPDATE_SETTINGS",
-          payload: scopedPayload,
-        });
-      } catch {
-        // Tab may have closed; ignore
-      }
+      // Built by the shared page-payload module through sendSettingsToTab,
+      // never inline here. Duplicated builders once delivered the raw precision
+      // anchor on this path (a user who enabled approximate location still got
+      // their EXACT coordinates), and a consumer someone forgot to update is the
+      // likeliest bug for any per-tab feature, so every page-bound payload goes
+      // through `page-payload.ts` and every push is stamped with its settings
+      // revision in one place. A send failure (the tab may have closed) is
+      // swallowed there.
+      await sendSettingsToTab({ id: tabId, url: tabUrl }, settings);
 
       setActionBadge(tabId, "green", "✓");
     } else if (attempt >= MAX_ATTEMPT) {
@@ -659,11 +653,14 @@ if (browser.tabs && browser.tabs.onCreated) {
             // tab's top-level URL (Req 8.4, 9.3); a missing URL resolves to
             // false.
             //
-            // Built by the shared page-payload module, never inline here.
-            // Duplicated builders once delivered the raw precision anchor on
-            // this path, and a consumer someone forgot to update is the
-            // likeliest bug for any per-tab feature, so every page-bound
-            // payload goes through `page-payload.ts`.
+            // Built by the shared page-payload module through
+            // sendSettingsToTab, never inline here. Duplicated builders once
+            // delivered the raw precision anchor on this path, and a consumer
+            // someone forgot to update is the likeliest bug for any per-tab
+            // feature, so every page-bound payload goes through
+            // `page-payload.ts` and every push is stamped with its settings
+            // revision in one place. The snapshot was loaded before the delay,
+            // so a page that already applied a newer save drops this push.
             //
             // Judged by the tab's URL now, not the `tab` snapshot from the
             // event: a tab opened straight at a URL (a link opened in a new
@@ -671,11 +668,7 @@ if (browser.tabs && browser.tabs.onCreated) {
             // and its page can already be listening 100ms later. A payload
             // built from the snapshot would turn spoofing off on that page.
             const current = await browser.tabs.get(tab.id!);
-            const scopedPayload = await buildPagePayload(settings, current.url);
-            await browser.tabs.sendMessage(tab.id!, {
-              type: "UPDATE_SETTINGS",
-              payload: scopedPayload,
-            });
+            await sendSettingsToTab(current, settings);
           } catch (error) {
             // Expected when the tab navigated, closed, or landed somewhere we
             // can't inject during the 100ms delay. TRACE keeps this from being
@@ -700,6 +693,9 @@ if (browser.tabs && browser.tabs.onUpdated) {
       // the fresh content script re-requests settings on load. No new
       // permission is used — this rides tabs.onUpdated (Req 8.6).
       if (changeInfo.url && changeInfo.status !== "loading") {
+        // Claimed now, in event order, so a navigation that starts while the
+        // settings are read supersedes this one (Chromium debugger mode).
+        const reconcileEngineLevel = __CHROMIUM__ ? claimTab(tabId) : null;
         void (async () => {
           const settings = await loadSettings();
           await sendSettingsToTab(tab, settings);
@@ -716,10 +712,11 @@ if (browser.tabs && browser.tabs.onUpdated) {
           // boundary. Reconcile just this tab against the new URL — attach+apply
           // if now in scope, detach (clearing the override) if not — so path
           // scoping is consistent whether or not debugger mode is on (Req 11).
+          // Run it even with the mode off, where it tears down: the claim above
+          // already stopped any older reconcile of the tab, including a
+          // mode-off teardown, so skipping it would leave that teardown undone.
           // Compiled out on Firefox/Safari.
-          if (__CHROMIUM__ && settings.debuggerModeEnabled) {
-            await ensureTabSpoofed(tabId, tab.url);
-          }
+          if (reconcileEngineLevel) await reconcileEngineLevel(tab.url);
         })();
         return;
       }

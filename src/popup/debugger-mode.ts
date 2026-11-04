@@ -3,11 +3,14 @@
  *
  * The default spoofing path patches JS APIs from a page-world content script.
  * The Chromium-only alternative attaches `chrome.debugger` and drives CDP's
- * `Emulation` domain, which spoofs geolocation/timezone across every frame and
- * worker before a page's first script — closing the module/service-worker
- * timezone leaks the content-script path can't cover on Chromium. The cost is
- * Chrome's persistent "GeoSpoof started debugging this browser" bar, so it's
- * strictly opt-in.
+ * `Emulation.setTimezoneOverride`, which sets the timezone in the page's
+ * renderer process (and, on Chrome 125+, in cross-origin iframes' processes),
+ * so it also covers the URL / module workers the content-script path can't
+ * patch on Chromium. Geolocation stays on the injected path. It doesn't reach a
+ * tab's first page, or the first scripts after a cross-site navigation, in
+ * time (Known Limitations 3 and 15 in docs/API.md). The cost is Chrome's
+ * persistent "GeoSpoof started debugging this browser" bar, so it's strictly
+ * opt-in.
  *
  * Unlike the Firefox `userScripts` toggle, the `debugger` permission itself is
  * declared *required* in the Chromium manifest (Chrome forbids it as an
@@ -15,7 +18,7 @@
  * `<all_urls>`), so the toggle is just a setting — no permission request for the
  * core capability. What we *do* request at runtime is the optional
  * `webNavigation` permission, which lets the background attach on
- * `onBeforeNavigate` (before a page's first script) for a race-free override.
+ * `onBeforeNavigate` and re-apply on `onCommitted` / `onErrorOccurred`.
  * It's best-effort: if the user declines it, debugger mode still works via a
  * slightly-later `tabs.onUpdated` attach, so we enable the mode regardless.
  *
@@ -128,8 +131,9 @@ export function wireDebuggerModeToggle(): void {
         .sendMessage({ type: "SET_DEBUGGER_MODE", payload: { enabled: true } })
         .catch((error: unknown) => console.error("Failed to enable debugger mode:", error));
 
-      // Request webNavigation as a best-effort enhancement (race-free early
-      // attach). Called synchronously so Chrome counts it as a user gesture.
+      // Request webNavigation as a best-effort enhancement (an earlier attach,
+      // and re-applies at commit / abort). Called synchronously so Chrome counts
+      // it as a user gesture.
       // The mode works via the tabs.onUpdated fallback even if this is denied,
       // and the background binds onBeforeNavigate via permissions.onAdded if
       // it's granted — so we don't need the result here.

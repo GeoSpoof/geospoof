@@ -66,7 +66,7 @@ function workerDate(zone: string, fractional: boolean): DateConstructor {
   if (!D) {
     const sandbox: Record<string, unknown> = { self: {} };
     vm.createContext(sandbox);
-    vm.runInContext(buildStandaloneWorkerPayload(zone, null, fractional), sandbox);
+    vm.runInContext(buildStandaloneWorkerPayload(zone, null, fractional, false), sandbox);
     D = (sandbox.self as { Date: DateConstructor }).Date;
     workerRealms.set(key, D);
   }

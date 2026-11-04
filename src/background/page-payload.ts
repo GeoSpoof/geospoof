@@ -29,7 +29,8 @@ export interface PagePayloadOptions {
   /**
    * The requesting document is a page Chrome is prerendering. Engine-level
    * spoofing attaches to the tab, which is still showing the page being left,
-   * so it doesn't reach this document; the injected path keeps the timezone.
+   * so it doesn't reach this document; its payload says `engineTimezone: false`
+   * and the injected path spoofs the timezone.
    */
   prerendering?: boolean;
   /**
@@ -41,11 +42,18 @@ export interface PagePayloadOptions {
    */
   withoutSiteLocation?: boolean;
   /**
-   * Whether Engine-level spoofing owns the timezone. Defaults to this build's
-   * value, `__CHROMIUM__ && settings.debuggerModeEnabled`; tests pass it,
-   * because test builds aren't Chromium.
+   * Whether Engine-level spoofing sets the timezone in the engine (the
+   * payload's `engineTimezone`). Defaults to this build's value,
+   * `__CHROMIUM__ && settings.debuggerModeEnabled`; tests pass it, because test
+   * builds aren't Chromium.
    */
   engineTimezone?: boolean;
+  /**
+   * The payload's `engineTimezoneSettled`: false when an older zone command
+   * to the tab was still in flight when `beforePageDelivery`'s wait ran out.
+   * Defaults to true.
+   */
+  engineTimezoneSettled?: boolean;
 }
 
 /**
@@ -78,14 +86,19 @@ export async function buildPagePayload(
     isRestrictedUrl
   );
 
-  // When browser-level (chrome.debugger) spoofing is active on Chromium, CDP
-  // owns the TIMEZONE (it covers every frame/worker before first script).
-  // Withhold the timezone from the injected path so its Date/Intl overrides
-  // no-op (they gate on having timezone data) — but keep `enabled` and
-  // `location` so the injected GEOLOCATION override still runs (CDP can't make
-  // geolocation reliably prompt-free). WebRTC is independent. Compiled out on
-  // Firefox/Safari. A prerendering document keeps the timezone: CDP isn't
-  // attached to it, and its re-request when it's shown withholds it again.
+  // When Engine-level (chrome.debugger) spoofing is active on Chromium, CDP sets
+  // the TIMEZONE in the engine for the tab, from the same resolver over the same
+  // top-level URL as this payload. The payload still carries the page's zone,
+  // flagged `engineTimezone`: each frame keeps its native Date/Intl where the
+  // engine already reports that zone and installs the injected overrides where
+  // it doesn't (a cross-site iframe in its own process, a refused or cancelled
+  // session, an override that hasn't landed yet), so every frame reports its
+  // top-level page's zone. Geolocation always stays on the injected path (CDP
+  // can't make it reliably prompt-free). WebRTC is independent. Compiled out on
+  // Firefox/Safari. A prerendering document gets `engineTimezone: false`: CDP
+  // isn't attached to it, and its re-request when it's shown sets the flag.
+  // `engineTimezoneSettled` false (an older zone command can still land) keeps
+  // every frame on the injected overrides for this delivery.
   const debuggerActive =
     (options.engineTimezone ?? (__CHROMIUM__ && settings.debuggerModeEnabled)) &&
     options.prerendering !== true;
@@ -100,7 +113,9 @@ export async function buildPagePayload(
     // for the current cadence period (location-precision Req 5.2). A site
     // location's point is the anchor here, with the global seed and cadence.
     location: await resolveCurrentPageLocation(r.settings),
-    timezone: debuggerActive ? null : r.settings.timezone,
+    timezone: r.settings.timezone,
+    engineTimezone: debuggerActive,
+    engineTimezoneSettled: options.engineTimezoneSettled ?? true,
     debugLogging: settings.debugLogging,
     verbosityLevel: settings.verbosityLevel,
     webrtcProtection: settings.webrtcProtection,

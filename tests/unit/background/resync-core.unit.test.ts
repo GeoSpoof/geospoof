@@ -26,11 +26,10 @@ vi.mock("@/background/vpn-sync", () => ({
   clearEndpointCooldowns: (): void => clearEndpointCooldowns(),
 }));
 
-const handleSetLocation = vi
-  .fn<(...args: unknown[]) => Promise<void>>()
-  .mockResolvedValue(undefined);
+// Resolves true: the write happened (VPN sync was still on when it ran).
+const handleSetLocation = vi.fn<(...args: unknown[]) => Promise<boolean>>().mockResolvedValue(true);
 vi.mock("@/background/messages", () => ({
-  handleSetLocation: (...args: unknown[]): Promise<void> => handleSetLocation(...args),
+  handleSetLocation: (...args: unknown[]): Promise<boolean> => handleSetLocation(...args),
 }));
 
 const loadSettings = vi.fn<() => Promise<unknown>>();
@@ -95,10 +94,12 @@ describe("triggerResyncCheck — decision logic", () => {
     expect(handleSetLocation).toHaveBeenCalledTimes(1);
     const [coords, options] = handleSetLocation.mock.calls[0] as [
       { latitude: number; longitude: number },
-      { fromVpnSync: boolean; locationName: { displayName: string } },
+      { fromVpnSync: boolean; onlyWhileVpnSync: boolean; locationName: { displayName: string } },
     ];
     expect(coords).toEqual({ latitude: -33.8688, longitude: 151.2093 });
     expect(options.fromVpnSync).toBe(true);
+    // The write re-checks vpnSyncEnabled, so a manual change during the check is kept.
+    expect(options.onlyWhileVpnSync).toBe(true);
     expect(options.locationName.displayName).toBe("Sydney, Australia");
   });
 
