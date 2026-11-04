@@ -240,10 +240,14 @@ async function doCheck(): Promise<void> {
     return;
   }
 
-  await handleSetLocation(
+  // onlyWhileVpnSync re-checks vpnSyncEnabled inside the write, so a manual
+  // location or a Disable made during the calls above is kept. The check at the
+  // top stays as a cheap pre-check.
+  const wrote = await handleSetLocation(
     { latitude: result.latitude, longitude: result.longitude },
     {
       fromVpnSync: true,
+      onlyWhileVpnSync: true,
       timezoneHint: result.timezone,
       locationName: {
         city: result.city,
@@ -257,7 +261,9 @@ async function doCheck(): Promise<void> {
       },
     }
   );
-  logger.info("[RESYNC] Location re-synced to", result.city || confirmIp);
+  if (wrote) {
+    logger.info("[RESYNC] Location re-synced to", result.city || confirmIp);
+  }
 }
 
 // Exported for testing

@@ -274,16 +274,16 @@
             Sites still see your VPN's IP address. A different location here can look inconsistent.
           </div>
           <!-- tabindex="-1": "Use main location" hides itself, so focus moves
-               here to read the confirmation; not a tab stop. -->
+               here and Tab continues from it; not a tab stop. No live role:
+               #siteLocationAnnouncer speaks the confirmation. -->
           <div
             class="site-location-hint"
             id="siteLocationLineReloadHint"
-            role="status"
             tabindex="-1"
             data-i18n="siteLocation_reloadHint"
             hidden
           >
-            Reload pages on this site to apply the change everywhere.
+            Reload affected pages to apply the change.
           </div>
           <div class="scope-inline-msg" id="siteLocationLineError" role="alert" hidden></div>
         </div>
@@ -779,16 +779,16 @@
               ⚠ Change not saved
             </div>
             <!-- tabindex="-1": the editor's one-tap "Add to allowlist" hides
-                 itself, so focus moves here to read the confirmation. -->
+                 itself, so focus moves here and Tab continues from it. No live
+                 role: #siteLocationAnnouncer speaks the confirmation. -->
             <div
               class="site-location-hint"
               id="siteLocationsReloadHint"
-              role="status"
               tabindex="-1"
               data-i18n="siteLocation_reloadHint"
               hidden
             >
-              Reload pages on this site to apply the change everywhere.
+              Reload affected pages to apply the change.
             </div>
             <div class="site-locations-add-row" id="siteLocationsAddRow">
               <button
@@ -1313,6 +1313,16 @@
       <!-- End Settings View -->
     </div>
 
+    <!-- The one live region for per-site location confirmations. Outside every
+         view, because a live region inside a hidden view or a closed
+         <details> says nothing. announce() in site-locations.ts sets its text. -->
+    <div
+      id="siteLocationAnnouncer"
+      class="visually-hidden"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
     <script src="popup.js" type="module"></script>
   </body>
 </html>

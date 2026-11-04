@@ -335,11 +335,17 @@ export function isRestrictedUrl(url: string | undefined): boolean {
     "file:",
   ];
 
+  // Same hosts, in the same order, as RESTRICTED_DOMAINS in
+  // src/background/restricted-url.ts.
   const restrictedDomains: string[] = [
     "addons.mozilla.org",
     "accounts.firefox.com",
     "testpilot.firefox.com",
     "chrome.google.com",
+    // Chrome Web Store (Chromium's extension_urls.cc); Firefox's
+    // extensions.webextensions.restrictedDomains default lists support.mozilla.org.
+    "chromewebstore.google.com",
+    "support.mozilla.org",
   ];
 
   for (const prefix of restrictedPrefixes) {

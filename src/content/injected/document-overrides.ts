@@ -18,6 +18,15 @@
  * using the SPOOFED timezone via `Intl.DateTimeFormat` — reusing the
  * same resolution path every other Date override uses for consistency.
  *
+ * On Chromium the engine's zone can be emulated (Engine-level Spoofing's CDP
+ * override, or one Chrome kept after the session ended) but this string isn't:
+ * Chrome still formats it in the OS zone. Every Chromium realm compares the OS
+ * offset it recovers from a blank document with the engine's own, whatever the
+ * payload says, and parses with the OS offset where they differ (see
+ * `emulatedOsOffset`). The getter follows the page's zone even where the
+ * engine owns Date/Intl (`engineTimezoneData`), and where nothing is spoofed
+ * it follows the engine's zone, as native Date does.
+ *
  * Three call sites benefit from this automatically once the prototype
  * getter is patched:
  * - `document.lastModified` (the top-level document)
@@ -27,12 +36,130 @@
  *   `Document.prototype`, patched by `patchIframeWindow`)
  */
 
-import { OriginalDate, OriginalDateTimeFormat, spoofingEnabled, timezoneData } from "./state";
+import {
+  OriginalDate,
+  OriginalDateTimeFormat,
+  originalGetTimezoneOffset,
+  spoofingEnabled,
+  timezoneData,
+  engineTimezoneData,
+} from "./state";
 import { installScrubbedAccessor } from "./function-masking";
 import { seedFromBootstrap } from "./bootstrap";
 import { createLogger } from "@/shared/utils/debug-logger";
 
 const logger = createLogger("INJ");
+
+// Captured at module load (document_start, before any page script), for the
+// blank document below.
+const NativeDocument: typeof Document | undefined =
+  typeof Document !== "undefined" ? Document : undefined;
+const originalDateNow = Date.now;
+
+/**
+ * One blank document for the realm, created on first use. Chrome stamps a
+ * document without a `Last-Modified` header with the current time on every
+ * read, in the OS zone, so its native `lastModified` tells the realm the OS
+ * offset without the page ever seeing the OS zone. Null if it can't be made.
+ *
+ * Made with `new Document()`, which parses nothing: every Chromium realm reads
+ * it, and `DOMParser.parseFromString` is a Trusted Types sink, so on a page
+ * that enforces Trusted Types it would throw and fire a CSP violation the page
+ * can observe.
+ */
+let blankDocument: Document | null | undefined;
+function getBlankDocument(): Document | null {
+  if (blankDocument !== undefined) return blankDocument;
+  try {
+    blankDocument = NativeDocument ? new NativeDocument() : null;
+  } catch {
+    blankDocument = null;
+  }
+  return blankDocument;
+}
+
+const LAST_MODIFIED_FORMAT = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/;
+
+/**
+ * The wall clock of a native `lastModified` string (`"MM/DD/YYYY HH:MM:SS"`),
+ * read as if it were UTC, in ms. Null when the format doesn't match.
+ */
+export function parseLastModifiedWallClock(str: string): number | null {
+  const m = LAST_MODIFIED_FORMAT.exec(str);
+  if (!m) return null;
+  const ms = OriginalDate.UTC(+m[3], +m[1] - 1, +m[2], +m[4], +m[5], +m[6]);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * The OS zone's offset now, in minutes east of UTC, from a blank document's
+ * `lastModified` (`osNow`, "now" in the OS zone) and the epoch read right after
+ * it. The string drops the milliseconds, so the result is rounded to a minute.
+ */
+export function osOffsetMinutesEast(osNow: string, nowMs: number): number | null {
+  const wall = parseLastModifiedWallClock(osNow);
+  if (wall === null) return null;
+  return Math.round((wall - nowMs) / 60000);
+}
+
+/** What {@link lastModifiedEpoch} needs from the realm; a seam for tests. */
+export interface LastModifiedContext {
+  /**
+   * The engine's zone can differ from the OS zone the string is printed in:
+   * true on Chromium, where a CDP override can be in effect whatever the
+   * payload says (Chrome can keep one after the session ends, also after
+   * Engine-level Spoofing is turned off). False on Firefox and Safari.
+   */
+  engineCanBeEmulated: boolean;
+  /** Now, read right after `osNow`. */
+  nowMs: number;
+  /** A blank document's native `lastModified`, or null. */
+  osNow: () => string | null;
+  /** The engine's own (possibly emulated) offset at an instant, minutes east. */
+  engineOffsetEastAt: (ms: number) => number;
+  /** Parse the string as the engine's local time (the injected path's way). */
+  parseLocal: (str: string) => number | null;
+}
+
+/**
+ * The OS zone's offset now, in minutes east, when the engine reports a
+ * different one (its zone is emulated); null when it doesn't, can't, or the OS
+ * offset can't be read. Decided by what the realm observes, not by the
+ * payload, so an override Chrome kept after the session ended is seen too.
+ */
+export function emulatedOsOffset(ctx: LastModifiedContext): number | null {
+  if (!ctx.engineCanBeEmulated) return null;
+  const osNow = ctx.osNow();
+  const osOffset = osNow === null ? null : osOffsetMinutesEast(osNow, ctx.nowMs);
+  if (osOffset === null || osOffset === ctx.engineOffsetEastAt(ctx.nowMs)) return null;
+  return osOffset;
+}
+
+/** {@link lastModifiedEpoch} with {@link emulatedOsOffset}'s answer already known. */
+function epochFromNative(
+  native: string,
+  osOffset: number | null,
+  parseLocal: (str: string) => number | null
+): number | null {
+  if (osOffset === null) return parseLocal(native);
+  const wall = parseLastModifiedWallClock(native);
+  return wall === null ? null : wall - osOffset * 60000;
+}
+
+/**
+ * The instant a native `lastModified` string stands for.
+ *
+ * Chrome formats it in the OS zone, which the engine's emulated zone doesn't
+ * change. So on Firefox and Safari, and wherever the engine isn't emulating a
+ * different offset, it's parsed as engine-local time, with exact DST handling.
+ * Where the engine is emulated, it's parsed with the OS offset the realm
+ * recovers from a blank document. That offset is today's, so a `Last-Modified`
+ * header from the other side of an OS DST change comes back off by the DST
+ * delta (documented in `docs/API.md`).
+ */
+export function lastModifiedEpoch(native: string, ctx: LastModifiedContext): number | null {
+  return epochFromNative(native, emulatedOsOffset(ctx), ctx.parseLocal);
+}
 
 /**
  * Parse the native `lastModified` string (`"MM/DD/YYYY HH:MM:SS"`)
@@ -136,25 +263,57 @@ export function installLastModifiedOverride(documentProto: object): void {
     // seed from the early bootstrap global if it hasn't been consumed yet.
     seedFromBootstrap();
     const native = originalGet.call(this) as string;
-    if (!spoofingEnabled || !timezoneData) {
+    // Where the engine owns Date/Intl (Engine-level Spoofing), `timezoneData`
+    // is null but this getter still has to follow the page's zone.
+    const zone = spoofingEnabled ? (timezoneData ?? engineTimezoneData) : null;
+    // With nothing spoofed, Firefox and Safari return the native string. On
+    // Chromium native Date can still report an emulated zone (an override
+    // Chrome kept after protection off or a Filters exclusion), so it's checked.
+    if (!zone && !__CHROMIUM__) {
       logger.debug("[lastModified-get] spoofing disabled, returning native", {
         native,
         spoofingEnabled,
-        hasTimezoneData: timezoneData !== null,
+        hasTimezoneData: zone !== null,
       });
       return native;
     }
     try {
-      const epoch = parseNativeLastModified(native);
+      let osNow: string | null = null;
+      let nowMs = 0;
+      if (__CHROMIUM__) {
+        // The blank document first, then the epoch, so the rounding in
+        // osOffsetMinutesEast absorbs the gap.
+        const blank = getBlankDocument();
+        osNow = blank ? (originalGet.call(blank) as string) : null;
+        nowMs = originalDateNow();
+      }
+      const engineOffsetEastAt = (ms: number): number =>
+        -originalGetTimezoneOffset.call(new OriginalDate(ms));
+      const osOffset = emulatedOsOffset({
+        engineCanBeEmulated: __CHROMIUM__,
+        nowMs,
+        osNow: () => osNow,
+        engineOffsetEastAt,
+        parseLocal: parseNativeLastModified,
+      });
+      if (!zone && osOffset === null) {
+        // The engine reports the OS zone, so the native string agrees with Date.
+        return native;
+      }
+      const epoch = epochFromNative(native, osOffset, parseNativeLastModified);
       if (epoch === null) {
         logger.debug("[lastModified-get] parse failed, returning native", { native });
         return native;
       }
-      const spoofed = formatInSpoofedZone(epoch, timezoneData.identifier);
+      // Nothing spoofed: native Date reports the engine's emulated zone, so
+      // print the engine's wall clock (its offset at that instant).
+      const spoofed = zone
+        ? formatInSpoofedZone(epoch, zone.identifier)
+        : formatInSpoofedZone(epoch + engineOffsetEastAt(epoch) * 60000, "UTC");
       logger.debug("[lastModified-get] spoofed", {
         native,
         spoofed,
-        zone: timezoneData.identifier,
+        zone: zone?.identifier ?? "engine",
       });
       return spoofed;
     } catch (err) {

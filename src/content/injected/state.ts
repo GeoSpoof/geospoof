@@ -4,6 +4,10 @@
  */
 
 import type { SpoofedLocation, TimezoneData, LocaleData, AnyFunction } from "./types";
+import {
+  decideNativeFractionalOffset,
+  engineFamilyFromBuild,
+} from "@/shared/native-offset-precision";
 
 // ── Build-time declarations ──────────────────────────────────────────
 
@@ -35,38 +39,28 @@ export const ANNOUNCE_EVENT_NAME: string = (process.env.EVENT_NAME || "__x_evt")
 export const SETTINGS_WAIT_TIMEOUT = 3000;
 
 /**
- * True when the engine truncates sub-minute historical offsets to an integer in
- * `Date.prototype.getTimezoneOffset()` (V8: Chrome/Chromium/Edge). SpiderMonkey
- * (Firefox/Thunderbird) preserves the fractional value.
+ * True when the local getters and `toString` / `toTimeString` / `toDateString`
+ * overrides should derive local time by shifting the epoch by the Intl
+ * `shortOffset` value (V8, JavaScriptCore), false when they should read
+ * `formatToParts` (SpiderMonkey). Both give the same whole-second wall clock;
+ * the split mirrors how each engine computes local time.
  *
- * Detection strategy: key off engine identity, NOT a behavioral probe of another
- * surface. This flag governs how `getTimezoneOffset` rounds, but `getTimezoneOffset`
- * cannot be probed for an arbitrary zone (it only ever reports the real system
- * zone), so there is no direct behavioral probe available.
+ * This selects the component path only. It does NOT decide the precision of
+ * `getTimezoneOffset`; that is {@link nativeFractionalOffset}, which Chrome 156
+ * changed without changing this.
  *
- * The previous approach probed the Intl `shortOffset` string for a sub-minute zone
- * and inferred truncation from whether it carried a `:SS` component. That inference
- * no longer holds: modern V8 emits seconds in `shortOffset` (e.g. "GMT+9:18:59" for
- * Asia/Tokyo pre-1888) while STILL truncating `getTimezoneOffset` to whole minutes.
- * One surface can no longer predict the other, so the probe misclassified current
- * Chrome as Firefox-like and leaked a fractional `getTimezoneOffset`.
- *
- * `InternalError` is a SpiderMonkey-only global exposed to web content; V8 (and
- * JavaScriptCore) do not define it. Anything that is not positively identified as
- * SpiderMonkey is treated as truncating, matching V8 (the dominant target) and the
- * previous default-truncate fallback.
+ * `InternalError` is a SpiderMonkey-only global exposed to web content; V8 and
+ * JavaScriptCore do not define it.
  */
-function detectEngineTruncatesOffset(): boolean {
+function detectComponentsViaShortOffset(): boolean {
   try {
-    // SpiderMonkey preserves fractional sub-minute offsets → does not truncate.
     return typeof (globalThis as { InternalError?: unknown }).InternalError === "undefined";
   } catch {
-    // Fallback: assume truncation (V8-like behavior) on any error.
     return true;
   }
 }
 
-export const engineTruncatesOffset: boolean = detectEngineTruncatesOffset();
+export const componentsViaShortOffset: boolean = detectComponentsViaShortOffset();
 
 // ── Override registry ────────────────────────────────────────────────
 
@@ -139,6 +133,42 @@ export const originalSetMonth = Date.prototype.setMonth;
 export const originalSetFullYear = Date.prototype.setFullYear;
 export const originalSetTime = Date.prototype.setTime;
 /* eslint-enable @typescript-eslint/unbound-method */
+
+/**
+ * True when this engine's native `getTimezoneOffset` keeps the seconds of a
+ * pre-standard-time offset (SpiderMonkey, V8 from Chrome 156), false when it
+ * truncates them toward zero (V8 before Chrome 156, JavaScriptCore). The
+ * `getTimezoneOffset` override follows it in every realm, and the worker
+ * payload receives it as a literal, so no surface disagrees with the engine.
+ *
+ * Decided by a behavior probe of the natives captured above: native
+ * `getTimezoneOffset` against the native local getters at 1800-01-01 12:00 UTC
+ * in the real zone. When the real zone has no seconds there (UTC, Warsaw,
+ * Taipei, ...), it falls back to the build's engine and, on Chromium, the
+ * `Chrome/N` major in the user agent. See `@/shared/native-offset-precision`.
+ *
+ * Must stay below the Date originals (it reads them, and `const` is in the TDZ
+ * until then). This module is evaluated before `index.ts` installs any
+ * override, and the MAIN-world script runs at `document_start` before any page
+ * script, so the probe sees native functions and no page can observe it. It
+ * allocates one Date and leaves nothing behind.
+ */
+export const nativeFractionalOffset: boolean = decideNativeFractionalOffset(
+  {
+    Date: OriginalDate,
+    getTimezoneOffset: originalGetTimezoneOffset,
+    getFullYear: originalGetFullYear,
+    getMonth: originalGetMonth,
+    getDate: originalGetDate,
+    getHours: originalGetHours,
+    getMinutes: originalGetMinutes,
+    getSeconds: originalGetSeconds,
+    getMilliseconds: originalGetMilliseconds,
+  },
+  engineFamilyFromBuild(),
+  () => navigator.userAgent
+);
+
 // Permissions original (may be undefined if API unavailable)
 export const originalPermissionsQuery = navigator.permissions?.query?.bind(navigator.permissions);
 
@@ -235,6 +265,26 @@ export let preserveGeolocationPrompt = false;
  */
 export let localeData: LocaleData | null = null;
 
+/**
+ * The payload's `engineTimezone`: Engine-level Spoofing (Chromium) sets the
+ * page's zone in the engine. Whether this realm's engine actually reports it is
+ * decided per realm in `settings-listener.ts` (`timezoneData` is null where it
+ * does). While true, the workers this realm starts re-check the real zone they
+ * cache (`worker-patching.ts`). The page realm's own checks for an emulated
+ * zone (`computeEpochAdjustment`, `lastModified`) don't read this: on Chromium
+ * they always run, since Chrome can keep an override after the mode is off.
+ * Always false on Firefox and Safari.
+ */
+export let engineTimezoneMode = false;
+
+/**
+ * The page's zone where the engine owns Date/Intl in this realm (Engine-level
+ * Spoofing, `timezoneData` null). Read only by `document-overrides.ts`: Chrome
+ * formats `document.lastModified` in the OS zone, below the engine's emulated
+ * one, so that getter still needs the zone. Null otherwise.
+ */
+export let engineTimezoneData: TimezoneData | null = null;
+
 // Setter functions for state mutation from other modules
 export function setSpoofingEnabled(v: boolean): void {
   spoofingEnabled = v;
@@ -266,4 +316,12 @@ export function setPreserveGeolocationPrompt(v: boolean): void {
 
 export function setLocaleData(v: LocaleData | null): void {
   localeData = v;
+}
+
+export function setEngineTimezoneMode(v: boolean): void {
+  engineTimezoneMode = v;
+}
+
+export function setEngineTimezoneData(v: TimezoneData | null): void {
+  engineTimezoneData = v;
 }

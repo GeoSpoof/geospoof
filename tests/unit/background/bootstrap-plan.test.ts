@@ -13,7 +13,12 @@ import { parsePattern } from "@/shared/utils/scope";
 import { planBootstrapScripts, type BootstrapPlanItem } from "@/background/bootstrap-register";
 import { buildBootstrapPayload, buildPagePayload } from "@/background/page-payload";
 import { RESTRICTED_DOMAINS } from "@/background/restricted-url";
-import { installUserScriptsMock, parseBootstrapPayload } from "../../helpers/cadence";
+import {
+  deferred,
+  flush,
+  installUserScriptsMock,
+  parseBootstrapPayload,
+} from "../../helpers/cadence";
 import { scriptMatchesUrl } from "../../helpers/match-pattern";
 import {
   DUBLIN,
@@ -468,5 +473,134 @@ describe("registerNow", () => {
     } finally {
       userScripts.restore();
     }
+  });
+
+  // Review F19: the scripts from older settings must not stay live while their
+  // replacements are built, and an overtaken call must not register.
+  describe("replacing the live scripts", () => {
+    const A = "https://a.test/";
+    const MOVED = makeSettings({
+      siteLocations: [entry("1", ["b.test"], { timezone: MEXICO_CITY_TZ })],
+    });
+    const START = makeSettings({
+      siteLocations: [entry("1", ["a.test"], { timezone: MEXICO_CITY_TZ })],
+    });
+    const REMOVED = makeSettings({ siteLocations: [] });
+
+    let hold: Promise<void> | null = null;
+
+    afterEach(() => {
+      hold = null;
+      vi.doUnmock("@/background/page-payload");
+    });
+
+    /** The userScripts mock, plus the scripts registered right now. */
+    function liveUserScripts() {
+      const userScripts = installUserScriptsMock();
+      let live: Registration[] = [];
+      userScripts.register.mockImplementation((scripts: Array<Record<string, unknown>>) => {
+        userScripts.log.push("register");
+        live = [...live, ...(scripts as Registration[])];
+        return Promise.resolve();
+      });
+      userScripts.unregister.mockImplementation(() => {
+        userScripts.log.push("unregister");
+        live = [];
+        return Promise.resolve();
+      });
+      return { userScripts, live: () => live };
+    }
+
+    /** The zones the live scripts would seed on `url`. */
+    function seededZones(live: Registration[], url: string): unknown[] {
+      return live
+        .filter((r) =>
+          scriptMatchesUrl(r as unknown as { matches: string[]; excludeMatches?: string[] }, url)
+        )
+        .map(
+          (r) => (parseBootstrapPayload(r.js[0].code).timezone as { identifier: string }).identifier
+        );
+    }
+
+    /** Import the registrar with `buildBootstrapPayload` waiting on `hold` when it's set. */
+    async function importRegistrar() {
+      vi.resetModules();
+      vi.doMock("@/background/page-payload", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("@/background/page-payload")>();
+        return {
+          ...actual,
+          buildBootstrapPayload: async (s: Settings) => {
+            if (hold) await hold;
+            return actual.buildBootstrapPayload(s);
+          },
+        };
+      });
+      return import("@/background/bootstrap-register");
+    }
+
+    for (const [label, next] of [
+      ["moving the pattern", MOVED],
+      ["removing the entry", REMOVED],
+    ] as const) {
+      test(`${label}: no stale script covers the old host while the new ones build`, async () => {
+        const { userScripts, live } = liveUserScripts();
+        try {
+          const { updateBootstrapRegistration } = await importRegistrar();
+          await updateBootstrapRegistration(START);
+          expect(seededZones(live(), A)).toEqual([MEXICO_CITY_TZ.identifier]);
+
+          const gate = deferred<void>();
+          hold = gate.promise;
+          const refresh = updateBootstrapRegistration(next);
+          await flush();
+          expect(seededZones(live(), A), "while building").toEqual([]);
+
+          gate.resolve();
+          await refresh;
+          expect(seededZones(live(), A)).toEqual([TOKYO_TZ.identifier]);
+        } finally {
+          userScripts.restore();
+        }
+      });
+    }
+
+    test("a failed build leaves no scripts", async () => {
+      const { userScripts, live } = liveUserScripts();
+      try {
+        const { updateBootstrapRegistration } = await importRegistrar();
+        await updateBootstrapRegistration(START);
+        hold = Promise.reject(new Error("build failed"));
+        hold.catch(() => undefined);
+        await updateBootstrapRegistration(MOVED);
+        expect(live()).toEqual([]);
+      } finally {
+        userScripts.restore();
+      }
+    });
+
+    test("an overtaken call unregisters but never registers", async () => {
+      const { userScripts, live } = liveUserScripts();
+      try {
+        const { updateBootstrapRegistration } = await importRegistrar();
+        await updateBootstrapRegistration(START);
+        userScripts.register.mockClear();
+
+        const gate = deferred<void>();
+        hold = gate.promise;
+        const older = updateBootstrapRegistration(MOVED);
+        await flush();
+        const newer = updateBootstrapRegistration(REMOVED);
+        gate.resolve();
+        await Promise.all([older, newer]);
+
+        // Only REMOVED's scripts were ever registered: none seeds b.test with
+        // MOVED's entry.
+        expect(userScripts.register).toHaveBeenCalledTimes(1);
+        expect(seededZones(live(), "https://b.test/")).toEqual([TOKYO_TZ.identifier]);
+        expect(seededZones(live(), A)).toEqual([TOKYO_TZ.identifier]);
+      } finally {
+        userScripts.restore();
+      }
+    });
   });
 });

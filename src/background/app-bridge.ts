@@ -18,6 +18,8 @@ import { isValidIANATimezone } from "@/shared/utils/type-guards";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
 import {
   loadSettings,
+  loadSettingsOrThrow,
+  pushRegionNow,
   updateSettings,
   validateAccuracySetting,
   validateLocationPrecision,
@@ -25,6 +27,12 @@ import {
   validateSiteLocations,
 } from "./settings";
 import { computeOffsets } from "./timezone";
+import {
+  changedSiteLocationIds,
+  localSiteLocationEdits,
+  noteAdoptedSiteLocationChange,
+  runSiteLocationJob,
+} from "./site-location-queue";
 import {
   applyPrecisionCadence,
   handleSetLocation,
@@ -107,13 +115,37 @@ export interface PendingSettings {
   siteLocations?: string;
 }
 
-interface PendingResponse {
+/**
+ * Field of the GET_PENDING_SETTINGS response (not an App Group key) that the
+ * native handler sets to `true` while the app has no current per-site list.
+ * It asks the extension to push its region once. Only the handler writes it,
+ * and only adoptPendingResponse reads it. The geospoof-ios parity test reads
+ * this literal, so keep it on one line.
+ */
+export const REGION_WANTED_FIELD = "regionWanted";
+
+export interface PendingResponse {
   pending: PendingSettings | null;
+  /**
+   * The app's one-time request for a region push. It rides next to
+   * `pending: null` too. Absent from an older handler, and anything but `true`
+   * asks for nothing.
+   */
+  [REGION_WANTED_FIELD]?: boolean;
 }
 
 function round4(v: number): number {
   return Math.round(v * 10000) / 10000;
 }
+
+/**
+ * The newest app snapshot (Unix ms) that carried a site-location list and
+ * passed its newer-than check. Adoptions overlap (boot, tab switch,
+ * navigation, every Safari GET_SETTINGS), and an older one waiting on a
+ * lookup can reach step 9 after a newer one; step 9 skips it, so the newer
+ * list stays. In memory: a background restart also ends any in-flight adoption.
+ */
+let newestSiteLocationSnapshotMs = -Infinity;
 
 /** `{ identifier, ...computeOffsets(identifier) }`, or null when the lookup throws. */
 function bridgedTimezone(identifier: string): Timezone | null {
@@ -127,25 +159,30 @@ function bridgedTimezone(identifier: string): Timezone | null {
 /**
  * Give bridged site locations full timezones before validation. The app may
  * store just the IANA id, or an object whose offsets didn't survive the trip;
- * both are recomputed here. Anything else passes through unchanged, and an
- * unrepairable zone is left as-is so validateSiteLocations drops the entry.
+ * both are recomputed here. Every id is also checked against this engine's
+ * time-zone data, offsets or not, because validateSiteLocations checks only
+ * its format: an id the engine can't resolve drops the entry. A zone marked
+ * `fallback`, or one this function can't read, is left as-is so
+ * validateSiteLocations drops the entry.
  */
 function repairBridgedSiteLocationTimezones(entries: unknown[]): unknown[] {
   return entries.map((entry) => {
     if (!entry || typeof entry !== "object") return entry;
     const tz = (entry as Record<string, unknown>).timezone;
-    let identifier: string | null = null;
+    let identifier: unknown = null;
+    let hasOffsets = false;
     if (typeof tz === "string") {
       identifier = tz;
     } else if (tz && typeof tz === "object") {
-      const { identifier: id, offset, dstOffset } = tz as Record<string, unknown>;
-      if (typeof id === "string" && !(Number.isFinite(offset) && Number.isFinite(dstOffset))) {
-        identifier = id;
-      }
+      const { identifier: id, offset, dstOffset, fallback } = tz as Record<string, unknown>;
+      if (fallback === true) return entry;
+      identifier = id;
+      hasOffsets = Number.isFinite(offset) && Number.isFinite(dstOffset);
     }
-    if (identifier === null || !isValidIANATimezone(identifier)) return entry;
+    if (typeof identifier !== "string" || !isValidIANATimezone(identifier)) return entry;
     const repaired = bridgedTimezone(identifier);
-    return repaired ? { ...entry, timezone: repaired } : entry;
+    if (repaired === null) return { ...entry, timezone: null };
+    return hasOffsets ? entry : { ...entry, timezone: repaired };
   });
 }
 
@@ -188,22 +225,76 @@ export async function adoptPendingSettingsFromApp(): Promise<void> {
     return;
   }
 
-  const pending = response?.pending;
-  if (!pending || typeof pending.updatedAt !== "number") {
-    return;
-  }
+  await adoptPendingResponse(response);
+}
 
-  await adoptPendingSnapshot(pending);
+/**
+ * Act on the native host's GET_PENDING_SETTINGS response: adopt its snapshot,
+ * then answer the app's region request. Split from adoptPendingSettingsFromApp
+ * so tests can drive it: Vitest compiles `__SAFARI__` to false, which removes
+ * the native fetch above. Production calls it only from there. Never throws.
+ */
+export async function adoptPendingResponse(response: PendingResponse | undefined): Promise<void> {
+  // 1. Read the flag before the no-snapshot return below: the handler sends it
+  // next to `pending: null` too, which is the usual case while the app is unset.
+  const regionWanted = response?.[REGION_WANTED_FIELD] === true;
+  const before = regionWanted ? await readSettingsForRegionPush() : null;
+
+  const pending = response?.pending;
+  if (pending && typeof pending.updatedAt === "number") {
+    // 2. Adoption first, awaited.
+    await adoptPendingSnapshot(pending);
+  }
+  if (!regionWanted) return;
+
+  // 3. Push only if adoption saved nothing: every save already pushed, through
+  // saveSettings. The push carries the stored list, normally at least as new as
+  // this snapshot's. The exception is a step 9 that deferred to a newer snapshot
+  // still in flight: the push carries Safari's list from before both, and the
+  // newer pass's save follows with the adopted list ("Region request" in
+  // docs/API.md has the window this leaves). A read that failed skips the push:
+  // loadSettings would have answered DEFAULT_SETTINGS, and the app would take
+  // their empty site list as Safari's. A later pass that sees the flag asks again.
+  if (before === null) return;
+  const settings = await readSettingsForRegionPush();
+  if (settings === null || settings.lastUpdated !== before.lastUpdated) return;
+  pushRegionOnce(settings);
+}
+
+/** The stored settings, or null when the storage read throws. Never throws. */
+async function readSettingsForRegionPush(): Promise<Settings | null> {
+  try {
+    return await loadSettingsOrThrow();
+  } catch (error) {
+    logger.warn("regionWanted: settings read failed, not pushing the region:", error);
+    return null;
+  }
+}
+
+// 4. Single-flight. Adoption runs on background boot, tab activation, navigation
+// start, popup open and content-script boot, so several calls can see the flag
+// before the first push lands. The guard clears when the push settles, so a
+// later adoption that still sees the flag (after a failed push, say) pushes again.
+let regionPushInFlight = false;
+
+function pushRegionOnce(settings: Settings): void {
+  if (regionPushInFlight) return;
+  regionPushInFlight = true;
+  void pushRegionNow(settings).finally(() => {
+    regionPushInFlight = false;
+  });
 }
 
 /**
  * Adopt one app-written snapshot when it's newer than the extension's last
  * change (symmetric last-writer-wins on `updatedAt`), in numbered steps.
- * Split from adoptPendingSettingsFromApp so tests can drive it: Vitest compiles
- * `__SAFARI__` to false, which removes the native fetch above. Production calls
- * it only from there. Never throws.
+ * Exported so tests can drive it directly. Production calls it only from
+ * adoptPendingResponse. Never throws.
  */
 export async function adoptPendingSnapshot(pending: PendingSettings): Promise<void> {
+  // Read before the newer-than check below, so step 9 can tell whether a
+  // site-location save or remove landed after it.
+  const siteLocationEditsAtCheck = localSiteLocationEdits();
   const settings = await loadSettings();
 
   // The app writes updatedAt as Unix seconds; settings.lastUpdated is Unix ms.
@@ -212,6 +303,12 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
   // Only adopt if the app's action is newer than the last extension change.
   if (pendingAtMs <= settings.lastUpdated) {
     return;
+  }
+
+  // Recorded before this snapshot's first step, so any older snapshot still
+  // in flight sees it when it reaches step 9.
+  if (typeof pending.siteLocations === "string") {
+    newestSiteLocationSnapshotMs = Math.max(newestSiteLocationSnapshotMs, pendingAtMs);
   }
 
   logger.info("Adopting pending settings from app:", pending);
@@ -243,12 +340,17 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
       }
     }
 
-    // 1c. Pro-only config gate (per-site filtering, custom accuracy). Same
-    // app-as-authority rationale as 1b.
+    // 1c. Pro-only config gate (per-site filtering, per-site locations, custom
+    // accuracy). Same app-as-authority rationale as 1b. The gate applies when
+    // a page payload is built, so a change is broadcast (which also refreshes
+    // Accept-Language) and re-badged: open pages drop or regain their per-site
+    // values now, even when no later step changes anything.
     if (typeof pending.proFeaturesBlocked === "boolean") {
       const latest = await loadSettings();
       if (latest.proFeaturesBlocked !== pending.proFeaturesBlocked) {
-        await updateSettings({ proFeaturesBlocked: pending.proFeaturesBlocked });
+        const updated = await updateSettings({ proFeaturesBlocked: pending.proFeaturesBlocked });
+        await broadcastSettingsToTabs(updated);
+        await updateBadge();
       }
     }
 
@@ -262,10 +364,12 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
           round4(settings.location.latitude) !== round4(pending.latitude) ||
           round4(settings.location.longitude) !== round4(pending.longitude);
         if (changed || !settings.vpnSyncEnabled) {
+          // enableVpnSync stores vpnSyncEnabled: true in the location's write.
           await handleSetLocation(
             { latitude: pending.latitude, longitude: pending.longitude },
             {
               fromVpnSync: true,
+              enableVpnSync: true,
               timezoneHint: pending.timezone,
               locationName: {
                 city: "",
@@ -277,17 +381,23 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
             }
           );
         }
-        await updateSettings({ vpnSyncEnabled: true });
+        // Only when no location was written above.
+        if (!changed && settings.vpnSyncEnabled) {
+          await updateSettings({ vpnSyncEnabled: true });
+        }
       } else {
         // No coords from the app — the extension owns IP detection + geolocation.
         const needSync = pending.resync === true || !settings.vpnSyncEnabled;
+        let wrote = false;
         if (needSync) {
           const result = await syncVpnLocation(true);
           if (!("error" in result)) {
-            await handleSetLocation(
+            // enableVpnSync stores vpnSyncEnabled: true in the location's write.
+            wrote = await handleSetLocation(
               { latitude: result.latitude, longitude: result.longitude },
               {
                 fromVpnSync: true,
+                enableVpnSync: true,
                 locationName: {
                   city: result.city,
                   country: result.country,
@@ -304,7 +414,10 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
             logger.warn("adoptPendingSettingsFromApp: VPN sync failed:", result);
           }
         }
-        await updateSettings({ vpnSyncEnabled: true });
+        // Only when no location was written above (no sync, or it failed).
+        if (!wrote) {
+          await updateSettings({ vpnSyncEnabled: true });
+        }
       }
     } else if (pending.cleared) {
       if (settings.location || settings.vpnSyncEnabled) {
@@ -515,19 +628,40 @@ export async function adoptPendingSnapshot(pending: PendingSettings): Promise<vo
     // as a JSON string like favorites. A non-array or invalid JSON is a no-op,
     // never a wipe; `[]` is a real "the app cleared the list". Bare IANA zone
     // ids are repaired with offsets, then every entry is re-validated, so the
-    // extension stays the source of truth for list hygiene. Its own try/catch
-    // so a failure here never undoes the steps above.
+    // extension stays the source of truth for list hygiene. The load and write
+    // run in the site-location queue. A save or remove written after the
+    // newer-than check wins over this older snapshot, and so does a newer app
+    // snapshot that passed its own check meanwhile (strictly newer, so the same
+    // snapshot adopted twice still applies). Each entry the adopted list
+    // changes or removes is stamped with the app's action time, so a popup
+    // save older than that action yields for it. Its own try/catch so a
+    // failure here never undoes the steps above.
     if (typeof pending.siteLocations === "string") {
       try {
         const parsed: unknown = JSON.parse(pending.siteLocations);
         if (!Array.isArray(parsed)) throw new Error("siteLocations is not an array");
         const next = validateSiteLocations(repairBridgedSiteLocationTimezones(parsed));
-        const latestForSites = await loadSettings();
-        if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
-          const updated = await updateSettings({ siteLocations: next });
-          await broadcastSettingsToTabs(updated);
-          await updateBadge();
-        }
+        await runSiteLocationJob(async () => {
+          if (localSiteLocationEdits() !== siteLocationEditsAtCheck) return;
+          if (pendingAtMs < newestSiteLocationSnapshotMs) return;
+          const latestForSites = await loadSettings();
+          if (JSON.stringify(next) !== JSON.stringify(latestForSites.siteLocations)) {
+            const updated = await updateSettings({ siteLocations: next });
+            // The app acted at pendingAtMs. A popup save that arrived before
+            // that and is still on its lookups yields for the entries this
+            // snapshot changed; one that arrives later still wins. Never later
+            // than now, so a skewed clock can't block later edits. A non-finite
+            // time records nothing: NaN would sit in the tracker and disable
+            // supersession.
+            if (Number.isFinite(pendingAtMs)) {
+              const at = Math.min(pendingAtMs, Date.now());
+              for (const id of changedSiteLocationIds(latestForSites.siteLocations, next))
+                noteAdoptedSiteLocationChange(id, at);
+            }
+            await broadcastSettingsToTabs(updated);
+            await updateBadge();
+          }
+        });
       } catch (error) {
         logger.debug("adoptPendingSettingsFromApp: siteLocations adoption failed:", error);
       }

@@ -110,10 +110,11 @@ function getLocalDateViaOffset(date: Date, timezoneId: string, _fallbackOffset?:
   return new Date(date.getTime() + offset * 60000);
 }
 
-/** Format offset as GMT±HHMM string (mirrors production formatGMTOffset). */
+/** Format offset as GMT±HHMM string, truncated toward zero (mirrors production formatGMTOffset). */
 function formatGMTOffset(offsetMinutes: number): string {
-  const sign = offsetMinutes >= 0 ? "+" : "-";
-  const abs = Math.round(Math.abs(offsetMinutes));
+  const whole = Math.trunc(offsetMinutes);
+  const sign = whole < 0 ? "-" : "+";
+  const abs = Math.abs(whole);
   const hours = Math.floor(abs / 60);
   const minutes = abs % 60;
   return `GMT${sign}${String(hours).padStart(2, "0")}${String(minutes).padStart(2, "0")}`;

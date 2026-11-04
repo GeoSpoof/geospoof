@@ -117,12 +117,18 @@
 
 import type { Settings } from "@/shared/types/settings";
 import { buildStandaloneWorkerPayload } from "@/shared/worker-payload";
+import {
+  decideNativeFractionalOffset,
+  engineFamilyFromBuild,
+  nativeDateSurfaceOf,
+} from "@/shared/native-offset-precision";
 import { resolvePageLocale } from "@/shared/locale/resolver";
 import { loadSettings } from "./settings";
 import { isRestrictedUrl } from "./tabs";
 import { computeEffectiveEnabled, computeEffectiveSiteLocations } from "@/shared/utils/scope";
 import { resolveSiteSettings } from "@/shared/utils/site-locations";
 import { createLogger } from "@/shared/utils/debug-logger";
+import { isOlderRevision, readRevision } from "@/shared/settings-revision";
 
 const logger = createLogger("BG");
 
@@ -200,6 +206,13 @@ interface WebRequestDetails {
    * made by a top-level document.
    */
   frameAncestors?: { url: string; frameId: number }[];
+  /**
+   * Firefox-only: whether the request and the frames above its initiator are
+   * third-party to each other. On a tab-less SharedWorker request Firefox 159
+   * reports false when the worker was started by a top-level document or by a
+   * frame same-site with its top-level page, and true for a cross-site frame.
+   */
+  thirdParty?: boolean;
 }
 
 interface WebRequestDetailsWithHeaders extends WebRequestDetails {
@@ -228,11 +241,18 @@ interface PendingRequest {
   decision: Decision;
   chunks: Uint8Array[];
   /**
-   * The initiating document's URL, recorded at classification. `onstop` builds
-   * the payload against it so a worker on a site-location page gets that
-   * site's zone, not the main one.
+   * The worker's top-level page (`resolveWorkerPageUrl`), recorded at
+   * classification. `onstop` builds the payload against it so a worker on a
+   * site-location page gets that site's zone, not the main one.
    */
   pageUrl?: string;
+  /**
+   * Set when Firefox reported neither a tab nor `frameAncestors` (a
+   * SharedWorker), so `pageUrl` is the document that started the worker and
+   * may be an embedded frame. Carries the request's `thirdParty` flag for
+   * `untiedWorkerKeepsSiteLocation`, which `onstop` consults.
+   */
+  untied?: { thirdParty: boolean | undefined };
 }
 
 /** Map from requestId to the active filter + decision state. */
@@ -247,6 +267,13 @@ const pending = new Map<string, PendingRequest>();
  */
 export const tabPageUrlCache = new Map<number, string>();
 
+/**
+ * Whether `tabPageUrlCache` holds every tab open at install. Until then a
+ * tab-less SharedWorker gets no site location, because the tab that started it
+ * may be missing from the cache (`untiedWorkerKeepsSiteLocation`).
+ */
+let tabCacheSeeded = false;
+
 let beforeRequestListener: ((details: WebRequestDetails) => void) | null = null;
 let beforeSendHeadersListener: ((details: WebRequestDetailsWithHeaders) => void) | null = null;
 
@@ -257,6 +284,9 @@ let beforeSendHeadersListener: ((details: WebRequestDetailsWithHeaders) => void)
  * their "before-first-load" state and short-circuit to a no-op.
  */
 let cachedSettings: Settings | undefined;
+
+/** The settings revision of `cachedSettings`, when it carries one; an older snapshot never replaces it. */
+let cachedRevision: number | undefined;
 
 /**
  * Short-lived allowlist of worker script URLs the content script has
@@ -307,10 +337,25 @@ function isAllowlisted(url: string): boolean {
 /**
  * Update the cached settings snapshot that the listeners read.
  * Called from background/tabs.ts → broadcastSettingsToTabs on every
- * settings change, and from the initialize() path at startup.
+ * settings change, from the initialize() path at startup, and by the
+ * install-time prime. A snapshot whose settings revision is older than the
+ * cached one is ignored, so a caller that loaded settings before a write can't
+ * put them back after the write's broadcast.
  */
 export function updateWorkerFilterSettings(settings: Settings): void {
+  const r = readRevision(settings.revision);
+  if (isOlderRevision(r, cachedRevision)) {
+    logger.debug(`[worker-filter] kept settings revision ${cachedRevision} over older ${r}`);
+    return;
+  }
   cachedSettings = settings;
+  if (r !== undefined) cachedRevision = r;
+}
+
+/** Test seam: forget the cached settings snapshot and its revision. */
+export function _resetWorkerFilterSettingsForTest(): void {
+  cachedSettings = undefined;
+  cachedRevision = undefined;
 }
 
 /**
@@ -325,14 +370,46 @@ export function hasWorkerTimezoneSource(settings: Settings): boolean {
   );
 }
 
+let cachedFractionalOffset: boolean | undefined;
+
+/**
+ * Whether native `getTimezoneOffset` keeps the seconds of a pre-standard-time
+ * offset. This path builds payloads in the background realm, which has no
+ * page decision to forward, so it runs the same probe once on its own `Date`.
+ * Same engine and same system zone as the page, so the same answer. The
+ * background never overrides `Date`, so the probe reads natives.
+ */
+function backgroundFractionalOffset(): boolean {
+  cachedFractionalOffset ??= decideNativeFractionalOffset(
+    nativeDateSurfaceOf(Date),
+    engineFamilyFromBuild(),
+    () => navigator.userAgent
+  );
+  return cachedFractionalOffset;
+}
+
 /**
  * Build the worker payload for a worker created by the document at `pageUrl`.
  * The timezone and locale come from the same per-site resolution the page
- * payload uses, so a worker and its page agree. Returns "" when there is
- * neither a timezone nor a locale to apply (leave the script unmodified).
+ * payload uses, so a worker and its page agree. Returns "" (leave the script
+ * unmodified) when GeoSpoof is off for that page, whatever the classifier
+ * decided, or when there is neither a timezone nor a locale to apply.
+ * `withoutSiteLocation` keeps the Filters decision and the main location but
+ * applies no site location, as `buildPagePayload` does for a page whose
+ * top-level URL isn't known.
  */
-export function workerPayloadFor(settings: Settings, pageUrl: string | undefined): string {
-  const effective = resolveSiteSettings(settings, pageUrl, isRestrictedUrl).settings;
+export function workerPayloadFor(
+  settings: Settings,
+  pageUrl: string | undefined,
+  options: { withoutSiteLocation?: boolean } = {}
+): string {
+  const resolved = resolveSiteSettings(
+    options.withoutSiteLocation === true ? { ...settings, siteLocations: [] } : settings,
+    pageUrl,
+    isRestrictedUrl
+  );
+  if (!resolved.enabled) return "";
+  const effective = resolved.settings;
   const identifier = effective.timezone?.identifier;
   // Either axis alone is enough to warrant a payload — a user can spoof a
   // locale with no location (hence no timezone), or a timezone with no locale.
@@ -341,7 +418,11 @@ export function workerPayloadFor(settings: Settings, pageUrl: string | undefined
     identifier ?? null,
     effective.proFeaturesBlocked
   );
-  return identifier || locale ? buildStandaloneWorkerPayload(identifier, locale) : "";
+  return identifier || locale
+    ? // Engine-level Spoofing is Chromium-only, so the zone this Firefox path
+      // sees can't change under the worker.
+      buildStandaloneWorkerPayload(identifier, locale, backgroundFractionalOffset(), false)
+    : "";
 }
 
 /**
@@ -365,7 +446,10 @@ function resolveInitiatorUrl(details: WebRequestDetails): string | undefined {
  * Like `resolveInitiatorUrl`, except that a SharedWorker started by an
  * embedded frame resolves to the frame's top-level page (the last entry of
  * `frameAncestors`) rather than the frame itself, so the worker gets the same
- * site location as the realm that created it. Exported for tests.
+ * site location as the realm that created it. When Firefox reports neither a
+ * tab nor `frameAncestors`, this falls back to the starting document, and
+ * `untiedWorkerKeepsSiteLocation` decides whether its site location may apply.
+ * Exported for tests.
  */
 export function resolveWorkerPageUrl(details: WebRequestDetails): string | undefined {
   return (
@@ -374,6 +458,60 @@ export function resolveWorkerPageUrl(details: WebRequestDetails): string | undef
     details.documentUrl ??
     details.originUrl
   );
+}
+
+/** True when Firefox told us the request's top-level page: a known tab, or `frameAncestors`. */
+function isTopLevelReported(details: WebRequestDetails): boolean {
+  return tabPageUrlCache.has(details.tabId) || Array.isArray(details.frameAncestors);
+}
+
+/** Same host, or same registrable domain: never narrower than the browser's same-site. */
+function mayBeSameSite(a: string, b: string): boolean {
+  let hostA: string;
+  let hostB: string;
+  try {
+    hostA = new URL(a).hostname;
+    hostB = new URL(b).hostname;
+  } catch {
+    return false;
+  }
+  if (hostA === hostB) return true;
+  const domainA = getRegistrableDomain(a);
+  return domainA !== null && domainA === getRegistrableDomain(b);
+}
+
+/**
+ * Whether a worker request with no tab and no `frameAncestors` may take the
+ * site location of `initiatorUrl`, the document that started it. Exported for
+ * tests.
+ *
+ * Firefox 159 reports a SharedWorker's script request that way whether the
+ * top-level document or an embedded frame started it, so `initiatorUrl` alone
+ * could hand a frame's site location to a worker on a page it doesn't match.
+ * `thirdParty: false` means the starter is same-site with its top-level page,
+ * so that page is one of the open tabs' pages same-site with `initiatorUrl`.
+ * The site location applies only when there is at least one such tab and every
+ * one of them resolves to the same site location as `initiatorUrl`: then it's
+ * right whichever of them started the worker. Otherwise the worker gets the
+ * main location (the bootstrap rule: absent, never wrong).
+ */
+export function untiedWorkerKeepsSiteLocation(
+  settings: Settings,
+  initiatorUrl: string | undefined,
+  thirdParty: boolean | undefined,
+  topLevelUrls: Iterable<string>
+): boolean {
+  if (thirdParty !== false || !initiatorUrl) return false;
+  const entryId = (url: string) =>
+    resolveSiteSettings(settings, url, isRestrictedUrl).siteLocation?.id ?? null;
+  const own = entryId(initiatorUrl);
+  let candidates = 0;
+  for (const url of topLevelUrls) {
+    if (!mayBeSameSite(initiatorUrl, url)) continue;
+    if (entryId(url) !== own) return false;
+    candidates++;
+  }
+  return candidates > 0;
 }
 
 /**
@@ -392,6 +530,7 @@ export function _classifyRequestForTest(details: {
   frameId: number;
   documentUrl?: string;
   originUrl?: string;
+  frameAncestors?: { url: string; frameId: number }[];
   requestHeaders?: { name: string; value?: string }[];
 }): Decision {
   return classifyRequest(details);
@@ -582,14 +721,17 @@ function classifyRequest(details: WebRequestDetailsWithHeaders): Decision {
   // untouched (documented known limitation).
   if (dest === "serviceworker") return "pass";
 
-  // Resolve the URL of the document that initiated this worker fetch (see
-  // resolveInitiatorUrl for the per-tab cache vs SharedWorker fallback).
-  const pageUrl = resolveInitiatorUrl(details);
-  if (!pageUrl) return "pass"; // unknown initiator → safe fallback
+  // Two URLs. The scope gate judges the top-level page, the same URL the
+  // payload is built for (resolveWorkerPageUrl), so a SharedWorker started by
+  // an embedded frame gets its page's decision. The same-site gate judges the
+  // document that started the worker (resolveInitiatorUrl).
+  const pageUrl = resolveWorkerPageUrl(details);
+  const initiatorUrl = resolveInitiatorUrl(details);
+  if (!pageUrl || !initiatorUrl) return "pass"; // unknown initiator → safe fallback
 
   // Scope gate (Req 11): consult the single source of truth so the worker
-  // filter agrees with the background's per-tab decision for this initiating
-  // document. Out-of-scope (allowlist miss / denylist hit / restricted / master
+  // filter agrees with the background's per-tab decision for the top-level
+  // page. Out-of-scope (allowlist miss / denylist hit / restricted / master
   // off) ⇒ leave the worker script unmodified. When settings haven't loaded
   // yet, fall back to "pass".
   if (!cachedSettings) return "pass";
@@ -606,7 +748,7 @@ function classifyRequest(details: WebRequestDetailsWithHeaders): Decision {
 
   // Same-site gate: exact origin (covers localhost / IP / single-label hosts)
   // or same registrable domain (covers sibling sub-domains).
-  if (!isSameOriginWorker(details.url, pageUrl)) return "pass";
+  if (!isSameOriginWorker(details.url, initiatorUrl)) return "pass";
 
   return "patch";
 }
@@ -697,7 +839,21 @@ function onBeforeWorkerRequest(details: WebRequestDetails): void {
         // for the initiating page from the same snapshot, so a worker
         // script gets the identical zone and Reported Language its page
         // realm does (including a site location's).
-        const payload = cachedSettings ? workerPayloadFor(cachedSettings, state.pageUrl) : "";
+        // A worker whose top-level page Firefox didn't report keeps a site
+        // location only when the open tabs pin it down.
+        const payload = cachedSettings
+          ? workerPayloadFor(cachedSettings, state.pageUrl, {
+              withoutSiteLocation:
+                state.untied !== undefined &&
+                (!tabCacheSeeded ||
+                  !untiedWorkerKeepsSiteLocation(
+                    cachedSettings,
+                    state.pageUrl,
+                    state.untied.thirdParty,
+                    tabPageUrlCache.values()
+                  )),
+            })
+          : "";
         if (payload) {
           if (cachedSettings?.debugLogging) {
             logger.info(`[worker-filter] patching worker script: ${state.url}`);
@@ -760,6 +916,7 @@ function onBeforeWorkerSendHeaders(details: WebRequestDetailsWithHeaders): void 
   const decision = classifyRequest(details);
   state.decision = decision;
   state.pageUrl = resolveWorkerPageUrl(details);
+  state.untied = isTopLevelReported(details) ? undefined : { thirdParty: details.thirdParty };
 
   if (cachedSettings?.debugLogging) {
     const dest = readSecFetchDest(details.requestHeaders) ?? "(absent)";
@@ -893,9 +1050,11 @@ export async function installWorkerRequestFilter(): Promise<void> {
   //
   // Prime the settings cache. Until this lands the listeners short-circuit on
   // `!cachedSettings` and pass through. broadcastSettingsToTabs also refreshes
-  // this on every settings change, so a missed prime self-heals.
+  // this on every settings change, so a missed prime self-heals. Primed through
+  // updateWorkerFilterSettings, so a prime that resolves after a broadcast
+  // keeps the broadcast's newer snapshot.
   try {
-    cachedSettings = await loadSettings();
+    updateWorkerFilterSettings(await loadSettings());
   } catch (err) {
     logger.warn(
       "[worker-filter] failed to prime settings cache:",
@@ -906,7 +1065,8 @@ export async function installWorkerRequestFilter(): Promise<void> {
   // Seed the tab URL cache from existing tabs. Misses self-heal via
   // onTabUpdated, and tab-less SharedWorker requests fall back to
   // documentUrl/originUrl in classifyRequest, so a slow seed only delays
-  // dedicated-worker coverage briefly.
+  // dedicated-worker coverage briefly. Until the seed lands, a tab-less
+  // SharedWorker gets no site location (`tabCacheSeeded`).
   try {
     const existingTabs = await browser.tabs.query({});
     for (const tab of existingTabs) {
@@ -918,6 +1078,7 @@ export async function installWorkerRequestFilter(): Promise<void> {
         tabPageUrlCache.set(tab.id, tab.url);
       }
     }
+    tabCacheSeeded = true;
   } catch (err) {
     logger.warn(
       "[worker-filter] failed to seed tab URL cache:",
@@ -952,6 +1113,7 @@ export function uninstallWorkerRequestFilter(): void {
     /* ignore — listeners may not have been registered (e.g. unsupported engine) */
   }
   tabPageUrlCache.clear();
+  tabCacheSeeded = false;
   beforeRequestListener = null;
   beforeSendHeadersListener = null;
 }

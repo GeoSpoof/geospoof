@@ -71,6 +71,8 @@ const PAYLOAD_KEYS = [
   "accuracySetting",
   "debugLogging",
   "enabled",
+  "engineTimezone",
+  "engineTimezoneSettled",
   "locale",
   "location",
   "preserveGeolocationPrompt",

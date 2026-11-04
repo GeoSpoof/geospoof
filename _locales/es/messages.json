@@ -770,7 +770,7 @@
     "description": "Hint shown with Sync with VPN on, in the site location editor and under the Main-tab site location line, explaining that a site location doesn't change the IP address sites see."
   },
   "siteLocation_reloadHint": {
-    "message": "Recarga las páginas de este sitio para aplicar el cambio en todas partes.",
+    "message": "Recarga las páginas afectadas para aplicar el cambio.",
     "description": "Hint shown right after a site location change made from the popup, because already-open pages keep their old values until reloaded."
   },
   "siteLocation_sitesLabel": {
@@ -798,7 +798,7 @@
     "description": "Shown in the site location editor before a location has been picked."
   },
   "siteLocation_explain": {
-    "message": "Las páginas de $SITES$, y todo lo que incrustan, verán $PLACE$. Los demás sitios mantienen tu ubicación principal.",
+    "message": "Las páginas de $SITES$ verán $PLACE$.",
     "placeholders": {
       "sites": {
         "content": "$1",
