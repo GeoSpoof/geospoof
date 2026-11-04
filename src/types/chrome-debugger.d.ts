@@ -21,6 +21,8 @@
  *   - `sendCommand`'s target is a `DebuggerSession` and it resolves to
  *     `{[name]: any} | undefined`.
  *   - `onDetach`'s reason is the union `"target_closed" | "canceled_by_user"`.
+ *   - `onEvent`'s source is a `DebuggerSession`; a `sessionId` on it (and on
+ *     `sendCommand`'s target) names a child session (flat sessions, Chrome 125+).
  *
  * Both namespaces are typed optional on the `chrome` global: `webNavigation` is
  * an optional permission (the namespace is absent until granted), and the whole
@@ -82,6 +84,11 @@ declare namespace ChromeDebugger {
     ): Promise<{ [name: string]: unknown } | undefined>;
     getTargets(): Promise<TargetInfo[]>;
     onDetach: DebuggerEvent<(source: Debuggee, reason: DetachReason) => void>;
+    /**
+     * CDP events. `source.sessionId` is set when the event comes from a child
+     * (flat) session within the root debuggee session (Chrome 125+).
+     */
+    onEvent: DebuggerEvent<(source: DebuggerSession, method: string, params?: object) => void>;
   }
 }
 
@@ -94,12 +101,32 @@ declare namespace ChromeWebNavigation {
     frameId: number;
   }
 
+  /** The subset of the onCommitted details object GeoSpoof reads. */
+  interface OnCommittedDetails {
+    tabId: number;
+    /** The URL that committed (after any redirects). */
+    url: string;
+    frameId: number;
+  }
+
+  /** The subset of the onErrorOccurred details object GeoSpoof reads. */
+  interface OnErrorOccurredDetails {
+    tabId: number;
+    url: string;
+    frameId: number;
+    error: string;
+  }
+
+  interface NavigationEvent<T> {
+    addListener(callback: (details: T) => void): void;
+    removeListener(callback: (details: T) => void): void;
+    hasListener(callback: (details: T) => void): boolean;
+  }
+
   interface Static {
-    onBeforeNavigate: {
-      addListener(callback: (details: OnBeforeNavigateDetails) => void): void;
-      removeListener(callback: (details: OnBeforeNavigateDetails) => void): void;
-      hasListener(callback: (details: OnBeforeNavigateDetails) => void): boolean;
-    };
+    onBeforeNavigate: NavigationEvent<OnBeforeNavigateDetails>;
+    onCommitted?: NavigationEvent<OnCommittedDetails>;
+    onErrorOccurred?: NavigationEvent<OnErrorOccurredDetails>;
   }
 }
 

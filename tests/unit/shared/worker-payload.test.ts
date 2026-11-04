@@ -34,14 +34,18 @@ interface PayloadRealm {
 function spoofedDateInRealm(
   timezone: string,
   fractionalOffset = false,
-  prelude = ""
+  prelude = "",
+  engineZoneMayChange = false
 ): PayloadRealm {
   const sandbox: Record<string, unknown> = { self: {} };
   vm.createContext(sandbox);
   // Runs before the payload captures the realm's natives, to stand in for a
   // different engine or ICU build.
   if (prelude) vm.runInContext(prelude, sandbox);
-  vm.runInContext(buildStandaloneWorkerPayload(timezone, null, fractionalOffset), sandbox);
+  vm.runInContext(
+    buildStandaloneWorkerPayload(timezone, null, fractionalOffset, engineZoneMayChange),
+    sandbox
+  );
   const self = sandbox.self as { Date?: DateConstructor };
   if (typeof self.Date !== "function") {
     throw new Error("payload did not install a spoofed Date on self");
@@ -180,10 +184,57 @@ describe("worker payload SPOOF_CORE — sub-minute historical offsets", () => {
 
   it("substitutes the decision as a literal and leaves no placeholder", () => {
     for (const fractional of [true, false]) {
-      const payload = buildStandaloneWorkerPayload("Asia/Tokyo", null, fractional);
+      const payload = buildStandaloneWorkerPayload("Asia/Tokyo", null, fractional, false);
       expect(payload).toContain(`var __fractionalOffset = ${String(fractional)};`);
       expect(payload).not.toContain("__NATIVE_FRACTIONAL_OFFSET__");
       expect(payload).not.toContain("__SPOOF_TZ_ID__");
+    }
+  });
+});
+
+// Engine-level Spoofing can change the engine's zone under a worker after it
+// cached the real zone (an override that lands after the worker started). The
+// prelude stands in for that: the first default-zone resolvedOptions call
+// (the payload's cache fill) reports a stale zone whose offset differs from the
+// host's, while the engine's Date keeps using the host zone.
+describe("worker payload SPOOF_CORE — a real zone that changes under the worker", () => {
+  const HOST_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const hostOffsetNow = new Date().getTimezoneOffset();
+  const STALE_ZONE = hostOffsetNow === -330 ? "Pacific/Chatham" : "Asia/Kolkata";
+  const prelude = `
+    (function () {
+      var orig = Intl.DateTimeFormat.prototype.resolvedOptions;
+      var served = false;
+      Intl.DateTimeFormat.prototype.resolvedOptions = function () {
+        var r = orig.call(this);
+        if (!served && r.timeZone === ${JSON.stringify(HOST_ZONE)}) {
+          served = true;
+          r.timeZone = ${JSON.stringify(STALE_ZONE)};
+        }
+        return r;
+      };
+    })();
+  `;
+  // A local-args Date in the spoofed zone equals the host-zone construction
+  // when the spoofed zone IS the host zone (the engine reports it already).
+  const expected = new Date(2026, 0, 15, 12).getTime();
+
+  it("with engineZoneMayChange, re-checks the cached zone and constructs in the engine's zone", () => {
+    const { Date: D } = spoofedDateInRealm(HOST_ZONE, false, prelude, true);
+    expect(new D(2026, 0, 15, 12).getTime()).toBe(expected);
+  });
+
+  it("without it, keeps the cached zone, as before", () => {
+    const { Date: D } = spoofedDateInRealm(HOST_ZONE, false, prelude, false);
+    // The adjustment shifts by the stale zone's offset minus the host's.
+    expect(new D(2026, 0, 15, 12).getTime()).not.toBe(expected);
+  });
+
+  it("bakes the flag in as a literal", () => {
+    for (const flag of [true, false]) {
+      const payload = buildStandaloneWorkerPayload("Asia/Tokyo", null, false, flag);
+      expect(payload).toContain(`var __engineZoneMayChange = ${String(flag)};`);
+      expect(payload).not.toContain("__ENGINE_ZONE_MAY_CHANGE__");
     }
   });
 });

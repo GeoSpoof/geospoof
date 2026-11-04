@@ -90,7 +90,7 @@ import {
 import { syncVpnLocation, clearIpGeoCache, clearEndpointCooldowns } from "./vpn-sync";
 import { adoptPendingSettingsFromApp } from "./app-bridge";
 import { allowlistWorkerUrl, isSameOriginWorker, tabPageUrlCache } from "./worker-request-filter";
-import { syncDebuggerSpoofing } from "./debugger-spoof";
+import { beforePageDelivery, syncDebuggerSpoofing } from "./debugger-spoof";
 import { updateBootstrapRegistration } from "./bootstrap-register";
 import { adoptClockBucket, reschedulePrecisionRollover } from "./precision-cadence";
 import {
@@ -168,16 +168,25 @@ export async function handleMessage(
           (message.payload as GetSettingsPayload | undefined)?.topFrame === true;
         const pageUrl = topLevelUrlForSender(_sender, claimsTopFrame);
 
+        // Chromium Engine-level, as for a push (sendSettingsToTab). Not for a
+        // prerendering document: the tab's session doesn't reach it.
+        const engineTimezoneSettled =
+          !__CHROMIUM__ ||
+          senderTabId == null ||
+          isPrerendering(_sender) ||
+          (await beforePageDelivery(senderTabId, settings, pageUrl));
+
         // Effective_Enabled resolves to false when the URL is missing,
         // unparseable, restricted, or out of scope (Req 8.7). The shared
-        // builder also withholds the timezone in Chromium debugger mode, as the
-        // broadcast path does, except from a prerendering document, which the
+        // builder also sets `engineTimezone` in Chromium debugger mode, as the
+        // broadcast path does, except for a prerendering document, which the
         // tab's debugger session doesn't reach. A prerendered subframe is
         // judged by the page being left, so it gets that page's Filters
         // decision and the main location, never its per-site location.
         const payload = await buildPagePayload(settings, pageUrl, {
           prerendering: isPrerendering(_sender),
           withoutSiteLocation: isUndeterminedPrerenderedFrame(_sender, claimsTopFrame),
+          engineTimezoneSettled,
         });
 
         // Badge recovery: a content-script GET_SETTINGS confirms the script is
@@ -527,11 +536,12 @@ export async function handleSetProtectionStatus(
 }
 
 /**
- * Toggle browser-level (chrome.debugger / CDP) spoofing. Persists the flag,
- * reconciles the live debugger state (attach + apply when turning on, detach
- * when turning off), then re-broadcasts so the content-script geo/timezone
- * injection is suppressed/restored to match (WebRTC injection is unaffected).
- * Chromium-only in effect; a no-op spoof sync on other engines.
+ * Toggle Engine-level (chrome.debugger / CDP) timezone spoofing. Persists the
+ * flag, reconciles the live debugger state (attach + apply when turning on,
+ * detach when turning off), then re-broadcasts so every frame gets the new
+ * `engineTimezone` flag and re-checks whether its engine reports its zone
+ * (geolocation and WebRTC injection are unaffected). Chromium-only in effect;
+ * a no-op spoof sync on other engines.
  */
 export async function handleSetDebuggerMode(payload: SetDebuggerModePayload): Promise<void> {
   const { enabled } = payload;

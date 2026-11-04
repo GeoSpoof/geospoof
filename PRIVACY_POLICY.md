@@ -1,6 +1,6 @@
 # Privacy Policy for GeoSpoof
 
-**Last Updated:** October 18, 2026
+**Last Updated:** November 2, 2026
 
 ## Overview
 
@@ -177,8 +177,8 @@ The extension requires the following permissions. Exact permissions vary slightl
 - **idle** (Firefox/Chromium only): Part of the VPN-sync re-check scheduling
 - **`<all_urls>` / host access to all websites**: To inject location spoofing on every website you visit
 - **webRequest permissions** (Firefox only): To repair the timezone leak inside Web Workers at the network layer
-- **debugger** (Chrome/Chromium only): Powers the optional "Engine-level Spoofing" mode. This mode is **off by default** and only runs if you turn it on. When enabled, GeoSpoof attaches to your tabs via Chrome's debugger interface to apply the timezone override deeper in the browser engine (using `Emulation.setTimezoneOverride`), so it also covers background workers and takes effect before a page's first script runs. GeoSpoof uses this **only to set the timezone override** — it does not read page content, network traffic, passwords, or browsing history through it. While the mode is on, Chrome shows a "GeoSpoof started debugging this browser" notice; that is Chrome's standard warning for any extension using this interface, and the notice disappears when you turn the mode off. The permission is declared as required (Chrome does not allow it to be optional), but it does nothing unless you enable Engine-level Spoofing, and it adds no new install warning beyond the "access your data on all websites" prompt already covered by site access.
-- **webNavigation** (Chrome/Chrothemium only): Requested at runtime (not at install) only when you enable Engine-level Spoofing. It lets GeoSpoof apply the timezone override at the very start of a navigation, before the page loads, so there is no brief window where real timezone leaks. It is used solely for this timing and not to record or transmit the pages you visit.
+- **debugger** (Chrome/Chromium only): Powers the optional "Engine-level Spoofing" mode. This mode is **off by default** and only runs if you turn it on. When enabled, GeoSpoof attaches to your tabs via Chrome's debugger interface to apply the timezone override deeper in the browser engine (using `Emulation.setTimezoneOverride`), so it also covers background workers and cross-site frames, and in a tab where the mode is already active it applies before a page's first script runs, unless that page's timezone differs from the previous page's. GeoSpoof uses this **only to set the timezone override** — it does not read page content, network traffic, passwords, or browsing history through it. While the mode is on, Chrome shows a "GeoSpoof started debugging this browser" notice; that is Chrome's standard warning for any extension using this interface, and the notice disappears when you turn the mode off. The permission is declared as required (Chrome does not allow it to be optional), but it does nothing unless you enable Engine-level Spoofing, and it adds no new install warning beyond the "access your data on all websites" prompt already covered by site access.
+- **webNavigation** (Chrome/Chromium only): Requested at runtime (not at install) only when you enable Engine-level Spoofing. It lets GeoSpoof apply the timezone override when a navigation starts and again when it commits, which narrows the window in which a page can read your real timezone; it doesn't close it on a tab's first page. It is used solely for this timing and not to record or transmit the pages you visit.
 
 These permissions are used solely for the extension's functionality and not for data collection.
 

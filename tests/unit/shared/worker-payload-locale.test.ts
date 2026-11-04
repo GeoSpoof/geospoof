@@ -50,7 +50,7 @@ function realmWith(
 
   const sandbox: Record<string, unknown> = { self: {}, WorkerNavigator, navigator };
   vm.createContext(sandbox);
-  vm.runInContext(buildStandaloneWorkerPayload(identifier, locale, false), sandbox);
+  vm.runInContext(buildStandaloneWorkerPayload(identifier, locale, false, false), sandbox);
   return { evalInRealm: <T>(expr: string): T => vm.runInContext(expr, sandbox) as T };
 }
 
@@ -311,15 +311,15 @@ describe("worker locale payload — anti-fingerprint parity", () => {
 
 describe("worker payload assembly", () => {
   it("emits nothing when neither axis is active", () => {
-    expect(buildStandaloneWorkerPayload(null, null, false)).toBe("");
-    expect(buildStandaloneWorkerPayload(undefined, undefined, false)).toBe("");
-    expect(buildWorkerSpoofCore(null, null, false)).toBe("");
+    expect(buildStandaloneWorkerPayload(null, null, false, false)).toBe("");
+    expect(buildStandaloneWorkerPayload(undefined, undefined, false, false)).toBe("");
+    expect(buildWorkerSpoofCore(null, null, false, false)).toBe("");
   });
 
   it("emits a payload for locale alone, with no timezone", () => {
     // Reachable state: a custom locale with no location set. The worker must
     // still get the locale, or it would disagree with the page realm.
-    const payload = buildStandaloneWorkerPayload(null, LOCALE, false);
+    const payload = buildStandaloneWorkerPayload(null, LOCALE, false, false);
     expect(payload).not.toBe("");
     const r = realmWith(null, LOCALE);
     expect(r.evalInRealm<string>("navigator.language")).toBe("fr-FR");
@@ -327,20 +327,20 @@ describe("worker payload assembly", () => {
   });
 
   it("emits a payload for timezone alone, with no locale", () => {
-    expect(buildStandaloneWorkerPayload(TZ, null, false)).not.toBe("");
-    expect(buildStandaloneWorkerPayload(TZ, undefined, false)).not.toBe("");
+    expect(buildStandaloneWorkerPayload(TZ, null, false, false)).not.toBe("");
+    expect(buildStandaloneWorkerPayload(TZ, undefined, false, false)).not.toBe("");
   });
 
   it("does not install a spoofed Date when only a locale is active", () => {
     // The timezone body must be genuinely absent, not merely inert — emitting it
     // without an identifier would bake in the string "__SPOOF_TZ_ID__".
-    const payload = buildStandaloneWorkerPayload(null, LOCALE, false);
+    const payload = buildStandaloneWorkerPayload(null, LOCALE, false, false);
     expect(payload).not.toContain("__SPOOF_TZ_ID__");
     expect(payload).not.toContain("__SPOOF_LOCALE__");
   });
 
   it("substitutes both placeholders when both axes are active", () => {
-    const payload = buildStandaloneWorkerPayload(TZ, LOCALE, false);
+    const payload = buildStandaloneWorkerPayload(TZ, LOCALE, false, false);
     expect(payload).not.toContain("__SPOOF_TZ_ID__");
     expect(payload).not.toContain("__SPOOF_LOCALE__");
     expect(payload).toContain(TZ);

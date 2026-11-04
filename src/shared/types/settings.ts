@@ -232,17 +232,21 @@ export interface Settings {
   /** Whether VPN sync mode is the active location method */
   vpnSyncEnabled: boolean;
   /**
-   * Chromium only: when true, GeoSpoof spoofs the TIMEZONE at the browser level
-   * via the chrome.debugger API (Chrome DevTools Protocol's Emulation domain,
-   * `setTimezoneOverride`) instead of the page-world content-script override.
-   * The CDP override applies to every frame AND worker — including module /
-   * service workers — even on the very first synchronous script, closing the
-   * worker-timezone leaks the Chromium content-script path can't cover (no
-   * `webRequest.filterResponseData` on Chromium MV3). The trade-off is the
-   * persistent "GeoSpoof started debugging this browser" notification bar, so
-   * it's strictly opt-in and gated behind the optional `debugger` permission
-   * (requested at runtime from the popup). While it's on, only the injected
-   * TIMEZONE override is suppressed (redundant); WebRTC protection still runs
+   * Chromium only: when true, GeoSpoof also sets the TIMEZONE at the browser
+   * level via the chrome.debugger API (Chrome DevTools Protocol's Emulation
+   * domain, `setTimezoneOverride`). The override sets the zone in the tab's
+   * renderer process and, on Chrome 125+, in each cross-origin iframe's process
+   * through a child session, so it reaches the workers there too, including the
+   * URL / module workers the Chromium content-script path can't patch (no
+   * `webRequest.filterResponseData` on Chromium MV3). It doesn't reach a tab's
+   * first page or the first scripts after a cross-site navigation in time
+   * (Known Limitations 3 and 15 in docs/API.md). The trade-off is the persistent
+   * "GeoSpoof started debugging this browser" notification bar, so it's
+   * strictly opt-in. `debugger` is a required permission on Chromium (Chrome
+   * forbids it as optional); the popup only requests the optional
+   * `webNavigation` permission at runtime. The page payload still carries each
+   * page's zone (`engineTimezone`), so a frame the engine override doesn't
+   * reach installs the injected timezone overrides. WebRTC protection still runs
    * through the content script. Always false on Firefox/Safari (no
    * chrome.debugger equivalent).
    *
@@ -269,8 +273,8 @@ export interface Settings {
    *      `Settings.preserveGeolocationPrompt` for opting back into the native
    *      prompt — that's a separate, engine-independent content-script toggle.)
    * The injected geolocation override therefore keeps running in debugger mode;
-   * see the timezone-only suppression in background `broadcastSettingsToTabs` /
-   * the GET_SETTINGS scoped payload, and `src/background/debugger-spoof.ts`.
+   * see `engineTimezone` in `src/background/page-payload.ts` and
+   * `src/background/debugger-spoof.ts`.
    */
   debuggerModeEnabled: boolean;
   /**

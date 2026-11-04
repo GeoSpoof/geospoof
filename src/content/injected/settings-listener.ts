@@ -20,8 +20,10 @@ import {
   setWebRTCProtectionEnabled,
   setPreserveGeolocationPrompt,
   setLocaleData,
+  setEngineTimezoneMode,
+  setEngineTimezoneData,
 } from "./state";
-import { validateTimezoneData } from "./timezone-helpers";
+import { engineReportsZone, validateTimezoneData } from "./timezone-helpers";
 import { validateLocaleData } from "./locale-helpers";
 import {
   setDebugEnabled as setLoggerDebugEnabled,
@@ -89,16 +91,35 @@ export function installSettingsListener(): void {
       const verbosity = event.detail.verbosityLevel ?? "INFO";
       setLoggerVerbosityLevel(verbosity);
 
+      // Engine-level Spoofing sets the page's zone in the engine. This realm
+      // keeps native Date/Intl only if its engine already reports that zone;
+      // otherwise (a cross-site iframe in its own process, a refused or
+      // cancelled session, an override that hasn't landed) it installs the
+      // overrides for it, so every realm reports its top-level page's zone.
+      // Re-checked on every settings event. When an older zone command to the
+      // tab can still land (`engineTimezoneSettled` false), what the engine
+      // reports now may not last, so the overrides take the zone; the realm
+      // stays in engine mode, so its workers keep re-checking the real zone.
+      const engineMode = event.detail.engineTimezone === true;
+      const engineSettled = event.detail.engineTimezoneSettled !== false;
+      setEngineTimezoneMode(engineMode);
       if (event.detail.timezone) {
         if (validateTimezoneData(event.detail.timezone)) {
-          setTimezoneData(event.detail.timezone);
-          logger.debug("Timezone data updated:", event.detail.timezone);
+          const engineOwned =
+            engineMode && engineSettled && engineReportsZone(event.detail.timezone.identifier);
+          setTimezoneData(engineOwned ? null : event.detail.timezone);
+          // `document.lastModified` sits below the engine's emulation, so its
+          // override still needs the zone where the engine owns Date/Intl.
+          setEngineTimezoneData(engineOwned ? event.detail.timezone : null);
+          logger.debug("Timezone data updated:", event.detail.timezone, { engineOwned });
         } else {
           logger.error("Invalid timezone data received, timezone spoofing disabled");
           setTimezoneData(null);
+          setEngineTimezoneData(null);
         }
       } else {
         setTimezoneData(null);
+        setEngineTimezoneData(null);
       }
 
       // Reported Language. Validated before adoption for the same reason as

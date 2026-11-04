@@ -188,6 +188,42 @@ describe("content script settings refresh", () => {
     captured.stop();
   });
 
+  test("engineTimezone is forwarded to the MAIN world, and defaults to false", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve({ ...reply("Asia/Tokyo"), engineTimezone: true });
+    await settle();
+    const last = captured.details.at(-1) as { engineTimezone?: boolean } | undefined;
+    expect(last?.engineTimezone).toBe(true);
+
+    loaded.pageshow!(pageshowEvent(true));
+    loaded.replies[1].resolve(reply("Asia/Tokyo"));
+    await settle();
+    const refreshed = captured.details.at(-1) as { engineTimezone?: boolean } | undefined;
+    expect(refreshed?.engineTimezone).toBe(false);
+    captured.stop();
+  });
+
+  test("engineTimezoneSettled is forwarded to the MAIN world, and defaults to true", async () => {
+    const loaded = await loadContentScript();
+    const captured = captureDispatches();
+    loaded.replies[0].resolve({
+      ...reply("Asia/Tokyo"),
+      engineTimezone: true,
+      engineTimezoneSettled: false,
+    });
+    await settle();
+    const last = captured.details.at(-1) as { engineTimezoneSettled?: boolean } | undefined;
+    expect(last?.engineTimezoneSettled).toBe(false);
+
+    loaded.pageshow!(pageshowEvent(true));
+    loaded.replies[1].resolve(reply("Asia/Tokyo"));
+    await settle();
+    const refreshed = captured.details.at(-1) as { engineTimezoneSettled?: boolean } | undefined;
+    expect(refreshed?.engineTimezoneSettled).toBe(true);
+    captured.stop();
+  });
+
   test("a non-persisted pageshow (ordinary load) sends nothing", async () => {
     const loaded = await loadContentScript();
     loaded.pageshow!(pageshowEvent(false));
@@ -364,7 +400,7 @@ describe("content script settings revision", () => {
     captured.stop();
   });
 
-  test("the revision never reaches the page: every detail has exactly the eight keys", async () => {
+  test("the revision never reaches the page: every detail has exactly the ten keys", async () => {
     const loaded = await loadContentScript();
     const details: Array<Record<string, unknown>> = [];
     const handler = (event: Event): void => {
@@ -384,6 +420,8 @@ describe("content script settings revision", () => {
         expect(Object.keys(detail).sort()).toEqual([
           "debugLogging",
           "enabled",
+          "engineTimezone",
+          "engineTimezoneSettled",
           "locale",
           "location",
           "preserveGeolocationPrompt",

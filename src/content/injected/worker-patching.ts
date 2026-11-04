@@ -68,6 +68,7 @@ import {
   localeData,
   spoofingEnabled,
   nativeFractionalOffset,
+  engineTimezoneMode,
   ANNOUNCE_EVENT_NAME,
 } from "./state";
 import {
@@ -496,11 +497,14 @@ function generateInlineWorkerPayload(originalScriptUrl: string): string {
   //
   // The worker gets this realm's getTimezoneOffset precision as a literal
   // rather than probing its own, so it can't disagree with the page. Nested
-  // workers reuse this core and carry the same value.
+  // workers reuse this core and carry the same value. In Engine-level
+  // Spoofing the engine's zone can change under the worker (an override that
+  // lands after it starts), so it re-checks the real zone it caches.
   const core = buildWorkerSpoofCore(
     timezoneData?.identifier ?? null,
     localeData,
-    nativeFractionalOffset
+    nativeFractionalOffset,
+    engineTimezoneMode
   );
   const originalUrlJson = JSON.stringify(originalScriptUrl);
   const coreJson = JSON.stringify(core);

@@ -309,12 +309,12 @@ export function generateManifest(target: BrowserTarget, version: string): Record
     // The rule is only installed while a locale is actually being reported, and
     // is removed when the feature is off (which is the default).
     //
-    // `debugger` powers the optional browser-level (Chrome DevTools Protocol)
+    // `debugger` powers the optional Engine-level (Chrome DevTools Protocol)
     // spoofing mode: when the user turns it on, GeoSpoof attaches via
-    // `chrome.debugger` and drives `Emulation.setTimezoneOverride` /
-    // `setGeolocationOverride`, which apply across every frame and worker before
-    // the first script runs — closing the module/service-worker timezone leaks
-    // the content-script path can't cover on Chromium MV3. It must be a REQUIRED
+    // `chrome.debugger` and drives `Emulation.setTimezoneOverride` (timezone
+    // only; geolocation stays injected), which sets the zone in the page's
+    // renderer process and so covers the URL / module workers the content-script
+    // path can't reach on Chromium MV3. It must be a REQUIRED
     // permission because Chrome forbids `debugger` in `optional_permissions`.
     // Crucially this adds NO new install warning and does NOT disable the
     // extension for existing users on update: `debugger` maps to the "Access
@@ -329,8 +329,8 @@ export function generateManifest(target: BrowserTarget, version: string): Record
     ],
     // `webNavigation` is requested at runtime (from the popup toggle, a user
     // gesture) only when debugger mode is enabled — it lets us attach on
-    // `onBeforeNavigate`, before a page's first script, for a race-free
-    // override. It's OPTIONAL (unlike `debugger`, it's allowed to be) so it adds
+    // `onBeforeNavigate` and re-apply the zone on `onCommitted` /
+    // `onErrorOccurred`. It's OPTIONAL (unlike `debugger`, it's allowed to be) so it adds
     // no install-time warning and never disables the extension on update; users
     // who never enable debugger mode are never prompted for it. Without the
     // grant we fall back to a `tabs.onUpdated` attach (works, slightly later).

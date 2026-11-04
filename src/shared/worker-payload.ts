@@ -206,9 +206,10 @@ function __applyReportedLocale(instance, resolved) {
 `;
 
 /**
- * The timezone-spoofing body. Requires `__SPOOF_TZ_ID__` (JSON IANA id) and
- * `__NATIVE_FRACTIONAL_OFFSET__` (`true` / `false`) to be substituted, and
- * assumes the masking helpers are already in scope.
+ * The timezone-spoofing body. Requires `__SPOOF_TZ_ID__` (JSON IANA id),
+ * `__NATIVE_FRACTIONAL_OFFSET__` and `__ENGINE_ZONE_MAY_CHANGE__` (`true` /
+ * `false`) to be substituted, and assumes the masking helpers are already in
+ * scope.
  */
 const SPOOF_TZ_BODY = `
 var __tz_id = __SPOOF_TZ_ID__;
@@ -527,13 +528,14 @@ function __getRealTzId() {
   return __realTzId;
 }
 
-// Real system offset (minutes east of UTC) at an instant, at FULL sub-minute
-// precision. Must NOT use getTimezoneOffset(): V8 truncates it while the native
-// Date constructor keeps the fraction, and mixing the two leaks the dropped
-// seconds into the adjustment (the "186.9333 vs 186.4667" Sao_Paulo drift).
-function __realOffsetEast(date) {
+// True in Chromium's Engine-level Spoofing, where the engine's zone can change
+// under this worker after it cached it (an override that lands later). Baked in
+// by the page realm; false on every other path.
+var __engineZoneMayChange = __ENGINE_ZONE_MAY_CHANGE__;
+
+function __realOffsetEastFor(date, id) {
   try {
-    var f = new OrigDTF("en-US", { timeZone: __getRealTzId(), timeZoneName: "shortOffset" });
+    var f = new OrigDTF("en-US", { timeZone: id, timeZoneName: "shortOffset" });
     var parts = f.formatToParts(date);
     var tzPart = "GMT";
     for (var i = 0; i < parts.length; i++) {
@@ -544,6 +546,21 @@ function __realOffsetEast(date) {
   } catch (e) {
     return -origGTZO.call(date);
   }
+}
+
+// Real system offset (minutes east of UTC) at an instant, at FULL sub-minute
+// precision. Must NOT use getTimezoneOffset(): V8 truncates it while the native
+// Date constructor keeps the fraction, and mixing the two leaks the dropped
+// seconds into the adjustment (the "186.9333 vs 186.4667" Sao_Paulo drift).
+// Native getTimezoneOffset is still the check that the cached zone is current:
+// it differs by under a minute only through truncation.
+function __realOffsetEast(date) {
+  var off = __realOffsetEastFor(date, __getRealTzId());
+  if (__engineZoneMayChange && Math.abs(off + origGTZO.call(date)) >= 1) {
+    __realTzId = undefined;
+    off = __realOffsetEastFor(date, __getRealTzId());
+  }
+  return off;
 }
 
 // ms to add to an epoch so a real-zone interpretation becomes a spoofed-zone
@@ -1134,9 +1151,9 @@ if (__locale && __locale.tag) {
 
 /**
  * The core timezone spoofing payload (masking helpers + timezone body), with
- * the `__SPOOF_TZ_ID__` and `__NATIVE_FRACTIONAL_OFFSET__` placeholders still
- * in place. Callers build through {@link buildWorkerSpoofCore}, which
- * substitutes both.
+ * the `__SPOOF_TZ_ID__`, `__NATIVE_FRACTIONAL_OFFSET__` and
+ * `__ENGINE_ZONE_MAY_CHANGE__` placeholders still in place. Callers build
+ * through {@link buildWorkerSpoofCore}, which substitutes them.
  */
 export const SPOOF_CORE = `${SPOOF_MASK_HELPERS}\n${SPOOF_TZ_BODY}`;
 
@@ -1148,15 +1165,17 @@ export const SPOOF_CORE = `${SPOOF_MASK_HELPERS}\n${SPOOF_TZ_BODY}`;
  * Returns an empty string when neither `identifier` nor `locale` is set —
  * callers should treat that as "don't modify the response."
  *
- * `fractionalOffset` is the page engine's `getTimezoneOffset` precision (see
+ * `fractionalOffset` is the page engine's `getTimezoneOffset` precision, and
+ * `engineZoneMayChange` whether its zone can change under the worker (see
  * {@link buildWorkerSpoofCore}).
  */
 export function buildStandaloneWorkerPayload(
   identifier: string | null | undefined,
   locale: SpoofedLocalePayload | null | undefined,
-  fractionalOffset: boolean
+  fractionalOffset: boolean,
+  engineZoneMayChange: boolean
 ): string {
-  const core = buildWorkerSpoofCore(identifier, locale, fractionalOffset);
+  const core = buildWorkerSpoofCore(identifier, locale, fractionalOffset, engineZoneMayChange);
   if (!core) return "";
   return `(function(){\n"use strict";\n${core}\n})();\n`;
 }
@@ -1177,11 +1196,17 @@ export function buildStandaloneWorkerPayload(
  * engine's native `getTimezoneOffset` keeps the seconds of a pre-standard-time
  * offset, false when it truncates them. It is required, not defaulted, so a
  * caller can't silently pick an answer that disagrees with the page realm.
+ *
+ * `engineZoneMayChange` is baked in the same way: true when the page realm is in
+ * Chromium's Engine-level Spoofing, where the engine's own zone can change under
+ * the worker after it cached it, so the worker re-checks its cached real zone.
+ * Required for the same reason; false on the Firefox network path.
  */
 export function buildWorkerSpoofCore(
   identifier: string | null | undefined,
   locale: SpoofedLocalePayload | null | undefined,
-  fractionalOffset: boolean
+  fractionalOffset: boolean,
+  engineZoneMayChange: boolean
 ): string {
   if (!identifier && !locale) return "";
 
@@ -1197,11 +1222,11 @@ export function buildWorkerSpoofCore(
     // The fixed literal goes in first, so nothing inside the identifier can be
     // mistaken for its placeholder.
     const fractionalLiteral = fractionalOffset === true ? "true" : "false";
+    const engineLiteral = engineZoneMayChange === true ? "true" : "false";
     parts.push(
-      SPOOF_TZ_BODY.replace("__NATIVE_FRACTIONAL_OFFSET__", () => fractionalLiteral).replace(
-        "__SPOOF_TZ_ID__",
-        () => idJson
-      )
+      SPOOF_TZ_BODY.replace("__NATIVE_FRACTIONAL_OFFSET__", () => fractionalLiteral)
+        .replace("__ENGINE_ZONE_MAY_CHANGE__", () => engineLiteral)
+        .replace("__SPOOF_TZ_ID__", () => idJson)
     );
   }
   if (locale) {

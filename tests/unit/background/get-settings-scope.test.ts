@@ -244,10 +244,11 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
       expect(browser.action.setBadgeText).toHaveBeenLastCalledWith({ text: "•", tabId: 23 });
     });
 
-    // Engine-level spoofing (Chromium debugger mode) withholds the timezone from
-    // the injected path because CDP owns it, but CDP is attached to the tab,
-    // which still shows A, so it doesn't reach a page being prerendered.
-    test("Engine-level spoofing keeps the timezone only for a prerendering document", async () => {
+    // Engine-level spoofing (Chromium debugger mode) flags the payload so each
+    // frame keeps native Date/Intl where the engine already reports the zone,
+    // but CDP is attached to the tab, which still shows A, so it doesn't reach
+    // a page being prerendered: that document gets the plain injected path.
+    test("Engine-level spoofing flags the zone, except for a prerendering document", async () => {
       const { buildPagePayload } = await import("@/background/page-payload");
       const s = { ...settingsForB(), debuggerModeEnabled: true };
 
@@ -257,8 +258,10 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
         prerendering: true,
       });
 
-      expect(active.timezone).toBeNull();
-      expect(prerendering.timezone?.identifier).toBe("Asia/Tokyo");
+      expect(active.timezone?.identifier).toBe("Asia/Tokyo");
+      expect(active.engineTimezone).toBe(true);
+      expect(prerendering.timezone).toEqual(active.timezone);
+      expect(prerendering.engineTimezone).toBe(false);
       expect(prerendering.location).toEqual(active.location);
     });
 
@@ -289,8 +292,8 @@ describe("Scoped GET_SETTINGS by sender (task 6)", () => {
       }
 
       expect(seen).toEqual([
-        { prerendering: true, withoutSiteLocation: false },
-        { prerendering: false, withoutSiteLocation: false },
+        { prerendering: true, withoutSiteLocation: false, engineTimezoneSettled: true },
+        { prerendering: false, withoutSiteLocation: false, engineTimezoneSettled: true },
       ]);
     });
 
