@@ -195,6 +195,18 @@ describe("rows", () => {
     expect(rowFor("direct-list").querySelector(".scope-site-meta.warning")).toBeNull();
   });
 
+  test("a warning meta line is coloured text, not the global .warning banner box", () => {
+    const css = readFileSync("assets/popup.css", "utf8");
+    for (const selector of [".scope-site-meta.warning", ".entry-chip-meta.warning"]) {
+      const escaped = selector.replace(/\./g, "\\.");
+      const rule = new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+      expect(rule).toContain("background: none");
+      expect(rule).toContain("border: 0");
+      expect(rule).toContain("padding: 0");
+      expect(rule).toMatch(/font-size: (12px|inherit)/);
+    }
+  });
+
   test("a link whose last refresh failed says so, in the warning style", async () => {
     await render(ALLOW, { ...GROUPS, [LINK]: { ...GROUPS[LINK], lastError: "LINK_FAILED" } });
     const meta = rowFor("direct-list").querySelector(".scope-site-meta")!;

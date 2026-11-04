@@ -3008,10 +3008,17 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   color: var(--text-muted);
 }
 
-/* #856404 on white is 5.9:1 (5.1:1 on the hover tint). */
+/* #856404 on white is 5.9:1 (5.1:1 on the hover tint). Coloured text only:
+   the reset drops the global .warning banner box (fill, border, padding). */
 .scope-site-meta.warning {
   color: var(--warn-text);
   font-weight: 500;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  font-size: 12px;
 }
 
 /* The per-site editor's sites. --btn-secondary, not --badge-bg: #666 on
@@ -3055,6 +3062,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .entry-chip-meta.warning {
   color: var(--text);
   font-weight: 600;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0 0 0 4px;
+  font-size: inherit;
 }
 
 .entry-chip-remove {
