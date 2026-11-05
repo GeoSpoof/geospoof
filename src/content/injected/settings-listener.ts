@@ -34,6 +34,32 @@ import { now } from "@/shared/utils/safe-time";
 
 const logger = createLogger("INJ");
 
+// Listeners run after each settings event has been applied. Stored in a
+// null-prototype record and called with an index loop, created when this
+// module is evaluated (before any page script), so running them calls no
+// array method or iterator a page could have replaced.
+const appliedListeners = Object.create(null) as Record<number, () => void>;
+let appliedCount = 0;
+
+/**
+ * Register a listener that runs at the end of every settings event, once all
+ * of that event's state (enabled, timezone, locale, debug flag) is applied.
+ * Used by the worker relay to start the workers it holds.
+ */
+export function onSettingsApplied(listener: () => void): void {
+  appliedListeners[appliedCount++] = listener;
+}
+
+function runSettingsApplied(): void {
+  for (let i = 0; i < appliedCount; i++) {
+    try {
+      appliedListeners[i]();
+    } catch (err) {
+      logger.debug("onSettingsApplied listener threw:", err);
+    }
+  }
+}
+
 /**
  * Returns a promise that resolves when settings arrive, or rejects if the
  * timeout expires before settings are received.
@@ -145,6 +171,8 @@ export function installSettingsListener(): void {
         debugLogging: debugFlag,
         webrtcProtection: event.detail.webrtcProtection === true,
       });
+
+      runSettingsApplied();
     }
   }) as EventListener);
 }

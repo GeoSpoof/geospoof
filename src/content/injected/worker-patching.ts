@@ -27,10 +27,10 @@
  *
  *   - **Inline workers** (`new Worker(URL.createObjectURL(blob))` or
  *     `new Worker("data:application/javascript,...")`) — the site itself
- *     already chose blob/data URLs, so its CSP necessarily allows them.
- *     We can safely blob-wrap these because the site's existing blob was
- *     going to load fine; our replacement blob inherits the same CSP
- *     allowance.
+ *     already chose blob/data URLs, and we wrap these. A `blob:` worker's
+ *     replacement is also `blob:`, so a CSP that allowed the site's worker
+ *     allows ours. A `data:` worker becomes `blob:`, which a CSP that
+ *     allows `data:` workers but not `blob:` ones refuses (a known gap).
  *
  * This split is strictly better than the prior "always blob-wrap" design:
  * URL-based workers stop triggering CSP violations on strict-CSP origins
@@ -58,9 +58,19 @@
  *
  * ## Settings delivery
  *
- * The payload bakes in the current timezone at construction time. If the
- * user changes timezone mid-session, already-running workers keep the old
- * timezone (inherent to worker process isolation — we can't reach them).
+ * The payload bakes in the current timezone at construction time, and
+ * settings arrive asynchronously after `document_start`. A dedicated inline
+ * classic worker created before they arrive is held: the page gets a native
+ * `Worker` running a small relay (`worker-relay.ts`) from the same scheme it
+ * passed, and the relay starts the page's code with the payload once the
+ * settings event lands, forwarding messages both ways. If settings don't
+ * arrive within `SETTINGS_WAIT_TIMEOUT`, held workers start unpatched and
+ * later ones take the direct path. Pages that use Trusted Types or have
+ * shared memory, untracked blob URLs, module workers, and SharedWorker keep
+ * the direct path, so their early workers still see the real zone.
+ *
+ * If the user changes timezone mid-session, already-running workers keep the
+ * old timezone (inherent to worker process isolation — we can't reach them).
  */
 
 import {
@@ -78,6 +88,13 @@ import {
   stripExtensionFramesFromStack,
 } from "./function-masking";
 import { seedFromBootstrap } from "./bootstrap";
+import {
+  createRelayedWorker,
+  installWorkerRelay,
+  relayApplies,
+  type RelaySource,
+} from "./worker-relay";
+import { COMPOSE_DATA_SOURCE } from "./worker-data-url";
 import { buildWorkerSpoofCore } from "@/shared/worker-payload";
 import { createLogger } from "@/shared/utils/debug-logger";
 
@@ -251,6 +268,21 @@ function lookupTrackedBlob(url: string): Blob | null {
   return blob;
 }
 
+/**
+ * The page's source for a held inline worker (`worker-relay.ts`): the tracked
+ * Blob for a `blob:` URL, or null when it's untracked, revoked, or collected
+ * (today's pass-through); the URL itself for a `data:` URL, which the relay
+ * composes from without any decoding here.
+ */
+function resolveRelaySource(urlStr: string): RelaySource | null {
+  if (urlStr.startsWith("blob:")) {
+    const blob = lookupTrackedBlob(urlStr);
+    return blob ? { kind: "blob", blob } : null;
+  }
+  if (urlStr.startsWith("data:")) return { kind: "data", url: urlStr };
+  return null;
+}
+
 // ── Inline worker payload (blob/data URL wrapping only) ──────────────
 
 // The core spoofing payload is imported from `@/shared/worker-payload`
@@ -283,6 +315,24 @@ function lookupTrackedBlob(url: string): Blob | null {
  * construction time — pure in-memory concatenation, no CSP gate.
  */
 const WORKER_WRAPPER = `
+// --- Held data: worker detection ---
+//
+// Read before any page code runs, so a page that later patches
+// WorkerLocation can't change the decision. True only inside a held data:
+// worker (worker-relay.ts) and the nested data: workers composed from it;
+// patched data: workers created after settings run as blob:.
+var __gsSelfIsData = false;
+try { __gsSelfIsData = self.location.protocol === "data:"; } catch(e) { /* keep false */ }
+
+// --- Script base: the page URL at construction time ---
+//
+// Used by importScripts resolution and by nested workers. This line must stay
+// the base placeholder's first occurrence in this template: the payload
+// builders substitute only the first match of each placeholder.
+var __gsScriptBase = __ORIGINAL_SCRIPT_URL__;
+
+// --- data: URL composer (worker-data-url.ts) ---
+${COMPOSE_DATA_SOURCE}
 // --- Global-install helper (stealth) ---
 //
 // CreepJS's getClientCode() enumerates Object.getOwnPropertyNames(self)
@@ -331,7 +381,7 @@ var __installWorkerGlobal = function(name, value) {
 (function() {
   if (typeof self.importScripts !== "function") return;
   var origImportScripts = self.importScripts;
-  var scriptBase = __ORIGINAL_SCRIPT_URL__;
+  var scriptBase = __gsScriptBase;
   var spoofedImportScripts = function importScripts() {
     var resolved = [];
     for (var i = 0; i < arguments.length; i++) {
@@ -449,6 +499,14 @@ function lookupNestedBlob(url) {
         return new OrigW(URL.createObjectURL(blob), opts);
       }
       if (urlStr.indexOf("data:") === 0) {
+        if (__gsSelfIsData) {
+          // Inside a held data: worker the page's CSP may allow data: workers
+          // and not blob: ones, so the nested worker stays on data:. Its base
+          // is the page URL: self.location.href here is the whole composed
+          // URL. If composing fails, it starts unpatched from its own URL.
+          var composed = __gsComposeData(urlStr, buildNestedPayload(__gsScriptBase));
+          return new OrigW(composed !== null ? composed : url, opts);
+        }
         var commaIdx = urlStr.indexOf(",");
         var meta = urlStr.substring(5, commaIdx);
         var encoded = urlStr.substring(commaIdx + 1);
@@ -586,13 +644,18 @@ function createInlinedBlobWorkerUrl(originalBlobUrl: string, payload: string): s
  * response. On Chromium/Safari nothing listens on the background side
  * and URL-based workers run unpatched (documented limit).
  *
- * Inline (blob/data URL) workers get blob-wrapped on every engine
- * because the site already opted into an inline URL and its CSP
- * already allows it.
+ * Inline (blob/data URL) workers get blob-wrapped on every engine. A
+ * `blob:` worker's replacement is also `blob:`, so the site's CSP allows
+ * it; a `data:` worker becomes `blob:`, which a CSP that allows `data:`
+ * workers but not `blob:` ones refuses. Dedicated inline workers created
+ * before settings arrive are held in a relay (`worker-relay.ts`) first.
  */
 export function installWorkerPatching(): void {
   installBlobUrlTracking();
-  if (OriginalWorker) installWorkerOverride();
+  if (OriginalWorker) {
+    installWorkerRelay(generateInlineWorkerPayload);
+    installWorkerOverride();
+  }
   if (OriginalSharedWorker) installSharedWorkerOverride();
   installServiceWorkerAnnouncer();
   logger.debug("[worker-patching] Worker constructor interception installed");
@@ -693,9 +756,26 @@ function installWorkerOverride(): void {
         return new RealWorker(scriptURL, options);
       }
 
-      // Inline classic workers: blob-wrap. The site's CSP already allows
-      // blob/data URLs (it just constructed one), so our wrapped blob
-      // stays within the same allowance.
+      // Inline classic workers created before settings are known: hold them
+      // in a relay (worker-relay.ts) that starts the page's code with the
+      // payload once settings arrive. Any null or throw falls through to
+      // today's path below.
+      if (relayApplies()) {
+        try {
+          const source = resolveRelaySource(urlStr);
+          if (source) {
+            const relayed = createRelayedWorker(RealWorker, scriptURL, source, options);
+            if (relayed) return relayed;
+          }
+        } catch (err) {
+          logger.debug("[worker-relay] relay path failed, falling back:", err);
+        }
+      }
+
+      // Inline classic workers: wrap. A blob: worker's replacement is also
+      // blob:, so a CSP that allowed the page's worker allows it. A data:
+      // worker becomes blob:, which a CSP that allows data: workers but not
+      // blob: ones refuses (a known gap, not fixed here).
       const payload = generateInlineWorkerPayload(window.location.href);
       if (!payload) return new RealWorker(scriptURL, options);
 

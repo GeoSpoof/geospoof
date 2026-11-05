@@ -1212,7 +1212,13 @@ export function buildWorkerSpoofCore(
 
   // Masking helpers first — both bodies depend on them, and the helpers declare
   // the `__localeOr` hook the timezone body's DateTimeFormat wrapper consults.
-  const parts: string[] = [SPOOF_MASK_HELPERS];
+  //
+  // Built by string concatenation, not an array: the injected script's worker
+  // relay calls this at its settings flush, after page scripts may have
+  // replaced `Array.prototype.push` / `join`, and such a hook would receive
+  // the payload being built. String `+` calls no page-patchable method. The
+  // output is the same string the `[...].join("\n")` form produced.
+  let out = SPOOF_MASK_HELPERS;
 
   // Callback form throughout so any `$`-backreference patterns in the
   // substituted JSON (unlikely for real IANA IDs / BCP47 tags but possible for
@@ -1223,16 +1229,16 @@ export function buildWorkerSpoofCore(
     // mistaken for its placeholder.
     const fractionalLiteral = fractionalOffset === true ? "true" : "false";
     const engineLiteral = engineZoneMayChange === true ? "true" : "false";
-    parts.push(
+    out +=
+      "\n" +
       SPOOF_TZ_BODY.replace("__NATIVE_FRACTIONAL_OFFSET__", () => fractionalLiteral)
         .replace("__ENGINE_ZONE_MAY_CHANGE__", () => engineLiteral)
-        .replace("__SPOOF_TZ_ID__", () => idJson)
-    );
+        .replace("__SPOOF_TZ_ID__", () => idJson);
   }
   if (locale) {
     const localeJson = JSON.stringify(locale);
-    parts.push(SPOOF_LOCALE_CORE.replace("__SPOOF_LOCALE__", () => localeJson));
+    out += "\n" + SPOOF_LOCALE_CORE.replace("__SPOOF_LOCALE__", () => localeJson);
   }
 
-  return parts.join("\n");
+  return out;
 }
