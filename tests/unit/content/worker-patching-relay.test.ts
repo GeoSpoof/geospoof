@@ -580,6 +580,41 @@ describe("Worker wrapper: early inline workers are relayed", () => {
       vi.doUnmock("@/content/injected/worker-relay");
     }
   });
+
+  test("17. Firefox holds a document's first 8 early workers; the 9th takes today's path", async () => {
+    expect(__FIREFOX__).toBe(true);
+    const loaded = await load();
+    expect(loaded.relay.FIREFOX_HELD_WORKER_CAP).toBe(8);
+    const held: StubWorker[] = [];
+    for (let i = 0; i < 4; i++) held.push(new (PageWorker())(trackedBlobUrl()));
+    for (let i = 0; i < 4; i++) {
+      held.push(new (PageWorker())(`data:application/javascript,postMessage(${i})`));
+    }
+    for (const w of held) expect(w.posts).toHaveLength(1);
+    const blobUrl = trackedBlobUrl();
+    const ninth = new (PageWorker())(blobUrl);
+    expectDirectUnpatched(ninth, blobUrl);
+    const dataUrl = "data:application/javascript,postMessage(9)";
+    expectDirectUnpatched(new (PageWorker())(dataUrl), dataUrl);
+
+    dispatchSettings(loaded.state);
+    for (const w of held) expect(goOf(w).payload).toContain('"Asia/Tokyo"');
+    expect(ninth.posts).toEqual([]);
+  });
+
+  test("17. other engines hold every early worker", async () => {
+    vi.stubGlobal("__FIREFOX__", false);
+    try {
+      const loaded = await load();
+      const workers: StubWorker[] = [];
+      for (let i = 0; i < 30; i++) workers.push(new (PageWorker())(trackedBlobUrl()));
+      for (const w of workers) expect(w.url).toBe(loaded.relayBlobUrl);
+      dispatchSettings(loaded.state);
+      for (const w of workers) expect(goOf(w).payload).toContain('"Asia/Tokyo"');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 describe("Worker wrapper: what the page can observe", () => {

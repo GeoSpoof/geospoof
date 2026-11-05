@@ -33,7 +33,8 @@
 //    Web Worker, SharedWorker, or ServiceWorker contexts. What is
 //    covered: the worker payload reaches inline (blob/data URL) workers
 //    on every engine, held through a relay (worker-relay.ts) when they
-//    are created before settings arrive, and URL-based workers on
+//    are created before settings arrive (on Firefox, a document's first
+//    8 only), and URL-based workers on
 //    Firefox through filterResponseData. Code in the other workers sees
 //    the real system timezone via Date and Intl. No public WebExtension
 //    API provides Worker-injection access.

@@ -22,7 +22,8 @@
  *     does the same 500 ms later if a go message was lost.
  *
  * Pages that use Trusted Types or have shared memory keep today's behavior,
- * and so does `SharedWorker`. Every failure leaves the page with a working,
+ * and so does `SharedWorker`. On Firefox, early workers past the first
+ * `FIREFOX_HELD_WORKER_CAP` in a document do too. Every failure leaves the page with a working,
  * unpatched worker or the error its own worker would have produced.
  *
  * The page side runs after page scripts may have replaced intrinsics, so
@@ -434,6 +435,20 @@ let giveUpTimer: unknown = null;
 /** Per-document latch: settings didn't arrive in time, so later early workers aren't held. */
 let relayGaveUp = false;
 
+/**
+ * Most early workers held per document on Firefox. A held worker's code runs
+ * in a nested worker, and Firefox 159 sometimes never starts a nested worker
+ * when many start at once, with no error event (without GeoSpoof: 3 of 750 at
+ * 30 simultaneous starts, none of 250 at 10). Workers past the cap take
+ * today's path and start unpatched, as top-level workers, which always start.
+ * Chrome and WebKit showed no such failure, so they're uncapped.
+ */
+export const FIREFOX_HELD_WORKER_CAP = 8;
+const heldWorkerCap: number = __FIREFOX__ ? FIREFOX_HELD_WORKER_CAP : Infinity;
+
+/** Workers held in this document so far. Never reset. */
+let heldCount = 0;
+
 /** True when the page passed a TrustedScriptURL or has a default policy. */
 function pageUsesTrustedTypes(scriptURL: unknown): boolean {
   if (!ttFactory) return false;
@@ -457,16 +472,18 @@ function pageUsesTrustedTypes(scriptURL: unknown): boolean {
 
 /**
  * Whether a dedicated inline classic worker created now should be held: no
- * settings yet, the give-up latch isn't set, and the payload isn't already
- * known. Before the settings event, only the Firefox bootstrap seed can set
- * the state in the third term, and a seed's values are safe to bake into a
+ * settings yet, the give-up latch isn't set, the payload isn't already
+ * known, and the document is under the held-worker cap (Firefox only).
+ * Before the settings event, only the Firefox bootstrap seed can set the
+ * state in the third term, and a seed's values are safe to bake into a
  * worker, so those pages keep the direct, patched path.
  */
 export function relayApplies(): boolean {
   return (
     !settingsReceived &&
     !relayGaveUp &&
-    !(spoofingEnabled && (timezoneData !== null || localeData !== null))
+    !(spoofingEnabled && (timezoneData !== null || localeData !== null)) &&
+    heldCount < heldWorkerCap
   );
 }
 
@@ -539,6 +556,7 @@ export function createRelayedWorker(
     logger.debug("[worker-relay] relay setup failed, falling back:", err);
     return null;
   }
+  heldCount++;
   return r;
 }
 
