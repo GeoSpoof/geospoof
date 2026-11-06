@@ -6,6 +6,10 @@
 .vscode
 .idea
 
+# Agent task notes and worktrees (local only)
+.agents
+.worktrees
+
 # Dependencies
 node_modules
 
