@@ -30,9 +30,14 @@
 //    and break. Date/Intl/timezone overrides still run in all frames.
 //
 // 2. Web Worker timezone leaks — Content scripts cannot inject into
-//    Web Worker, SharedWorker, or ServiceWorker contexts. Code running
-//    inside a Worker sees the real system timezone via Date and Intl.
-//    No public WebExtension API provides Worker-injection access.
+//    Web Worker, SharedWorker, or ServiceWorker contexts. What is
+//    covered: the worker payload reaches inline (blob/data URL) workers
+//    on every engine, held through a relay (worker-relay.ts) when they
+//    are created before settings arrive (on Firefox, a document's first
+//    8 only), and URL-based workers on
+//    Firefox through filterResponseData. Code in the other workers sees
+//    the real system timezone via Date and Intl. No public WebExtension
+//    API provides Worker-injection access.
 //
 // 3. SharedArrayBuffer timing attacks — High-resolution timing via
 //    SharedArrayBuffer can fingerprint execution patterns introduced
@@ -52,7 +57,9 @@
 //    document_start, but spoofing settings arrive asynchronously
 //    (50-250ms on cold page loads). A fingerprinting script that
 //    reads timezone synchronously in <head> can win that race and
-//    learn the real zone. Fundamental MV3 limitation.
+//    learn the real zone. Fundamental MV3 limitation. Dedicated inline
+//    workers created in this window are held until settings arrive
+//    (worker-relay.ts); the page's own early reads are not.
 //
 // 6. IP geolocation mismatch — The extension does not mask the
 //    user's IP address. Fingerprinting scripts cross-check public
@@ -205,7 +212,10 @@ installDocumentOverrides();
 //     spoofing payload prepended to their source. Module Workers
 //     pass through unmodified (blob URLs break relative imports).
 //     Must run after settings-listener so timezone data is available
-//     at Worker construction time.
+//     at Worker construction time. Dedicated inline Workers created
+//     before settings arrive are held in a relay (worker-relay.ts),
+//     which installs here too, and start with the payload once the
+//     settings event lands.
 //     Skipped in cross-origin frames — installing Worker overrides
 //     inside third-party iframes (e.g. Cloudflare Turnstile) causes
 //     those scripts to detect tampering and break.

@@ -73,8 +73,16 @@ describe("Production build of injected.js", () => {
   test("console.debug calls only originate from the structured logger (Req 3.1)", () => {
     // The structured debug logger intentionally uses console.debug for DEBUG/TRACE-level output.
     // Verify any console.debug calls are from the logger (contain GeoSpoof prefix pattern).
+    //
+    // One exception, matched exactly: the worker relay's source (`RELAY_SOURCE`
+    // in worker-relay.ts) is a string in this bundle. Its debug line runs in
+    // the relay worker's own console, which page scripts can't hook, and only
+    // when debug logging is on. It carries no brand because the relay's source
+    // can reach the page: a `data:` relay's URL holds it.
     const allDebugCalls = prodContent.match(/\bconsole\.debug\s*\([^)]*\)/g) ?? [];
-    const nonLoggerDebugCalls = allDebugCalls.filter((call) => !call.includes("GeoSpoof"));
+    const nonLoggerDebugCalls = allDebugCalls.filter(
+      (call) => !call.includes("GeoSpoof") && call !== 'console.debug("[relay] " + what, e)'
+    );
     expect(nonLoggerDebugCalls).toEqual([]);
   });
 
