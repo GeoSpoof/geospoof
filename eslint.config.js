@@ -18,6 +18,8 @@ export default [
       "background/**",
       "content/**",
       "popup/**",
+      ".agents/**",
+      ".worktrees/**",
     ],
   },
 
