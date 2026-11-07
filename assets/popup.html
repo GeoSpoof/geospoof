@@ -541,8 +541,9 @@
            (src/popup/filters-nav.ts). Each screen's back row names the
            screen it returns to. -->
       <div class="tab-content" id="filtersView" style="display: none">
-        <!-- Root: where GeoSpoof works (the mode, its sentence and the active
-             list's row), then Per-site locations in a group of their own.
+        <!-- Root: This site, then where GeoSpoof works (the mode, its sentence
+             and the active list's row), then Per-site locations in a group of
+             their own.
              Filters decide WHETHER GeoSpoof is on for a site; a site location
              decides WHICH location it reports there. -->
         <div class="filters-screen" id="filtersRoot">
@@ -554,6 +555,45 @@
           >
             ⚠️ Settings could not be loaded
           </div>
+
+          <!-- This site (direction.md 4.2, 6.1): one site row, then at most
+               one reason, at most one button naming the exact list change,
+               and the reload hint or the error after a write. The row is
+               rebuilt on render; the button, hint and error are static, so
+               focus stays on the button while its label flips. Hidden on
+               restricted pages and in the options tab. -->
+          <section id="thisSiteSection" hidden>
+            <div class="section-heading" data-i18n="filters_thisSite">This site</div>
+            <div class="site-card" id="thisSiteCard">
+              <div id="thisSiteRow"></div>
+              <div class="site-card-actions" id="thisSiteActions" hidden>
+                <div class="site-card-reason" id="thisSiteReason" hidden></div>
+                <button type="button" class="site-card-btn" id="thisSiteButton" hidden>
+                  Add to Allowlist
+                </button>
+                <!-- tabindex="-1": when the new state has no button, focus
+                     moves here. No live role: #siteLocationAnnouncer speaks. -->
+                <div
+                  class="site-location-hint"
+                  id="thisSiteReloadHint"
+                  tabindex="-1"
+                  data-i18n="siteLocation_reloadHint"
+                  hidden
+                >
+                  Reload affected pages to apply the change.
+                </div>
+                <div
+                  class="scope-inline-msg"
+                  id="thisSiteError"
+                  role="alert"
+                  data-i18n="filters_notSaved"
+                  hidden
+                >
+                  ⚠ Change not saved
+                </div>
+              </div>
+            </div>
+          </section>
 
           <div class="section-heading" id="scopeModeHeading" data-i18n="filters_where">
             Where GeoSpoof works
@@ -983,17 +1023,18 @@
             <div class="site-location-chosen" id="siteLocationChosen" aria-live="polite"></div>
             <div class="site-location-explain" id="siteLocationExplain"></div>
 
-            <!-- In-context hints: only while this editor is open. -->
+            <!-- In-context hints: only while this editor is open. The Filters
+                 hint's button is the This site card's list change, labelled
+                 by the script ("Add to Allowlist", "Remove from Denylist"). -->
             <div class="site-location-hint" id="siteLocationFiltersHint" hidden>
               <span id="siteLocationFiltersHintText"></span>
               <button
                 type="button"
                 class="site-location-link"
-                id="siteLocationAddToAllowlist"
-                data-i18n="siteLocation_addToAllowlist"
+                id="siteLocationFiltersAction"
                 hidden
               >
-                Add to allowlist
+                Add to Allowlist
               </button>
             </div>
             <div

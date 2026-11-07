@@ -22,6 +22,7 @@ import { loadSettings, isRestrictedUrl } from "./settings";
 import { t } from "./i18n";
 import { announce } from "./announce";
 import { isOwnExtensionPage } from "./active-tab";
+import { clearCardUndo } from "./card-undo";
 import {
   createEntryAddControl,
   entryInvalidText,
@@ -50,6 +51,7 @@ import {
   siteGroupsStatus,
 } from "./site-groups";
 import { listScreenSiteStatus, type ListScreenSiteStatus } from "./this-site";
+import { cardStatusText, statusAnnouncement } from "./this-site-card";
 
 type ListKey = "allowlist" | "denylist";
 
@@ -236,12 +238,14 @@ function wireModeSelector(): void {
 
 /**
  * Optimistically reflect the new mode and its sentence, then persist it. The
- * list row recomputes only from the saved settings, in the reload after
- * success (6.2). Revert the selection and surface an inline message on
- * failure or 5s timeout (Req 13.4, 13.5, 9.5).
+ * list row and the This site card recompute only from the saved settings, in
+ * the reload after success, and the live region then speaks what changed
+ * (6.2). Revert the selection and surface an inline message on failure or 5s
+ * timeout (Req 13.4, 13.5, 9.5).
  */
 async function handleModeChange(next: ScopeMode): Promise<void> {
   const previous = lastPersistedMode;
+  const cardBefore = cardStatusText();
   hideModeError();
 
   // Optimistic update.
@@ -272,8 +276,10 @@ async function handleModeChange(next: ScopeMode): Promise<void> {
 
     if (result && "success" in result && result.success) {
       lastPersistedMode = next;
+      clearCardUndo();
       // Re-render the list row and screen for the new mode from authoritative settings.
       await loadSettings();
+      announceModeChange(cardBefore);
       return;
     }
 
@@ -283,6 +289,30 @@ async function handleModeChange(next: ScopeMode): Promise<void> {
     console.error("Failed to set scope mode:", error);
     revertMode(previous);
   }
+}
+
+/**
+ * After a saved mode change: the sentence as rendered, then the Allowlist
+ * row's warning if it shows one, then the This site card's status if it
+ * changed. "GeoSpoof works only on sites in the Allowlist. Allowlist: Empty,
+ * Off on every site. twitch.tv: Off." (6.2, N25).
+ */
+function announceModeChange(cardBefore: string | null): void {
+  const parts: string[] = [];
+  const sentence = el("scopeModeDesc")?.textContent?.trim() ?? "";
+  if (sentence.length > 0) parts.push(sentence);
+  const rowValue = el("scopeListRowValue");
+  if (el("scopeListCard")?.hidden === false && rowValue?.classList.contains("warn")) {
+    parts.push(
+      statusAnnouncement(
+        listName("allowlist"),
+        t("filters_listEmptyAllow") || "Empty · Off on every site"
+      )
+    );
+  }
+  const cardAfter = cardStatusText();
+  if (cardAfter !== null && cardAfter !== cardBefore) parts.push(cardAfter);
+  if (parts.length > 0) announce(parts.join(" "));
 }
 
 /** Revert the selector to the previously persisted mode and show the message. */
@@ -417,6 +447,7 @@ async function handleAddSite(): Promise<void> {
       payload,
     })) as ScopeResponse | undefined;
     if (result && "success" in result && result.success) {
+      clearCardUndo();
       await loadSettings();
       // The button hid itself; its status line took its place.
       const line = el("scopeSiteStatus");
@@ -554,6 +585,7 @@ async function handleAdd(entries: string[], kind: EntryInputKind): Promise<Entry
   }
 
   if (result && "success" in result && result.success) {
+    clearCardUndo();
     if (pattern.startsWith(LINK_PREFIX) && result.siteGroup) {
       announce(linkAddedText(pattern, result.siteGroup));
     }
@@ -709,6 +741,7 @@ async function handleRemove(listKey: ListKey, domain: string, row: HTMLElement):
     })) as ScopeResponse;
 
     if (result && "success" in result && result.success) {
+      clearCardUndo();
       await loadSettings();
       return;
     }

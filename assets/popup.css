@@ -2086,7 +2086,8 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   /* 44 px targets (HIG). Every site row is already 44 px with one line and
      64 px with two. */
   .scope-mode-btn,
-  .back-row {
+  .back-row,
+  .site-card-btn {
     min-height: 44px;
   }
 
@@ -2693,6 +2694,69 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .site-row-list ~ .scope-inline-msg,
 .site-row-list ~ .site-location-hint {
   margin-top: 8px;
+}
+
+/* The This site card (direction.md 4.2 design B): one site row in a box.
+   The row and the action area carry their own padding, so a hovered row
+   fills the card. */
+.site-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+/* At most one reason, then at most one button, then the reload hint or the
+   error. Not rendered when empty. */
+.site-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.site-card-actions[hidden] {
+  display: none;
+}
+
+.site-card-reason {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-muted);
+}
+
+.site-card-actions .site-location-hint,
+.site-card-actions .scope-inline-msg {
+  margin: 0;
+}
+
+/* Filters' full-width secondary button: a filter action, grey because it
+   also turns into its own undo ("Remove from Allowlist"). 36 px from its
+   padding and line height; no min-height here, so the touch block's 44 px
+   (earlier in this file) isn't overridden. */
+.site-card-btn {
+  width: 100%;
+  padding: 8px 14px;
+  background: var(--btn-secondary);
+  border: none;
+  border-radius: 8px;
+  color: var(--btn-secondary-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.site-card-btn:hover {
+  background: var(--btn-secondary-hover);
+}
+
+.site-card-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .back-row:focus-visible,

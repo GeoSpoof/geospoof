@@ -159,7 +159,67 @@
         "example": "*.tv"
       }
     },
-    "description": "After '✓ twitch.tv ·' on a list screen: the list entry that covers the current tab's site. A phrase without a subject. $ENTRY$ is the entry as the list shows it, for example *.tv or Google."
+    "description": "After '✓ twitch.tv ·' on a list screen, and as the This site card's reason: the list entry that covers the current tab's site. A phrase without a subject. $ENTRY$ is the entry as the list shows it, for example *.tv or Google."
+  },
+  "filters_somePages": {
+    "message": "Couvert sur certaines pages seulement",
+    "description": "The This site card's reason when no list entry covers the current page but an entry covers some pages of the site (for example twitch.tv/videos/*). A phrase without a subject."
+  },
+  "filters_thisSite": {
+    "message": "Ce site",
+    "description": "Heading above the This site card at the top of the Filters tab. Shown in capitals by the stylesheet."
+  },
+  "filters_valueOff": {
+    "message": "Désactivé",
+    "description": "The This site card's value when GeoSpoof is off on the current page (Location Protection off, or Filters keep it off). One word, like Safari's per-site values."
+  },
+  "filters_valueNotSet": {
+    "message": "Non définie",
+    "description": "The This site card's value when GeoSpoof is on for the current page but no location is set (no main location and no per-site location)."
+  },
+  "filters_openMainAria": {
+    "message": "Ouvre l'onglet Principal",
+    "description": "Screen-reader description of the This site card's row when it opens the Main tab (Location Protection off, or no location set). Names the Main tab as tab_main does."
+  },
+  "filters_actionAria": {
+    "message": "$ACTION$ : $SITE$",
+    "placeholders": {
+      "action": {
+        "content": "$1",
+        "example": "Add to Allowlist"
+      },
+      "site": {
+        "content": "$2",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Accessible name of the This site card's button and of the per-site editor's Filters button. $ACTION$ is the button's visible label, so the name starts with it; $SITE$ is the current site without www."
+  },
+  "filters_removeFromAllowlist": {
+    "message": "Retirer de la liste d'autorisation",
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that removes the current site's own entry from the Allowlist. Uses filters_allowlistName's noun."
+  },
+  "filters_addToDenylist": {
+    "message": "Ajouter à la liste de blocage",
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that adds the current site to the Denylist. Uses filters_denylistName's noun."
+  },
+  "filters_removeFromDenylist": {
+    "message": "Retirer de la liste de blocage",
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that removes the current site's own entry from the Denylist. Uses filters_denylistName's noun."
+  },
+  "filters_statusAnnounce": {
+    "message": "$NAME$ : $VALUE$.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "value": {
+        "content": "$2",
+        "example": "Los Angeles"
+      }
+    },
+    "description": "Spoken by screen readers after a change on the Filters tab, never shown. $NAME$ is a site or a list name (twitch.tv, Allowlist); $VALUE$ its new value (Off, a place, or 'Empty, Off on every site')."
   },
   "filters_help": {
     "message": "Que puis-je ajouter ?",
@@ -783,17 +843,9 @@
     "message": "Utiliser la localisation principale",
     "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
   },
-  "siteLocation_hintAllowlist": {
-    "message": "Les filtres ne simulent pas ce site. L'ajouter à la liste d'autorisation ?",
-    "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
-  },
   "siteLocation_addToAllowlist": {
     "message": "Ajouter à la liste d'autorisation",
-    "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
-  },
-  "siteLocation_hintDenylist": {
-    "message": "Les filtres ne simulent pas ce site, car il figure sur votre liste de blocage.",
-    "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that adds the current site to the Allowlist. Uses filters_allowlistName's noun."
   },
   "siteLocation_hintVpn": {
     "message": "Les sites voient toujours l'adresse IP de votre VPN. Une localisation différente ici peut paraître incohérente.",
@@ -916,6 +968,30 @@
   "siteLocation_srcSite": {
     "message": "Localisation par site",
     "description": "Title of the per-site editor screen for an existing entry; also names where a site's place comes from. Glossary term, paired with 'Main location'."
+  },
+  "siteLocation_srcMain": {
+    "message": "Localisation principale",
+    "description": "Under the site on the This site card: the place shown comes from the main location. Glossary term, paired with 'Per-site location'."
+  },
+  "siteLocation_srcEntry": {
+    "message": "Localisation par site · $ENTRY$",
+    "placeholders": {
+      "entry": {
+        "content": "$1",
+        "example": "Google"
+      }
+    },
+    "description": "Under the site on the This site card: the place comes from a per-site location through an entry that isn't the site's own. $ENTRY$ is that entry as its list row shows it, for example Google or *.google.com."
+  },
+  "siteLocation_useHereAria": {
+    "message": "Utiliser une autre localisation sur $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "chatgpt.com"
+      }
+    },
+    "description": "Screen-reader description of the This site card's row when the main location applies; opening it starts a new per-site location for $SITE$, the current site without www."
   },
   "siteLocation_changeAria": {
     "message": "Modifier la localisation de $SITE$",

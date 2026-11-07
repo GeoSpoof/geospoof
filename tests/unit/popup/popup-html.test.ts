@@ -133,6 +133,30 @@ describe("Popup HTML Structure", () => {
     );
   });
 
+  test("the root starts with the This site card, whose button, hint and error are static", () => {
+    const root = document.getElementById("filtersRoot")!;
+    const section = document.getElementById("thisSiteSection")!;
+    expect(section.parentElement).toBe(root);
+    expect(section.previousElementSibling?.id).toBe("scopeLoadError");
+    expect(section.hasAttribute("hidden")).toBe(true);
+    expect(section.querySelector(".section-heading")?.getAttribute("data-i18n")).toBe(
+      "filters_thisSite"
+    );
+    const actions = document.getElementById("thisSiteActions")!;
+    expect(actions.closest("#thisSiteCard.site-card")).not.toBeNull();
+    expect(Array.from(actions.children).map((child) => child.id)).toEqual([
+      "thisSiteReason",
+      "thisSiteButton",
+      "thisSiteReloadHint",
+      "thisSiteError",
+    ]);
+    expect(document.querySelector<HTMLButtonElement>("#thisSiteButton")!.type).toBe("button");
+    expect(document.getElementById("thisSiteReloadHint")!.getAttribute("tabindex")).toBe("-1");
+    expect(document.getElementById("thisSiteError")!.getAttribute("role")).toBe("alert");
+    expect(document.getElementById("siteLocationAddToAllowlist")).toBeNull();
+    expect(document.getElementById("siteLocationFiltersAction")?.tagName).toBe("BUTTON");
+  });
+
   test("one Pro note, localized, for Filters and per-site locations together", () => {
     const notes = document.querySelectorAll(".pro-lock-note[data-i18n='siteLocation_proNote']");
     expect(notes).toHaveLength(1);

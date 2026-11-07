@@ -285,7 +285,9 @@ describe("Main tab: nothing unless a site location applies", () => {
   });
 
   test("the old always-visible 'This site' card is gone", () => {
-    expect(document.getElementById("thisSiteRow")).toBeNull();
+    // The This site card lives at the top of the Filters root now.
+    expect(byId("mainView").querySelector("#thisSiteRow, #thisSiteSection")).toBeNull();
+    expect(byId("thisSiteSection").closest("#filtersRoot")).not.toBeNull();
     expect(byId("mainView").textContent).not.toContain("Use a different location here");
     expect(byId("mainView").querySelector("[data-i18n='siteLocation_proNote']")).toBeNull();
   });
@@ -1228,7 +1230,7 @@ describe("Editor", () => {
       "siteLocationPatterns",
       "siteLocationAddEntry",
       "siteLocationSearch",
-      "siteLocationAddToAllowlist",
+      "siteLocationFiltersAction",
       "siteLocationEditOwner",
       "siteLocationSave",
       "siteLocationCancel",
@@ -1933,14 +1935,23 @@ describe("Hints only in context", () => {
     expect(byId("siteLocationLine").hidden).toBe(true);
   });
 
-  test("allowlist conflict: the hint and one-tap show in the editor for a covered site", async () => {
+  /** The Filters hint's button, as read: its label and its accessible name. */
+  function filtersAction(): { label: string; name: string | null } | null {
+    if (!isShown("siteLocationFiltersAction")) return null;
+    const button = byId("siteLocationFiltersAction");
+    return { label: text("siteLocationFiltersAction"), name: button.getAttribute("aria-label") };
+  }
+
+  test("allowlist conflict: the hint and the card's button show in the editor for a covered site", async () => {
     openFromAddAt("https://chatgpt.com/c/1", makeSettings(allowlistNoChatgpt));
     expect(chipTitles()).toEqual(["chatgpt.com"]);
     expect(isShown("siteLocationFiltersHint")).toBe(true);
-    expect(text("siteLocationFiltersHintText")).toBe(
-      "Filters don't spoof this site. Add it to the allowlist?"
-    );
-    expect(isShown("siteLocationAddToAllowlist")).toBe(true);
+    // One site: the plain mark, without the ⚠ the Per-site rows draw (M13).
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(filtersAction()).toEqual({
+      label: "Add to Allowlist",
+      name: "Add to Allowlist: chatgpt.com",
+    });
 
     sendMessage.mockResolvedValue({ success: true });
     // The reload loadSettings does, with the site now on the allowlist.
@@ -1954,7 +1965,7 @@ describe("Hints only in context", () => {
       );
       return Promise.resolve();
     });
-    const oneTap = byId("siteLocationAddToAllowlist");
+    const oneTap = byId("siteLocationFiltersAction");
     oneTap.focus();
     oneTap.click();
     await flush();
@@ -1970,9 +1981,9 @@ describe("Hints only in context", () => {
     expect(isShown("siteLocationFiltersHint")).toBe(false);
     expect(isShown("siteLocationEditorReloadHint")).toBe(true);
 
-    // The one-tap hid itself, so focus moves to the confirmation; the next Tab
+    // The button hid itself, so focus moves to the confirmation; the next Tab
     // lands in the still-open editor.
-    expect(isShown("siteLocationAddToAllowlist")).toBe(false);
+    expect(isShown("siteLocationFiltersAction")).toBe(false);
     expect(document.activeElement).toBe(byId("siteLocationEditorReloadHint"));
     expect(byId("siteLocationEditorReloadHint").getAttribute("tabindex")).toBe("-1");
 
@@ -2001,28 +2012,73 @@ describe("Hints only in context", () => {
     expect(isShown("siteLocationFiltersHint")).toBe(true);
   });
 
-  test("a failed one-tap shows the editor error", async () => {
+  test("several sites: the hint names the tab's site, and the button names it too", () => {
+    const shared = makeSiteLocation({
+      id: "twitch-kick",
+      patterns: ["twitch.tv", "kick.com"],
+      location: MEXICO_CITY,
+      timezone: MEXICO_CITY_TZ,
+      locationName: MEXICO_CITY_NAME,
+    });
+    renderAll(
+      makeSettings({ ...allowlist, siteLocations: [shared] }),
+      "https://www.twitch.tv/videos/1"
+    );
+    siteRow(shared.id).click();
+    expect(chipTitles()).toEqual(["twitch.tv", "kick.com"]);
+    expect(text("siteLocationFiltersHintText")).toBe("Not used on twitch.tv · Off in Filters");
+    expect(filtersAction()).toEqual({
+      label: "Add to Allowlist",
+      name: "Add to Allowlist: twitch.tv",
+    });
+    // Down to one site, the hint is the plain mark again.
+    chipRemoveButton("kick.com").click();
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+  });
+
+  test("a failed Filters hint action shows the editor error", async () => {
     renderAll(makeSettings(allowlistNoChatgpt), "https://chatgpt.com/");
     byId("siteLocationsAddButton").click();
     sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
-    byId("siteLocationAddToAllowlist").click();
+    byId("siteLocationFiltersAction").click();
     await flush();
     expect(isShown("siteLocationError")).toBe(true);
     expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
     expect(loadSettings).not.toHaveBeenCalled();
   });
 
-  test("denylist conflict: the hint only, no one-tap", () => {
+  test("denylist, the site's own entry: Remove from Denylist, by the card's rule", async () => {
     renderAll(
       makeSettings({ scopeMode: "denylist", denylist: ["twitch.tv"] }),
       "https://twitch.tv/"
     );
     siteRow(ENTRY_MEXICO_CITY.id).click();
     expect(isShown("siteLocationFiltersHint")).toBe(true);
-    expect(text("siteLocationFiltersHintText")).toBe(
-      "Filters don't spoof this site because it's on your denylist."
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(filtersAction()).toEqual({
+      label: "Remove from Denylist",
+      name: "Remove from Denylist: twitch.tv",
+    });
+
+    sendMessage.mockResolvedValue({ success: true });
+    byId("siteLocationFiltersAction").click();
+    await flush();
+    expect(messagesOfType("REMOVE_SCOPE_SITE")).toEqual([
+      { list: "denylist", pattern: "twitch.tv" },
+    ]);
+    expect(messagesOfType("ADD_SCOPE_SITE")).toEqual([]);
+  });
+
+  test("a broader entry keeps the site off: the hint shows with no button", () => {
+    const ru = makeSiteLocation({ id: "ru", patterns: ["example.ru"] });
+    renderAll(
+      makeSettings({ scopeMode: "denylist", denylist: ["*.ru"], siteLocations: [ru] }),
+      "https://example.ru/"
     );
-    expect(isShown("siteLocationAddToAllowlist")).toBe(false);
+    siteRow(ru.id).click();
+    expect(isShown("siteLocationFiltersHint")).toBe(true);
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(filtersAction()).toBeNull();
   });
 
   test("scope 'all': no Filters hint", () => {
@@ -2215,7 +2271,7 @@ describe("Accessibility", () => {
       expect(await announced()).toBe("");
     });
 
-    test("the one-tap Add to allowlist", async () => {
+    test("the Filters hint's Add to Allowlist", async () => {
       openEditorAt(
         "https://chatgpt.com/c/1",
         makeSettings({
@@ -2225,12 +2281,12 @@ describe("Accessibility", () => {
         })
       );
       sendMessage.mockResolvedValue({ success: true });
-      byId("siteLocationAddToAllowlist").click();
+      byId("siteLocationFiltersAction").click();
       await flush();
       expect(await announced()).toBe(RELOAD);
     });
 
-    test("a failed one-tap announces nothing", async () => {
+    test("a failed Filters hint action announces nothing", async () => {
       openEditorAt(
         "https://chatgpt.com/c/1",
         makeSettings({
@@ -2240,7 +2296,7 @@ describe("Accessibility", () => {
         })
       );
       sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
-      byId("siteLocationAddToAllowlist").click();
+      byId("siteLocationFiltersAction").click();
       await flush();
       expect(await announced()).toBe("");
     });
