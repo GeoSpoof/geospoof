@@ -329,7 +329,37 @@ describe("adding", () => {
     expect(input.value).toBe("geosite:google");
     renderScope(makeSettings({ scopeMode: "denylist", denylist: [] }));
     expect(input.value).toBe("");
-    expect(byId<HTMLSelectElement>("scopeAddKind").value).toBe("site");
+    expect(byId("scopeGroupListbox").hidden).toBe(true);
+  });
+
+  test("a reading picked from the suggestions sends its entry", async () => {
+    await render(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+    sendMessage.mockImplementation((message: unknown) => {
+      const { type } = message as { type: string };
+      return Promise.resolve(type === "ADD_SCOPE_SITE" ? { success: true } : undefined);
+    });
+    const input = byId<HTMLInputElement>("scopeAddInput");
+    input.value = "twitch.tv";
+    input.dispatchEvent(new Event("input"));
+    const key = (name: string) =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true }));
+    key("ArrowDown");
+    key("ArrowDown");
+    key("Enter");
+    await flush();
+    expect(messagesOfType("ADD_SCOPE_SITE")).toEqual([
+      { list: "allowlist", pattern: "=twitch.tv" },
+    ]);
+  });
+
+  test("a word that isn't a site names the fix", async () => {
+    await render(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+    typeAndEnter("google");
+    await flush();
+    expect(messagesOfType("ADD_SCOPE_SITE")).toEqual([]);
+    expect(byId("scopeAddError").textContent).toBe(
+      "Use a site like example.com, or pick a site group below."
+    );
   });
 });
 
@@ -457,12 +487,14 @@ describe("the site group status line", () => {
 });
 
 describe("the Pro lock and the Safari gate", () => {
-  test("the Pro lock also disables the type menu", async () => {
+  test("the Pro lock also disables the add field", async () => {
     await render(ALLOW);
     renderScope(ALLOW, true);
-    expect(byId<HTMLSelectElement>("scopeAddKind").disabled).toBe(true);
+    expect(byId<HTMLInputElement>("scopeAddInput").disabled).toBe(true);
+    expect(byId<HTMLButtonElement>("scopeAddButton").disabled).toBe(true);
     renderScope(ALLOW, false);
-    expect(byId<HTMLSelectElement>("scopeAddKind").disabled).toBe(false);
+    expect(byId<HTMLInputElement>("scopeAddInput").disabled).toBe(false);
+    expect(byId<HTMLButtonElement>("scopeAddButton").disabled).toBe(false);
   });
 
   test("the syntax rows for the new forms show only where they can be added", () => {
@@ -484,9 +516,15 @@ describe("the Pro lock and the Safari gate", () => {
         (r) => r.hidden
       )
     ).toBe(true);
-    expect(Array.from(byId<HTMLSelectElement>("scopeAddKind").options).map((o) => o.value)).toEqual(
-      ["site", "subdomains"]
-    );
+    // The field suggests only the readings this build can add.
+    const input = byId<HTMLInputElement>("scopeAddInput");
+    input.value = "twitch.tv";
+    input.dispatchEvent(new Event("input"));
+    expect(
+      Array.from(byId("scopeGroupListbox").querySelectorAll(".entry-suggestion-meta")).map(
+        (node) => node.textContent
+      )
+    ).toEqual(["Site and its subdomains", "Subdomains only"]);
   });
 
   test("where site groups are unavailable, stored tokens ask nothing and show no status", () => {

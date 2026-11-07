@@ -2221,6 +2221,17 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--brand-hover);
 }
 
+/* The field's Add is secondary (K1); the green action adds this site. */
+#scopeAddButton {
+  min-width: 64px;
+  background: var(--btn-secondary);
+  color: var(--btn-secondary-text);
+}
+
+#scopeAddButton:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+}
+
 .scope-add-current-row {
   margin-bottom: 8px;
 }
@@ -2618,6 +2629,11 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   cursor: not-allowed;
 }
 
+/* Save is off until the editor has a site and a place (S6, H-7). */
+.site-location-editor .site-location-save:disabled {
+  opacity: 0.4;
+}
+
 /* Short in-context hints (Filters, VPN, reload): plain muted text, no box. */
 .site-location-hint {
   font-size: 12px;
@@ -2727,8 +2743,7 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   margin-top: 0;
 }
 
-.site-location-editor input[type="text"],
-.site-location-editor select {
+.site-location-editor input[type="text"] {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -2742,20 +2757,6 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 
 .site-location-editor input[type="text"][aria-invalid="true"] {
   border-color: var(--danger);
-}
-
-.site-location-favorite-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-/* --text-muted, not --text-subtle: this hint is the field's description
-   (aria-describedby), and #999 on the light editor is under 3:1. */
-.site-location-field-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
 
 /* Inline (not floating) results list; each result is a real button. */
@@ -2803,11 +2804,71 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   padding: 8px;
 }
 
-.site-location-chosen {
-  margin-top: 6px;
-  font-size: 13px;
-  font-weight: 500;
+/* Favorites as suggestions under the Location field (S6). */
+.favorite-suggestions-head {
+  height: 20px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.favorite-suggestions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.favorite-suggestion {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--surface);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.favorite-suggestion:last-child {
+  border-bottom: none;
+}
+
+.favorite-suggestion:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.favorite-suggestion-name {
+  font-size: 13px;
+  line-height: 15px;
+  font-weight: 500;
+}
+
+.favorite-suggestion-sub {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-muted);
+}
+
+/* The chosen place: a token inside a field-shaped box, where the search field was. */
+.token-field {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .site-location-explain {
@@ -2851,16 +2912,21 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .site-location-result:focus-visible,
 .site-location-save:focus-visible,
 .site-location-cancel:focus-visible,
-.site-location-editor input:focus-visible,
-.site-location-editor select:focus-visible {
+.site-location-editor input:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
 
+/* Inside the clipped favorites box, so the ring is drawn inside the row. */
+.favorite-suggestion:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
 /* ───────────────────────────────────────────────────────────────────────────
    Site groups and the shared add control (Filters and the per-site editor):
-   the type menu, the site group picker, entry meta lines, chips, and the
-   status line. A problem is spelled out in text with a ⚠ sign, never colour
+   the field's suggestions and site group picker, entry meta lines, chips, and
+   the status line. A problem is spelled out in text with a ⚠ sign, never colour
    alone.
    ────────────────────────────────────────────────────────────────────── */
 
@@ -2871,36 +2937,28 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   display: none !important;
 }
 
-.entry-kind-row {
-  margin-bottom: 8px;
-}
-
-.entry-kind-row select {
-  width: 100%;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border-input);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 13px;
-}
-
-/* The editor's own gap spaces it there. */
-.site-location-editor .entry-kind-row {
-  margin-bottom: 0;
-}
-
-.entry-kind-row select:disabled,
 .scope-add-row input:disabled,
 .scope-add-row button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-/* The input, with the picker hung under it. */
-.entry-input-wrap {
+/* The suggestions hang under the whole row, input and Add (A-2). In Filters
+   the row and its error share a box, so they hang below the error too. */
+.entry-add-field {
   position: relative;
+  margin-bottom: 8px;
+}
+
+.entry-add-field > .scope-add-row {
+  margin-bottom: 0;
+}
+
+.entry-add-field > .scope-inline-msg {
+  margin: 6px 0 0;
+}
+
+.entry-input-wrap {
   flex: 1;
   min-width: 0;
 }
@@ -2917,14 +2975,20 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   z-index: 20;
 }
 
+/* Seven 40 px rows (three readings, three groups, Browse) fit unscrolled. */
 .entry-listbox {
-  max-height: 240px;
+  max-height: 282px;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+}
+
+/* With the v2fly credit showing, the two read as one box. */
+.entry-picker:has(> .entry-picker-attribution:not([hidden])) > .entry-listbox {
   border-bottom: none;
   border-radius: 8px 8px 0 0;
-  box-shadow: var(--shadow-pop);
 }
 
 .entry-listbox-heading {
@@ -2958,6 +3022,43 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .entry-option.active {
   background: var(--surface-hover);
   border-left-color: var(--brand);
+}
+
+/* A suggestion (K1): a title over a muted line saying what it covers. */
+.entry-option.entry-suggestion {
+  justify-content: center;
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.entry-suggestion-title,
+.entry-suggestion-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-suggestion-title {
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--text);
+}
+
+.entry-suggestion-meta {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-muted);
+}
+
+/* "Browse all site groups…": a muted footer row under a divider. */
+.entry-option.entry-suggestion-browse {
+  justify-content: center;
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
 }
 
 .entry-option-label,
@@ -3129,7 +3230,6 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   cursor: not-allowed;
 }
 
-.entry-kind-row select:focus-visible,
 .entry-chip-remove:focus-visible,
 .entry-add-button:focus-visible {
   outline: 2px solid var(--brand);

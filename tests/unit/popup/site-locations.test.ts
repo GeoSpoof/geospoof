@@ -137,10 +137,29 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
+/** Click the favorite suggestion with this id under the Location field. */
 function pickFavorite(id: string): void {
-  const select = byId<HTMLSelectElement>("siteLocationFavorite");
-  select.value = id;
-  select.dispatchEvent(new Event("change"));
+  const button = byId("siteLocationFavoritesList").querySelector<HTMLButtonElement>(
+    `[data-favorite-id="${id}"]`
+  );
+  if (!button) throw new Error(`no favorite ${id}`);
+  button.click();
+}
+
+/** The chosen place, as its token in the Location field shows it ("" for none). */
+function chosenName(): string {
+  return byId("siteLocationChosen").querySelector(".entry-chip-title")?.textContent ?? "";
+}
+
+/** The ✕ of the chosen place's token. */
+function chosenRemoveButton(): HTMLButtonElement {
+  const button = byId("siteLocationChosen").querySelector<HTMLButtonElement>(".entry-chip-remove");
+  if (!button) throw new Error("no chosen place");
+  return button;
+}
+
+function saveButton(): HTMLButtonElement {
+  return byId<HTMLButtonElement>("siteLocationSave");
 }
 
 /** Type into the Sites input; what's left there is added on Save. */
@@ -441,7 +460,7 @@ describe("Main tab: the line when a site location applies", () => {
     expect(isShown("siteLocationEditor")).toBe(true);
     expect(chipTitles()).toEqual(["chatgpt.com", "openai.com"]);
     expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("");
-    expect(text("siteLocationChosen")).toBe("Dublin");
+    expect(chosenName()).toBe("Dublin");
     expect(document.activeElement).toBe(byId("siteLocationPatterns"));
 
     // Cancel returns focus to that entry's Edit button in the list.
@@ -699,11 +718,12 @@ describe("Editor", () => {
     expect(chipTitles()).toEqual(["example.com"]);
     expect(input.value).toBe("");
     expect(input.readOnly).toBe(false);
-    expect(document.activeElement).toBe(input);
+    // The site is there, so the place is what's left to pick (S6).
+    expect(document.activeElement).toBe(byId("siteLocationSearch"));
 
     setPatterns("example.com, example.org");
     pickFavorite(FAVORITE.id);
-    expect(text("siteLocationChosen")).toBe("Work");
+    expect(chosenName()).toBe("Work");
     expect(text("siteLocationExplain")).toContain("example.com, example.org");
     expect(text("siteLocationExplain")).toContain("Work");
   });
@@ -801,12 +821,12 @@ describe("Editor", () => {
     });
   });
 
-  test("no location chosen blocks the send", async () => {
+  test("no location chosen: Save is off and sends nothing", async () => {
     openFromAdd();
-    byId("siteLocationSave").click();
+    expect(saveButton().disabled).toBe(true);
+    saveButton().click();
     await flush();
     expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
-    expect(text("siteLocationErrorText")).toBe("Choose a location first.");
   });
 
   test("a successful save sends the payload, closes, reloads, and shows the reload hint", async () => {
@@ -870,7 +890,7 @@ describe("Editor", () => {
     byId("siteLocationEditOwner").click();
     expect(chipTitles()).toEqual(["twitch.tv"]);
     expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("");
-    expect(text("siteLocationChosen")).toBe("Mexico City");
+    expect(chosenName()).toBe("Mexico City");
     expect(isShown("siteLocationError")).toBe(false);
   });
 
@@ -897,11 +917,9 @@ describe("Editor", () => {
   // back, so nothing in the editor may look like it changes the save.
   describe("while a save is in flight", () => {
     const CONTROLS = [
-      "siteLocationAddKind",
       "siteLocationPatterns",
       "siteLocationAddEntry",
       "siteLocationSearch",
-      "siteLocationFavorite",
       "siteLocationAddToAllowlist",
       "siteLocationEditOwner",
       "siteLocationSave",
@@ -993,22 +1011,28 @@ describe("Editor", () => {
       await flush();
       expect(disabledControls()).toEqual(CONTROLS);
       expect(chipRemoveButton("example.com").disabled).toBe(true);
+      expect(chosenRemoveButton().disabled).toBe(true);
 
       // The search reply arrives: no result buttons appear.
       held.geocode({ results: [BERLIN] });
       await flush();
       expect(byId("siteLocationResults").querySelectorAll("button")).toHaveLength(0);
-      // A result or favorite picked anyway, and Edit on another row, change nothing.
+      // A result picked anyway, and Edit on another row, change nothing; with
+      // a place chosen, no favorites are offered.
       renderSearchResults([BERLIN]);
       byId("siteLocationResults").querySelector("button")!.click();
-      pickFavorite(FAVORITE.id);
+      expect(byId("siteLocationFavoritesList").children).toHaveLength(0);
+      chosenRemoveButton().click();
       rowEditButton(ENTRY_DUBLIN.id).click();
-      expect(text("siteLocationChosen")).toBe("Work");
+      expect(chosenName()).toBe("Work");
       expect(chipTitles()).toEqual(["example.com"]);
 
       held.save({ success: true, id: "new" });
       await flush();
-      expect(disabledControls()).toEqual([]);
+      // Released; Save stays off in the closed editor, which has no site or
+      // place until it opens again.
+      expect(disabledControls()).toEqual(["siteLocationSave"]);
+      expect(chosenRemoveButton().disabled).toBe(false);
       expect(messagesOfType("SAVE_SITE_LOCATION")).toHaveLength(1);
       expect(isShown("siteLocationEditor")).toBe(false);
     });
@@ -1113,7 +1137,7 @@ describe("Editor", () => {
       held.save({ success: true, id: ENTRY_DUBLIN.id });
       await flush();
       expect(loadSettings).toHaveBeenCalledTimes(1);
-      expect(disabledControls()).toEqual([]);
+      expect(disabledControls()).toEqual(["siteLocationSave"]);
       expect(await announced()).toBe(RELOAD_EN);
     });
 
@@ -1147,7 +1171,7 @@ describe("Editor", () => {
     expect(results).toHaveLength(1);
     expect(results[0].type).toBe("button");
     results[0].click();
-    expect(text("siteLocationChosen")).toBe("Berlin, Germany");
+    expect(chosenName()).toBe("Berlin, Germany");
     expect(byId("siteLocationResults").children).toHaveLength(0);
   });
 });
@@ -1213,19 +1237,17 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     expect(meta.querySelector("[aria-hidden='true']")?.textContent).toBe("⚠ ");
   });
 
-  test("typing geosite: picks Site group, and Add makes a chip next to the typed site", async () => {
+  test("typing geosite: adds a site group, as a chip next to the typed site", async () => {
     openFromAdd();
     pickFavorite(FAVORITE.id);
     setPatterns("geosite:google");
-    expect(byId<HTMLSelectElement>("siteLocationAddKind").value).toBe("group");
     expect(byId("siteLocationPatterns").getAttribute("role")).toBe("combobox");
     pressAdd();
     await flush();
 
     expect(chipTitles()).toEqual(["example.com", "Google"]);
     expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("");
-    // The auto-picked kind goes back to the default once the text is added.
-    expect(byId<HTMLSelectElement>("siteLocationAddKind").value).toBe("site");
+    expect(byId("siteLocationGroupListbox").hidden).toBe(true);
     expect(text("siteLocationExplain")).toBe("Pages on example.com, Google will see Work.");
     expect(await save()).toEqual(["example.com", GOOGLE_TOKEN]);
   });
@@ -1333,13 +1355,11 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     expect(chipTitles()).toEqual([]);
     expect(document.activeElement).toBe(byId("siteLocationPatterns"));
 
-    // With no sites left, Save asks for one.
-    byId("siteLocationSave").click();
+    // With no sites left, Save is off.
+    expect(saveButton().disabled).toBe(true);
+    saveButton().click();
     await flush();
     expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
-    expect(text("siteLocationErrorText")).toBe(
-      "Use a site like example.com, with no path and not just *."
-    );
   });
 
   test("text left in the input is added on Save", async () => {
@@ -1378,19 +1398,214 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     expect(text("siteLocationErrorText")).toBe(message);
   });
 
-  test("Escape with the group picker open closes only the picker", () => {
+  test("a suggestion picked in the Sites field becomes a chip", async () => {
     openFromAdd();
-    const kind = byId<HTMLSelectElement>("siteLocationAddKind");
-    kind.value = "group";
-    kind.dispatchEvent(new Event("change"));
     const input = byId<HTMLInputElement>("siteLocationPatterns");
     input.focus();
+    setPatterns("twitch.tv");
+    const metas = Array.from(
+      byId("siteLocationGroupListbox").querySelectorAll(".entry-suggestion-meta")
+    ).map((node) => node.textContent);
+    expect(metas).toEqual(["Site and its subdomains", "Exact address only", "Subdomains only"]);
+    for (const key of ["ArrowDown", "ArrowDown", "Enter"]) {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    }
+    await flush();
+    expect(chipTitles()).toEqual(["example.com", "twitch.tv"]);
+    expect(
+      chipRemoveButton("twitch.tv").closest(".entry-chip")!.querySelector(".entry-chip-meta")
+        ?.textContent
+    ).toBe("Exact address only");
+    expect(isShown("siteLocationEditor")).toBe(true);
+  });
+
+  test("Escape with the suggestions open closes only them", () => {
+    openFromAdd();
+    const input = byId<HTMLInputElement>("siteLocationPatterns");
+    input.focus();
+    setPatterns("twitch.tv");
     expect(input.getAttribute("aria-expanded")).toBe("true");
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(input.getAttribute("aria-expanded")).toBe("false");
     expect(isShown("siteLocationEditor")).toBe(true);
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(isShown("siteLocationEditor")).toBe(false);
+  });
+});
+
+describe("Editor: the place (S6)", () => {
+  const LOS_ANGELES: Favorite = {
+    id: "fav-2",
+    latitude: 34.0522,
+    longitude: -118.2437,
+    city: "Los Angeles",
+    country: "United States",
+    displayName: "Los Angeles, United States",
+    label: null,
+  };
+
+  function openFromAdd(url = "https://www.example.com/page"): void {
+    showFiltersView();
+    renderAll(makeSettings({ favorites: [FAVORITE, LOS_ANGELES] }), url);
+    byId("siteLocationsAddButton").click();
+  }
+
+  function favoriteRows(): string[] {
+    return Array.from(
+      byId("siteLocationFavoritesList").querySelectorAll<HTMLElement>(".favorite-suggestion")
+    ).map(
+      (button) =>
+        `${button.querySelector(".favorite-suggestion-name")?.textContent} · ${
+          button.querySelector(".favorite-suggestion-sub")?.textContent
+        }`
+    );
+  }
+
+  function search(value: string): void {
+    const input = byId<HTMLInputElement>("siteLocationSearch");
+    input.value = value;
+    input.dispatchEvent(new Event("input"));
+  }
+
+  test("no favorites menu: the favorites are suggestions under the Location field", () => {
+    expect(document.querySelector("#siteLocationEditor select")).toBeNull();
+    openFromAdd();
+    expect(isShown("siteLocationFavorites")).toBe(true);
+    expect(text("siteLocationFavoritesHeading")).toBe("Favorites");
+    expect(byId("siteLocationFavoritesList").getAttribute("role")).toBe("group");
+    expect(byId("siteLocationFavoritesList").getAttribute("aria-labelledby")).toBe(
+      "siteLocationFavoritesHeading"
+    );
+    expect(favoriteRows()).toEqual(["Work · France", "Los Angeles · United States"]);
+    expect(
+      Array.from(byId("siteLocationFavoritesList").querySelectorAll("button")).every(
+        (button) => button.type === "button"
+      )
+    ).toBe(true);
+    // Nothing chosen yet: no token, and no "No location chosen yet" text.
+    expect(chosenName()).toBe("");
+    expect(text("siteLocationChosen")).toBe("");
+  });
+
+  test("the Location field's text filters them by name, city or country", () => {
+    openFromAdd();
+    search("los");
+    expect(favoriteRows()).toEqual(["Los Angeles · United States"]);
+    search("PARIS");
+    expect(favoriteRows()).toEqual(["Work · France"]);
+    search("states");
+    expect(favoriteRows()).toEqual(["Los Angeles · United States"]);
+    search("zzz");
+    expect(isShown("siteLocationFavorites")).toBe(false);
+    search("");
+    expect(favoriteRows()).toHaveLength(2);
+  });
+
+  test("with no favorites, the section stays hidden", () => {
+    showFiltersView();
+    renderAll(makeSettings({ favorites: [] }), "https://www.example.com/page");
+    byId("siteLocationsAddButton").click();
+    expect(isShown("siteLocationFavorites")).toBe(false);
+  });
+
+  test("picking one shows it as a token in the field; its ✕ brings the field back", () => {
+    openFromAdd();
+    search("los");
+    pickFavorite(LOS_ANGELES.id);
+
+    expect(chosenName()).toBe("Los Angeles");
+    expect(byId("siteLocationChosen").getAttribute("aria-live")).toBe("polite");
+    expect(byId("siteLocationChosen").querySelector(".token-field .entry-chip")).not.toBeNull();
+    for (const id of ["siteLocationSearch", "siteLocationResults", "siteLocationFavorites"]) {
+      expect(isShown(id), `#${id}`).toBe(false);
+    }
+    const remove = chosenRemoveButton();
+    expect(remove.type).toBe("button");
+    expect(remove.getAttribute("aria-label")).toBe("Remove location Los Angeles");
+    // The picker went away with the choice; focus moves on to Save.
+    expect(document.activeElement).toBe(saveButton());
+
+    remove.click();
+    expect(chosenName()).toBe("");
+    expect(isShown("siteLocationSearch")).toBe(true);
+    expect(document.activeElement).toBe(byId("siteLocationSearch"));
+    // The token took the typed text's place, so all favorites are back.
+    expect(byId<HTMLInputElement>("siteLocationSearch").value).toBe("");
+    expect(favoriteRows()).toHaveLength(2);
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  test("a search result becomes the token too", () => {
+    openFromAdd();
+    renderSearchResults([
+      {
+        name: "Berlin, Germany",
+        latitude: 52.52,
+        longitude: 13.405,
+        city: "Berlin",
+        country: "DE",
+      },
+    ]);
+    byId("siteLocationResults").querySelector("button")!.click();
+    expect(chosenName()).toBe("Berlin, Germany");
+    expect(isShown("siteLocationSearch")).toBe(false);
+    expect(document.activeElement).toBe(saveButton());
+  });
+
+  test("Save works only with a site and a place", () => {
+    openFromAdd();
+    expect(chipTitles()).toEqual(["example.com"]);
+    expect(saveButton().disabled).toBe(true);
+
+    pickFavorite(FAVORITE.id);
+    expect(saveButton().disabled).toBe(false);
+
+    chipRemoveButton("example.com").click();
+    expect(saveButton().disabled).toBe(true);
+    // Text in the Sites input counts as a site once it parses.
+    setPatterns("example.org");
+    expect(saveButton().disabled).toBe(false);
+    setPatterns("example.org/app");
+    expect(saveButton().disabled).toBe(true);
+    setPatterns("example.org");
+
+    chosenRemoveButton().click();
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  test("a site whose typed text doesn't parse still lets Save say why", async () => {
+    openFromAdd();
+    pickFavorite(FAVORITE.id);
+    setPatterns("example.org/app");
+    expect(saveButton().disabled).toBe(false);
+    saveButton().click();
+    await flush();
+    expect(messagesOfType("SAVE_SITE_LOCATION")).toEqual([]);
+    expect(text("siteLocationErrorText")).toBe(
+      "Use a site like example.com, with no path and not just *."
+    );
+  });
+
+  test("Save is faint while it's off (H-7)", () => {
+    const css = readFileSync("assets/popup.css", "utf8");
+    expect(css).toMatch(
+      /\.site-location-editor \.site-location-save:disabled\s*\{\s*opacity:\s*0\.4;/
+    );
+  });
+
+  test("with no site filled in, focus starts in Sites", () => {
+    openFromAdd("about:blank");
+    expect(chipTitles()).toEqual([]);
+    expect(document.activeElement).toBe(byId("siteLocationPatterns"));
+  });
+
+  test("an existing entry opens with its place as the token", () => {
+    showFiltersView();
+    renderAll(makeSettings(), "https://example.com/");
+    rowEditButton(ENTRY_DUBLIN.id).click();
+    expect(chosenName()).toBe("Dublin");
+    expect(isShown("siteLocationSearch")).toBe(false);
+    expect(saveButton().disabled).toBe(false);
   });
 });
 
@@ -1553,9 +1768,10 @@ describe("Accessibility", () => {
     expect(byId("siteLocationsList").getAttribute("aria-label")).toBeTruthy();
   });
 
-  test("every editor input and select is labelled", () => {
-    const controls = byId("siteLocationEditor").querySelectorAll("input, select");
-    expect(controls.length).toBeGreaterThanOrEqual(3);
+  test("every editor input is labelled, and there are no menus", () => {
+    expect(byId("siteLocationEditor").querySelector("select")).toBeNull();
+    const controls = byId("siteLocationEditor").querySelectorAll("input");
+    expect(controls.length).toBeGreaterThanOrEqual(2);
     controls.forEach((control) => {
       const labelled =
         document.querySelector(`label[for="${control.id}"]`) !== null ||

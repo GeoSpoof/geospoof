@@ -625,53 +625,50 @@
             <span class="scope-list-count" id="scopeListCount">0</span>
           </div>
 
-          <!-- What the add box adds. Typing a marker (geosite:, =, *., an https
-               link to a list file) picks the type; a type picked here sticks.
-               Exact, Site group and List from a link are removed where site
-               groups are unavailable (src/popup/entry-add-control.ts). -->
-          <div class="entry-kind-row">
-            <select id="scopeAddKind" aria-label="Type" data-i18n-aria-label="filters_typeLabel">
-              <option value="site" data-i18n="filters_typeSite">Site and its subdomains</option>
-              <option value="exact" data-i18n="filters_typeExact">Exact address only</option>
-              <option value="subdomains" data-i18n="filters_typeSubdomains">Subdomains only</option>
-              <option value="group" data-i18n="filters_typeGroup">Site group</option>
-              <option value="link" data-i18n="filters_typeLink">List from a link</option>
-            </select>
-          </div>
-
-          <div class="scope-add-row">
-            <!-- For "Site group" the input becomes an ARIA 1.2 combobox over
-                 #scopeGroupListbox. -->
-            <div class="entry-input-wrap">
-              <input
-                type="text"
-                id="scopeAddInput"
-                placeholder="example.com, *.ru, site.com/app/*"
-                autocomplete="off"
-                spellcheck="false"
-                maxlength="2048"
-                data-i18n-placeholder="filters_addPlaceholder"
-              />
-              <div class="entry-picker">
-                <div
-                  class="entry-listbox"
-                  id="scopeGroupListbox"
-                  role="listbox"
-                  aria-label="Site groups"
-                  data-i18n-aria-label="siteGroups_listboxLabel"
-                  hidden
-                ></div>
-                <div
-                  class="entry-picker-attribution"
-                  id="scopeGroupAttribution"
-                  data-i18n="siteGroups_attribution"
-                  hidden
-                >
-                  Site groups come from the v2fly domain list (MIT license).
-                </div>
+          <!-- One field with suggestions (K1): the input is an ARIA 1.2
+               combobox over #scopeGroupListbox, which offers the readings of
+               what's typed and matching site groups. The error sits right
+               under the field and the suggestions hang below it, so both show
+               (src/popup/entry-add-control.ts). -->
+          <div class="entry-add-field">
+            <div class="scope-add-row">
+              <div class="entry-input-wrap">
+                <input
+                  type="text"
+                  id="scopeAddInput"
+                  placeholder="Add another site"
+                  autocomplete="off"
+                  spellcheck="false"
+                  maxlength="2048"
+                  data-i18n-placeholder="filters_addAnother"
+                />
+              </div>
+              <button id="scopeAddButton" data-i18n="filters_addButton">Add</button>
+            </div>
+            <div
+              class="scope-inline-msg"
+              id="scopeAddError"
+              role="alert"
+              style="display: none"
+            ></div>
+            <div class="entry-picker">
+              <div
+                class="entry-listbox"
+                id="scopeGroupListbox"
+                role="listbox"
+                aria-label="Site groups"
+                data-i18n-aria-label="siteGroups_listboxLabel"
+                hidden
+              ></div>
+              <div
+                class="entry-picker-attribution"
+                id="scopeGroupAttribution"
+                data-i18n="siteGroups_attribution"
+                hidden
+              >
+                Site groups come from the v2fly domain list (MIT license).
               </div>
             </div>
-            <button id="scopeAddButton" data-i18n="filters_addButton">Add</button>
           </div>
 
           <!-- Add the current tab's site with one click -->
@@ -684,16 +681,6 @@
             >
               Add current site
             </button>
-          </div>
-
-          <div
-            class="scope-inline-msg"
-            id="scopeAddError"
-            role="alert"
-            style="display: none"
-            data-i18n="filters_invalidDomain"
-          >
-            Not a valid pattern
           </div>
 
           <!-- Inline status for the add-current-site action (restricted page
@@ -740,7 +727,7 @@
                   <dd data-i18n="filters_syntaxIdn">International domain names work too</dd>
                 </div>
                 <!-- data-site-groups-only rows hide where site groups are
-                     unavailable (Safari), with the matching type menu kinds. -->
+                     unavailable (Safari), as their suggestions do. -->
                 <div class="scope-syntax-row" data-site-groups-only>
                   <dt><code>=mail.example.com</code></dt>
                   <dd data-i18n="filters_syntaxExact">
@@ -888,49 +875,19 @@
                 role="list"
                 aria-labelledby="siteLocationSitesLabel"
               ></div>
-              <div class="entry-kind-row">
-                <select
-                  id="siteLocationAddKind"
-                  aria-label="Type"
-                  data-i18n-aria-label="filters_typeLabel"
-                >
-                  <option value="site" data-i18n="filters_typeSite">Site and its subdomains</option>
-                  <option value="exact" data-i18n="filters_typeExact">Exact address only</option>
-                  <option value="subdomains" data-i18n="filters_typeSubdomains">
-                    Subdomains only
-                  </option>
-                  <option value="group" data-i18n="filters_typeGroup">Site group</option>
-                  <option value="link" data-i18n="filters_typeLink">List from a link</option>
-                </select>
-              </div>
+              <!-- The Sites input has suggestions, as the Filters field does;
+                   they hang under the whole row. -->
               <div class="entry-add-row">
                 <div class="entry-input-wrap">
                   <input
                     type="text"
                     id="siteLocationPatterns"
+                    placeholder="Add another site"
                     autocomplete="off"
                     spellcheck="false"
                     maxlength="2048"
-                    aria-describedby="siteLocationPatternsHint"
+                    data-i18n-placeholder="filters_addAnother"
                   />
-                  <div class="entry-picker">
-                    <div
-                      class="entry-listbox"
-                      id="siteLocationGroupListbox"
-                      role="listbox"
-                      aria-label="Site groups"
-                      data-i18n-aria-label="siteGroups_listboxLabel"
-                      hidden
-                    ></div>
-                    <div
-                      class="entry-picker-attribution"
-                      id="siteLocationGroupAttribution"
-                      data-i18n="siteGroups_attribution"
-                      hidden
-                    >
-                      Site groups come from the v2fly domain list (MIT license).
-                    </div>
-                  </div>
                 </div>
                 <button
                   type="button"
@@ -940,17 +897,29 @@
                 >
                   Add
                 </button>
-              </div>
-              <div
-                class="site-location-field-hint"
-                id="siteLocationPatternsHint"
-                data-i18n="siteLocation_sitesHint"
-              >
-                Separate sites with commas, e.g. chatgpt.com, openai.com
+                <div class="entry-picker">
+                  <div
+                    class="entry-listbox"
+                    id="siteLocationGroupListbox"
+                    role="listbox"
+                    aria-label="Site groups"
+                    data-i18n-aria-label="siteGroups_listboxLabel"
+                    hidden
+                  ></div>
+                  <div
+                    class="entry-picker-attribution"
+                    id="siteLocationGroupAttribution"
+                    data-i18n="siteGroups_attribution"
+                    hidden
+                  >
+                    Site groups come from the v2fly domain list (MIT license).
+                  </div>
+                </div>
               </div>
 
               <label
                 class="site-location-label"
+                id="siteLocationSearchLabel"
                 for="siteLocationSearch"
                 data-i18n="siteLocation_searchLabel"
                 >Location</label
@@ -964,18 +933,26 @@
               />
               <div class="site-location-results" id="siteLocationResults"></div>
 
-              <div class="site-location-favorite-field" id="siteLocationFavoriteField">
-                <label
-                  class="site-location-label"
-                  for="siteLocationFavorite"
-                  data-i18n="siteLocation_favoriteLabel"
-                  >Or pick a favorite</label
+              <!-- Favorites as suggestions under the field, filtered by its
+                   text, while no place is chosen (S6). -->
+              <div class="favorite-suggestions-wrap" id="siteLocationFavorites" hidden>
+                <div
+                  class="favorite-suggestions-head"
+                  id="siteLocationFavoritesHeading"
+                  data-i18n="siteLocation_favorites"
                 >
-                <select id="siteLocationFavorite">
-                  <option value="" data-i18n="siteLocation_favoriteNone">Choose a favorite</option>
-                </select>
+                  Favorites
+                </div>
+                <div
+                  class="favorite-suggestions"
+                  id="siteLocationFavoritesList"
+                  role="group"
+                  aria-labelledby="siteLocationFavoritesHeading"
+                ></div>
               </div>
 
+              <!-- The chosen place, as a token in the field. While there is
+                   one, it replaces the search field, results and favorites. -->
               <div class="site-location-chosen" id="siteLocationChosen" aria-live="polite"></div>
               <div class="site-location-explain" id="siteLocationExplain"></div>
 

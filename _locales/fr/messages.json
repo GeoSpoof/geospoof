@@ -103,17 +103,13 @@
     "message": "La simulation s'applique à tous les sites sauf ceux listés.",
     "description": "Description shown under the selector when 'Denylist' mode is active."
   },
-  "filters_addPlaceholder": {
-    "message": "example.com, *.ru, site.com/app/*",
-    "description": "Placeholder text in the add-site input."
-  },
   "filters_addButton": {
     "message": "Ajouter",
     "description": "Button that adds the typed domain to the active list."
   },
-  "filters_invalidDomain": {
-    "message": "Motif non valide",
-    "description": "Inline message shown when the typed pattern is invalid."
+  "filters_addAnother": {
+    "message": "Ajouter un autre site",
+    "description": "Placeholder of the add field in Filters and of the Sites field in the per-site location editor. Typing there lists suggestions: the readings of the typed text and matching site groups."
   },
   "filters_emptyList": {
     "message": "Aucun site ajouté pour le moment",
@@ -777,25 +773,13 @@
     "message": "Sites",
     "description": "Label of the site location editor's text field listing the sites the location applies to."
   },
-  "siteLocation_sitesHint": {
-    "message": "Séparez les sites par des virgules, p. ex. chatgpt.com, openai.com",
-    "description": "Help text under the Sites field. Keep the example domains unchanged."
-  },
   "siteLocation_searchLabel": {
     "message": "Localisation",
     "description": "Label of the site location editor's location search field."
   },
-  "siteLocation_favoriteLabel": {
-    "message": "Ou choisissez un favori",
-    "description": "Label of the site location editor's favorites dropdown."
-  },
-  "siteLocation_favoriteNone": {
-    "message": "Choisir un favori",
-    "description": "Placeholder option in the site location editor's favorites dropdown."
-  },
-  "siteLocation_chosenNone": {
-    "message": "Aucune localisation choisie pour l'instant",
-    "description": "Shown in the site location editor before a location has been picked."
+  "siteLocation_favorites": {
+    "message": "Favoris",
+    "description": "Heading above the user's saved favorites, listed as suggestions under the Location field of the per-site location editor."
   },
   "siteLocation_explain": {
     "message": "Les pages de $SITES$ verront $PLACE$.",
@@ -919,49 +903,37 @@
     },
     "description": "Toolbar button tooltip when a site location applies to the current tab. $PLACE$ is the site location's name, $SITE$ the host name."
   },
-  "filters_typeLabel": {
-    "message": "Type",
-    "description": "Accessible name of the menu next to the Filters add box (and the per-site location Sites field) that picks what the typed text is: a site, an exact address, subdomains, a site group, or a list from a link."
-  },
   "filters_typeSite": {
     "message": "Site et ses sous-domaines",
-    "description": "Type menu option (default): the typed text is a site pattern such as example.com, which covers the site and all its subdomains."
+    "description": "Second line of an add-field suggestion: the typed text as a site pattern such as example.com, which covers the site and all its subdomains."
   },
   "filters_typeExact": {
     "message": "Adresse exacte uniquement",
-    "description": "Type menu option: the typed host matches only itself, not its subdomains. Also shown under an exact-address entry in the list."
+    "description": "Second line of an add-field suggestion: the typed host matches only itself, not its subdomains. Also shown under an exact-address entry in the list."
   },
   "filters_typeSubdomains": {
     "message": "Sous-domaines uniquement",
-    "description": "Type menu option: the typed site's subdomains, not the site itself (stored as *.example.com)."
+    "description": "Second line of an add-field suggestion: the typed site's subdomains, not the site itself (stored as *.example.com)."
   },
   "filters_typeGroup": {
     "message": "Groupe de sites",
-    "description": "Type menu option: pick a site group, a named list of a service's sites (for example all of Google's sites). Glossary term shared with the GeoSpoof app."
+    "description": "Second line of an add-field suggestion for a site group, a named list of a service's sites (for example all of Google's sites), before its size. Glossary term shared with the GeoSpoof app."
   },
   "filters_typeLink": {
     "message": "Liste depuis un lien",
-    "description": "Type menu option: download a list of sites from an https link (a .txt, .list, .conf or .yaml file). Glossary term shared with the GeoSpoof app."
-  },
-  "filters_placeholderExact": {
-    "message": "mail.example.com",
-    "description": "Placeholder in the add box when the type is 'Exact address only'. An example host; keep it as is."
-  },
-  "filters_placeholderSubdomains": {
-    "message": "example.com",
-    "description": "Placeholder in the add box when the type is 'Subdomains only'. An example host; keep it as is."
-  },
-  "filters_placeholderGroup": {
-    "message": "Rechercher des groupes de sites, p. ex. Google",
-    "description": "Placeholder in the add box when the type is 'Site group'; typing searches the site groups. 'Google' is a brand name."
-  },
-  "filters_placeholderLink": {
-    "message": "https://example.com/list.txt",
-    "description": "Placeholder in the add box when the type is 'List from a link'. An example URL; keep it as is."
+    "description": "Second line of the add-field suggestion for a pasted link: download a list of sites from an https link (a .txt, .list, .conf or .yaml file). Glossary term shared with the GeoSpoof app."
   },
   "filters_errorExact": {
     "message": "Saisissez une adresse, comme mail.example.com, sans *",
     "description": "Inline error when the text typed as an exact address isn't a single host (for example it contains a * wildcard)."
+  },
+  "filters_errorSiteOrGroup": {
+    "message": "Saisissez un site comme example.com ou choisissez un groupe de sites ci-dessous.",
+    "description": "Error under the Filters add field when the typed text isn't a site (for example 'google'). The matching site groups stay listed below it to pick. Keep example.com unchanged."
+  },
+  "filters_errorSite": {
+    "message": "Saisissez un site comme example.com.",
+    "description": "Error under the Filters add field when the typed text isn't a site, where site groups aren't available (Safari). Keep example.com unchanged."
   },
   "filters_syntaxExact": {
     "message": "Uniquement cette adresse exacte, pas ses sous-domaines",
@@ -986,6 +958,10 @@
   "siteGroups_allGroups": {
     "message": "Tous les groupes de sites",
     "description": "Heading of the second section in the site group picker: every other site group."
+  },
+  "siteGroups_browseAll": {
+    "message": "Parcourir tous les groupes de sites…",
+    "description": "Last row of the add field's suggestions. Opens the full list of site groups (Popular, then All site groups); the ellipsis says it shows more choices."
   },
   "siteGroups_noMatch": {
     "message": "Aucun groupe de sites ne correspond à $QUERY$",

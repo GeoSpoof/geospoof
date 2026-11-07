@@ -103,7 +103,7 @@ interface EditorState {
 let current: { settings: Settings; tabUrl: string | undefined; proLocked: boolean } | null = null;
 let lineState: SiteLocationLineState = { kind: "none" };
 let editor: EditorState | null = null;
-/** The editor's add control (type menu, Sites input, Add). */
+/** The editor's add control (the Sites input with suggestions, Add). */
 let editorControl: EntryAddControl | null = null;
 /**
  * A SAVE_SITE_LOCATION is in flight. Its payload is already built and the
@@ -701,7 +701,6 @@ function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | nu
   const searchInput = el<HTMLInputElement>("siteLocationSearch");
   if (searchInput) searchInput.value = "";
   clearSearchResults();
-  fillFavorites(current ? (current.settings.favorites ?? []) : []);
   hideEditorError();
 
   // The "Set a location for a site" row would only duplicate the open editor.
@@ -709,7 +708,8 @@ function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | nu
   editorEl.hidden = false;
   updateChosen();
   updateEditorHints();
-  patternsInput?.focus();
+  // With the site already filled in, what's left to do is pick the place (S6).
+  (entry === null && suggestion !== null ? searchInput : patternsInput)?.focus();
 }
 
 function closeEditor(restoreFocus: boolean): void {
@@ -751,6 +751,7 @@ function isFocusable(node: HTMLElement | null): node is HTMLElement {
  * wildcard or a path pattern that removing this host wouldn't lift.
  */
 function updateEditorHints(): void {
+  updateSaveEnabled();
   setHidden("siteLocationVpnHint", !(editor !== null && current?.settings.vpnSyncEnabled === true));
 
   const conflict = editor !== null ? computeConflict() : null;
@@ -826,6 +827,7 @@ function renderEntryChips(): void {
   (editor?.entries ?? []).forEach((entry, index) => {
     list.appendChild(buildEntryChip(entry, index));
   });
+  updateSaveEnabled();
 }
 
 function buildEntryChip(entry: string, index: number): HTMLElement {
@@ -935,30 +937,129 @@ function clearSearchResults(): void {
   if (results) clearChildren(results);
 }
 
-function fillFavorites(favorites: Favorite[]): void {
-  const select = el<HTMLSelectElement>("siteLocationFavorite");
-  if (!select) return;
-  while (select.options.length > 1) select.remove(1);
+/**
+ * The favorites under the Location field, as suggestions (S6): those whose
+ * name, city or country contains the field's text. Shown only while no place
+ * is chosen, and not at all when none match.
+ */
+function renderFavorites(): void {
+  const wrap = el("siteLocationFavorites");
+  const list = el("siteLocationFavoritesList");
+  if (!wrap || !list) return;
+  clearChildren(list);
+  const query = (el<HTMLInputElement>("siteLocationSearch")?.value ?? "").trim().toLowerCase();
+  const favorites =
+    editor !== null && editor.chosen === null ? (current?.settings.favorites ?? []) : [];
   for (const favorite of favorites) {
-    const option = document.createElement("option");
-    option.value = favorite.id;
-    option.textContent = getChipDisplayText(favorite);
-    select.appendChild(option);
+    const name = getChipDisplayText(favorite);
+    const fields = [name, favorite.city, favorite.country];
+    if (query !== "" && !fields.some((field) => field.toLowerCase().includes(query))) continue;
+    list.appendChild(buildFavoriteSuggestion(favorite, name));
   }
-  select.value = "";
-  setHidden("siteLocationFavoriteField", favorites.length === 0);
+  wrap.hidden = list.childElementCount === 0;
 }
 
-/** Show the chosen place and the plain-language summary of what saving does. */
-function updateChosen(): void {
-  const chosenEl = el("siteLocationChosen");
-  const explainEl = el("siteLocationExplain");
-  const chosen = editor?.chosen ?? null;
-  if (chosenEl) {
-    chosenEl.textContent = chosen
-      ? chosen.name
-      : t("siteLocation_chosenNone") || "No location chosen yet";
+function buildFavoriteSuggestion(favorite: Favorite, name: string): HTMLElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "favorite-suggestion";
+  button.dataset.favoriteId = favorite.id;
+  button.disabled = saving;
+  const nameEl = document.createElement("span");
+  nameEl.className = "favorite-suggestion-name";
+  nameEl.textContent = name;
+  button.appendChild(nameEl);
+  if (favorite.country.length > 0) {
+    const sub = document.createElement("span");
+    sub.className = "favorite-suggestion-sub";
+    sub.textContent = favorite.country;
+    button.appendChild(sub);
   }
+  button.addEventListener("click", () => {
+    const picked = choose({
+      latitude: favorite.latitude,
+      longitude: favorite.longitude,
+      name,
+      locationName: {
+        city: favorite.city,
+        country: favorite.country,
+        displayName: favorite.displayName,
+      },
+      label: favorite.label,
+    });
+    if (picked) focusAfterChoose();
+  });
+  return button;
+}
+
+/**
+ * The chosen place as a token in the Location field, with a ✕ that clears it.
+ * Rebuilt only when the place changes, so the live region speaks once and a
+ * focused ✕ keeps focus.
+ */
+function renderChosenToken(chosen: ChosenLocation | null): void {
+  const host = el("siteLocationChosen");
+  if (!host) return;
+  const name = chosen?.name ?? null;
+  if ((host.dataset.name ?? null) === name) return;
+  clearChildren(host);
+  if (name === null) {
+    delete host.dataset.name;
+    return;
+  }
+  host.dataset.name = name;
+
+  const field = document.createElement("div");
+  field.className = "token-field";
+  field.setAttribute("role", "group");
+  field.setAttribute("aria-labelledby", "siteLocationSearchLabel");
+  const chip = document.createElement("span");
+  chip.className = "entry-chip";
+  const text = document.createElement("span");
+  text.className = "entry-chip-text";
+  const title = document.createElement("span");
+  title.className = "entry-chip-title";
+  title.textContent = name;
+  text.appendChild(title);
+  chip.appendChild(text);
+
+  const label = `${t("siteLocation_removeAriaLabel") || "Remove location"} ${name}`;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "entry-chip-remove";
+  remove.textContent = "✕";
+  remove.setAttribute("aria-label", label);
+  remove.title = label;
+  remove.disabled = saving;
+  remove.addEventListener("click", clearChosen);
+  chip.appendChild(remove);
+  field.appendChild(chip);
+  host.appendChild(field);
+}
+
+/** The token's ✕: forget the place and go back to the Location field. */
+function clearChosen(): void {
+  if (!editor || saving) return;
+  editor.chosen = null;
+  hideEditorError();
+  updateChosen();
+  const search = el("siteLocationSearch");
+  if (isFocusable(search)) search.focus();
+}
+
+/**
+ * Show the chosen place (a token in place of the search field, results and
+ * favorites) and the plain-language summary of what saving does.
+ */
+function updateChosen(): void {
+  const chosen = editor?.chosen ?? null;
+  renderChosenToken(chosen);
+  setHidden("siteLocationSearch", chosen !== null);
+  setHidden("siteLocationResults", chosen !== null);
+  renderFavorites();
+  updateSaveEnabled();
+
+  const explainEl = el("siteLocationExplain");
   if (!explainEl) return;
   const { entries, error } = editorEntriesWithPending();
   if (!chosen || error !== null || entries.length === 0) {
@@ -970,11 +1071,40 @@ function updateChosen(): void {
     t("siteLocation_explain", [sites, chosen.name]) || `Pages on ${sites} will see ${chosen.name}.`;
 }
 
-function choose(chosen: ChosenLocation): void {
-  if (!editor || saving) return;
+/**
+ * Save works only once there's a site and a place (S6). Text in the Sites
+ * input that doesn't parse leaves the chips as the sites; Save then shows why.
+ */
+function updateSaveEnabled(): void {
+  const save = el<HTMLButtonElement>("siteLocationSave");
+  if (!save) return;
+  const ready =
+    editor !== null && editor.chosen !== null && editorEntriesWithPending().entries.length > 0;
+  save.disabled = saving || !ready;
+}
+
+/** Pick a place. False when nothing changed (no editor, or a save in flight). */
+function choose(chosen: ChosenLocation): boolean {
+  if (!editor || saving) return false;
   editor.chosen = chosen;
+  // The token takes the typed text's place in the field.
+  const search = el<HTMLInputElement>("siteLocationSearch");
+  if (search) search.value = "";
+  clearSearchResults();
   hideEditorError();
   updateChosen();
+  return true;
+}
+
+/** The picker hid with the choice; continue at Save, else at the token's ✕. */
+function focusAfterChoose(): void {
+  const save = el<HTMLButtonElement>("siteLocationSave");
+  if (save && !save.disabled && isFocusable(save)) {
+    save.focus();
+    return;
+  }
+  const remove = el("siteLocationChosen")?.querySelector<HTMLElement>(".entry-chip-remove") ?? null;
+  if (isFocusable(remove)) remove.focus();
 }
 
 function showEditorError(text: string, ownerId: string | null = null): void {
@@ -1011,7 +1141,6 @@ function wireEditorOnce(): void {
 
   editorControl = createEntryAddControl({
     ids: {
-      kind: "siteLocationAddKind",
       input: "siteLocationPatterns",
       button: "siteLocationAddEntry",
       listbox: "siteLocationGroupListbox",
@@ -1036,23 +1165,7 @@ function wireEditorOnce(): void {
 
   el<HTMLInputElement>("siteLocationSearch")?.addEventListener("input", (e) => {
     onSearchInput((e.target as HTMLInputElement).value.trim());
-  });
-
-  const select = el<HTMLSelectElement>("siteLocationFavorite");
-  select?.addEventListener("change", () => {
-    const favorite = (current?.settings.favorites ?? []).find((f) => f.id === select.value);
-    if (!favorite) return;
-    choose({
-      latitude: favorite.latitude,
-      longitude: favorite.longitude,
-      name: getChipDisplayText(favorite),
-      locationName: {
-        city: favorite.city,
-        country: favorite.country,
-        displayName: favorite.displayName,
-      },
-      label: favorite.label,
-    });
+    renderFavorites();
   });
 
   el("siteLocationSave")?.addEventListener("click", () => {
@@ -1144,7 +1257,7 @@ export function renderSearchResults(results: GeocodeResult[] | null): void {
     button.append(nameEl, coordsEl);
 
     button.addEventListener("click", () => {
-      choose({
+      const picked = choose({
         latitude: result.latitude,
         longitude: result.longitude,
         name: result.name,
@@ -1152,7 +1265,7 @@ export function renderSearchResults(results: GeocodeResult[] | null): void {
         label: null,
       });
       clearSearchResults();
-      el("siteLocationSave")?.focus();
+      if (picked) focusAfterChoose();
     });
     container.appendChild(button);
   }
@@ -1296,11 +1409,9 @@ async function handleSave(): Promise<void> {
 
 /** The editor's controls, all disabled while a save is in flight. */
 const EDITOR_CONTROL_IDS = [
-  "siteLocationAddKind",
   "siteLocationPatterns",
   "siteLocationAddEntry",
   "siteLocationSearch",
-  "siteLocationFavorite",
   "siteLocationAddToAllowlist",
   "siteLocationEditOwner",
   "siteLocationSave",
@@ -1321,15 +1432,17 @@ function setEditorSaving(on: boolean, entryId: string | null = null): void {
   if (on) editorEl?.setAttribute("aria-busy", "true");
   else editorEl?.removeAttribute("aria-busy");
   for (const id of EDITOR_CONTROL_IDS) {
-    const control = el<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(id);
+    const control = el<HTMLInputElement | HTMLButtonElement>(id);
     if (control) control.disabled = on;
   }
-  el("siteLocationEntries")
-    ?.querySelectorAll<HTMLButtonElement>(".entry-chip-remove")
+  // The built buttons: each site's ✕, the place token's ✕, and the favorites.
+  editorEl
+    ?.querySelectorAll<HTMLButtonElement>(".entry-chip-remove, .favorite-suggestion")
     .forEach((button) => {
       button.disabled = on;
     });
   syncSavingEntryLocks();
+  if (!on) updateSaveEnabled();
 }
 
 /**

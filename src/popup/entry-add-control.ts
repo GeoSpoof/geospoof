@@ -1,25 +1,27 @@
 /**
  * The add control shared by the Filters list and the per-site location
- * editor: a native `<select>` type menu, a text input, an Add button, an
- * inline error, and, for "Site group", an ARIA 1.2 combobox picker.
+ * editor: one text input with suggestions (an ARIA 1.2 combobox over a
+ * listbox), an Add button and an inline error. There is no type menu (K1).
  *
- *   - Typing a marker picks the kind: `geosite:` is a site group, `list:` or an
+ *   - Typing lists the readings of the text (`entrySuggestions`): for a bare
+ *     host "Site and its subdomains", "Exact address only" and "Subdomains
+ *     only", then matching site groups, or the one list a pasted link names.
+ *     Nothing is highlighted until an arrow key is pressed (manual selection,
+ *     `evaluation.md` 6.6), so Enter adds what was typed, read as
+ *     auto-detection reads it: `geosite:` is a site group, `list:` or an
  *     https link to a .txt/.list/.conf/.yaml/.yml file is a list from a link,
- *     `=` is an exact address, `*.` is subdomains only. Removing the marker
- *     puts an auto-picked kind back to "Site and its subdomains". A kind the
- *     user picked is never overridden.
- *   - Picking a kind rewrites the input without the markers that ask for a
- *     different one (`normalizeInputForKind`).
- *   - "Site group" turns the input into a combobox over a listbox with
- *     "Popular" and "All site groups" sections. Arrow keys, Home/End, Enter,
- *     Escape and click work; Enter with no option active adds the typed
- *     `geosite:name@tag`.
- *   - "List from a link" shows "Downloading list…" and disables the control
+ *     `=` is an exact address, `*.` is subdomains only, anything else a site.
+ *   - The last option, "Browse all site groups…", shows the "Popular" and "All
+ *     site groups" sections; typing returns to the suggestions.
+ *   - Arrow keys, Home/End (while an option is active), Enter, Escape, Tab and
+ *     click work. Escape closes the listbox only, so the per-site editor's own
+ *     Escape doesn't also run.
+ *   - A list from a link shows "Downloading list…" and disables the control
  *     while the add runs.
  *
- * Where site groups are unavailable (Safari, until the app supports them) the
- * exact, group and link kinds are removed from the menu and nothing is
- * auto-detected, so only typed patterns can be added.
+ * Where site groups are unavailable (Safari, until the app supports them)
+ * nothing is auto-detected and only the two typed readings are suggested, so
+ * only typed patterns can be added.
  *
  * The control parses what's typed into canonical entries and hands them to
  * `onSubmit`, which stores them (Filters) or adds chips (per-site editor).
@@ -36,6 +38,7 @@ import {
 } from "@/shared/utils/filter-entries";
 import { parsePattern } from "@/shared/utils/scope";
 import { parseSiteLocationPattern, siteLocationEntryKey } from "@/shared/utils/site-locations";
+import { entrySuggestions, groupSearchTerm, type EntrySuggestion } from "./entry-suggestions";
 import { t } from "./i18n";
 import {
   loadCatalogIndex,
@@ -51,7 +54,6 @@ export type EntrySubmitResult = { ok: true } | { ok: false; message: string };
 
 export interface EntryAddControlOptions {
   ids: {
-    kind: string;
     input: string;
     button: string;
     listbox: string;
@@ -71,7 +73,7 @@ export interface EntryAddControlOptions {
 }
 
 export interface EntryAddControl {
-  /** Clear the input, close the picker, and return the type menu to its default. */
+  /** Clear the input, close the suggestions, and hide the error. */
   reset(): void;
   /**
    * Parse what's in the input as Add would, without adding it: the canonical
@@ -80,15 +82,13 @@ export interface EntryAddControl {
   readPending(): { entries: string[]; error: string | null } | null;
 }
 
-const KINDS: readonly EntryInputKind[] = ["site", "exact", "subdomains", "group", "link"];
-/** The kinds hidden where site groups are unavailable. */
-const SITE_GROUP_KINDS: ReadonlySet<EntryInputKind> = new Set(["exact", "group", "link"]);
+/** An option in the listbox. */
+type PickerOption =
+  | { type: "suggestion"; suggestion: EntrySuggestion }
+  | { type: "group"; item: SiteGroupIndexItem }
+  | { type: "browse" };
 
 const controls = new WeakMap<HTMLElement, EntryAddControl>();
-
-function isKind(value: string): value is EntryInputKind {
-  return (KINDS as readonly string[]).includes(value);
-}
 
 /** The kind a typed marker asks for, where auto-detection is on. */
 function detectKind(input: string): EntryInputKind | null {
@@ -127,10 +127,17 @@ export function entryInvalidText(
     case "link":
       return t("siteGroups_errorLinkInvalid") || "Enter a link that starts with https://";
     default:
-      return context === "filters"
-        ? t("filters_invalidDomain") || "Not a valid pattern"
-        : t("siteLocation_errorPattern") ||
-            "Use a site like example.com, with no path and not just *.";
+      if (context === "siteLocation") {
+        return (
+          t("siteLocation_errorPattern") ||
+          "Use a site like example.com, with no path and not just *."
+        );
+      }
+      // K1: name the fix. Where there are no site groups, there's only one.
+      return siteGroupsAvailable()
+        ? t("filters_errorSiteOrGroup") ||
+            "Use a site like example.com, or pick a site group below."
+        : t("filters_errorSite") || "Use a site like example.com.";
   }
 }
 
@@ -182,6 +189,18 @@ function parseEntries(
   return { entries, error: null };
 }
 
+/** Identifies an option across re-renders, so the active one survives the index loading. */
+function optionKey(option: PickerOption): string {
+  switch (option.type) {
+    case "suggestion":
+      return `s:${option.suggestion.entry}`;
+    case "group":
+      return `g:${option.item.name}`;
+    default:
+      return "browse";
+  }
+}
+
 /**
  * Wire the control for `options.ids` and return it. Wiring happens once per
  * input element; later calls for the same elements return the same control.
@@ -190,12 +209,10 @@ function parseEntries(
 export function createEntryAddControl(options: EntryAddControlOptions): EntryAddControl | null {
   const { ids, context } = options;
   const byId = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
-  const selectEl = byId<HTMLSelectElement>(ids.kind);
   const inputEl = byId<HTMLInputElement>(ids.input);
   const buttonEl = byId<HTMLButtonElement>(ids.button);
   const listboxEl = byId<HTMLElement>(ids.listbox);
-  if (!selectEl || !inputEl || !buttonEl || !listboxEl) return null;
-  const select: HTMLSelectElement = selectEl;
+  if (!inputEl || !buttonEl || !listboxEl) return null;
   const input: HTMLInputElement = inputEl;
   const button: HTMLButtonElement = buttonEl;
   const listbox: HTMLElement = listboxEl;
@@ -205,50 +222,19 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
   if (existing && input.dataset.wired === "1") return existing;
   input.dataset.wired = "1";
 
-  if (!siteGroupsAvailable()) {
-    for (const option of Array.from(select.options)) {
-      if (isKind(option.value) && SITE_GROUP_KINDS.has(option.value)) option.remove();
-    }
-  }
-  select.value = "site";
-
-  const sitePlaceholder = input.placeholder;
-  /** The user chose the kind in the menu; typing never changes it then. */
-  let userPicked = false;
-  /** The kind was set by a typed marker, so removing the marker reverts it. */
-  let autoSet = false;
   let busy = false;
   let open = false;
+  /** "Browse all site groups…" was picked; typing returns to the suggestions. */
+  let browsing = false;
   let index: SiteGroupIndexItem[] | null = null;
   let indexLoading: Promise<void> | null = null;
-  let optionItems: SiteGroupIndexItem[] = [];
+  let optionItems: PickerOption[] = [];
   let activeIndex = -1;
 
-  function currentKind(): EntryInputKind {
-    return isKind(select.value) ? select.value : "site";
-  }
-
-  /** The kind an add would use now: the user's pick, else what the input's marker asks for. */
-  function effectiveKind(): EntryInputKind {
-    return userPicked ? currentKind() : (detectKind(input.value) ?? "site");
-  }
-
-  function placeholderFor(kind: EntryInputKind): string {
-    switch (kind) {
-      case "exact":
-        return t("filters_placeholderExact") || "mail.example.com";
-      case "subdomains":
-        return t("filters_placeholderSubdomains") || "example.com";
-      case "group":
-        return t("filters_placeholderGroup") || "Search site groups, e.g. Google";
-      case "link":
-        return t("filters_placeholderLink") || "https://example.com/list.txt";
-      default:
-        return context === "filters"
-          ? t("filters_addPlaceholder") || sitePlaceholder
-          : sitePlaceholder;
-    }
-  }
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-controls", listbox.id);
 
   function showError(message: string): void {
     input.setAttribute("aria-invalid", "true");
@@ -274,30 +260,7 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
     if (errorEl) errorEl.style.display = "none";
   }
 
-  /** Placeholder and combobox semantics for `kind`. */
-  function applyKind(kind: EntryInputKind): void {
-    input.placeholder = placeholderFor(kind);
-    if (kind === "group") {
-      input.setAttribute("role", "combobox");
-      input.setAttribute("aria-autocomplete", "list");
-      input.setAttribute("aria-expanded", String(open));
-      input.setAttribute("aria-controls", listbox.id);
-      if (document.activeElement === input) openPicker();
-    } else {
-      closePicker();
-      for (const attr of ["role", "aria-autocomplete", "aria-expanded", "aria-controls"]) {
-        input.removeAttribute(attr);
-      }
-    }
-  }
-
-  function setKind(kind: EntryInputKind, auto: boolean): void {
-    autoSet = auto;
-    if (select.value !== kind) select.value = kind;
-    applyKind(kind);
-  }
-
-  // ── The group picker ──
+  // ── The listbox ──
 
   function optionId(i: number): string {
     return `${listbox.id}-opt-${i}`;
@@ -328,6 +291,59 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
     else setActive((activeIndex + delta + count) % count);
   }
 
+  function clearOptions(): void {
+    while (listbox.firstChild) listbox.removeChild(listbox.firstChild);
+    optionItems = [];
+    activeIndex = -1;
+    input.removeAttribute("aria-activedescendant");
+  }
+
+  /** A new option element for `option`, registered at the next index. */
+  function buildOption(option: PickerOption, className: string): HTMLElement {
+    const node = document.createElement("div");
+    node.className = className;
+    node.id = optionId(optionItems.length);
+    node.setAttribute("role", "option");
+    node.setAttribute("aria-selected", "false");
+    node.dataset.index = String(optionItems.length);
+    optionItems.push(option);
+    return node;
+  }
+
+  function textSpan(className: string, text: string): HTMLElement {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    return span;
+  }
+
+  /** A row that says nothing matches; not an option the arrows can reach. */
+  function appendEmpty(text: string): void {
+    const empty = document.createElement("div");
+    empty.className = "entry-listbox-empty";
+    empty.setAttribute("role", "option");
+    empty.setAttribute("aria-disabled", "true");
+    empty.setAttribute("aria-selected", "false");
+    empty.textContent = text;
+    listbox.appendChild(empty);
+  }
+
+  function appendSuggestions(items: EntrySuggestion[], browse: boolean): void {
+    for (const suggestion of items) {
+      const node = buildOption({ type: "suggestion", suggestion }, "entry-option entry-suggestion");
+      node.append(
+        textSpan("entry-suggestion-title", suggestion.title),
+        textSpan("entry-suggestion-meta", suggestion.meta)
+      );
+      listbox.appendChild(node);
+    }
+    if (browse) {
+      const node = buildOption({ type: "browse" }, "entry-option entry-suggestion-browse");
+      node.textContent = t("siteGroups_browseAll") || "Browse all site groups…";
+      listbox.appendChild(node);
+    }
+  }
+
   function appendSection(key: string, heading: string, items: SiteGroupIndexItem[]): void {
     if (items.length === 0) return;
     const group = document.createElement("div");
@@ -341,101 +357,118 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
     group.setAttribute("aria-labelledby", headingEl.id);
     group.appendChild(headingEl);
     for (const item of items) {
-      const option = document.createElement("div");
-      option.className = "entry-option";
-      option.id = optionId(optionItems.length);
-      option.setAttribute("role", "option");
-      option.setAttribute("aria-selected", "false");
-      option.dataset.index = String(optionItems.length);
-      const label = document.createElement("span");
-      label.className = "entry-option-label";
-      label.textContent = siteGroupOptionText(item);
-      option.appendChild(label);
+      const option = buildOption({ type: "group", item }, "entry-option");
+      option.appendChild(textSpan("entry-option-label", siteGroupOptionText(item)));
       if (item.featured !== null) {
-        const secondary = document.createElement("span");
-        secondary.className = "entry-option-secondary";
-        secondary.textContent = `${GROUP_PREFIX}${item.name}`;
-        option.appendChild(secondary);
+        option.appendChild(textSpan("entry-option-secondary", `${GROUP_PREFIX}${item.name}`));
       }
-      optionItems.push(item);
       group.appendChild(option);
     }
     listbox.appendChild(group);
   }
 
-  function renderPicker(): void {
-    while (listbox.firstChild) listbox.removeChild(listbox.firstChild);
-    optionItems = [];
-    activeIndex = -1;
-    input.removeAttribute("aria-activedescendant");
+  /** "Browse all site groups…": today's picker, Popular then All site groups. */
+  function renderBrowse(): void {
     if (index === null) {
       void ensureIndex();
       return;
     }
-    const { popular, all } = searchSiteGroups(index, input.value);
-    if (popular.length + all.length === 0) {
-      const query = input.value.trim();
-      const empty = document.createElement("div");
-      empty.className = "entry-listbox-empty";
-      empty.setAttribute("role", "option");
-      empty.setAttribute("aria-disabled", "true");
-      empty.setAttribute("aria-selected", "false");
-      empty.textContent = t("siteGroups_noMatch", [query]) || `No site groups match ${query}`;
-      listbox.appendChild(empty);
-      return;
-    }
+    const { popular, all } = searchSiteGroups(index, "");
     appendSection("popular", t("siteGroups_popular") || "Popular", popular);
     appendSection("all", t("siteGroups_allGroups") || "All site groups", all);
+  }
+
+  function renderSuggestions(): void {
+    const groupsAvailable = siteGroupsAvailable();
+    if (groupsAvailable && index === null) void ensureIndex();
+    const { items, browse } = entrySuggestions(input.value, { context, groupsAvailable, index });
+    // A typed group name that matches nothing says so, as the picker did.
+    if (
+      items.length === 0 &&
+      index !== null &&
+      detectKind(input.value) === "group" &&
+      groupSearchTerm(input.value) !== ""
+    ) {
+      const query = typedGroupName(input.value);
+      appendEmpty(t("siteGroups_noMatch", [query]) || `No site groups match ${query}`);
+    }
+    appendSuggestions(items, browse);
+  }
+
+  /** A site group is visible: a group row, or the browse sections. */
+  function showsGroups(): boolean {
+    return optionItems.some(
+      (option) =>
+        option.type === "group" ||
+        (option.type === "suggestion" && option.suggestion.kind === "group")
+    );
+  }
+
+  /** Render the listbox for the input's text and show it when it has rows. */
+  function render(): void {
+    clearOptions();
+    if (browsing) renderBrowse();
+    else renderSuggestions();
+    open = listbox.childElementCount > 0;
+    listbox.hidden = !open;
+    input.setAttribute("aria-expanded", String(open));
+    // The v2fly credit belongs with the groups it names.
+    if (attribution) attribution.hidden = !(open && showsGroups());
   }
 
   function ensureIndex(): Promise<void> {
     indexLoading ??= loadCatalogIndex().then((loaded) => {
       index = loaded;
       indexLoading = null;
-      if (open) renderPicker();
+      if (!open) return;
+      const active = activeIndex >= 0 ? optionKey(optionItems[activeIndex]) : null;
+      render();
+      if (active !== null) {
+        const i = optionItems.findIndex((option) => optionKey(option) === active);
+        if (i >= 0) setActive(i);
+      }
     });
     return indexLoading;
   }
 
-  function openPicker(): void {
-    if (currentKind() !== "group" || busy) return;
-    if (!open) {
-      open = true;
-      listbox.hidden = false;
-      if (attribution) attribution.hidden = false;
-      input.setAttribute("aria-expanded", "true");
-    }
-    renderPicker();
-  }
-
-  function closePicker(): void {
+  function close(): void {
+    browsing = false;
     if (open) {
       open = false;
       listbox.hidden = true;
-      if (attribution) attribution.hidden = true;
-      while (listbox.firstChild) listbox.removeChild(listbox.firstChild);
-      optionItems = [];
-      activeIndex = -1;
-      input.removeAttribute("aria-activedescendant");
+      clearOptions();
     }
-    if (input.getAttribute("role") === "combobox") input.setAttribute("aria-expanded", "false");
+    if (attribution) attribution.hidden = true;
+    input.setAttribute("aria-expanded", "false");
     // An empty index means the load failed; try again next time.
     if (index !== null && index.length === 0) index = null;
   }
 
   function chooseOption(i: number): void {
-    const item = optionItems[i];
-    if (item === undefined) return;
-    const token =
-      parseFilterEntry(`${item.name}${typedGroupAttrs(input.value)}`, "group") ??
-      `${GROUP_PREFIX}${item.name}`;
-    void submitEntries([token], "group");
+    const option = optionItems[i];
+    if (option === undefined) return;
+    switch (option.type) {
+      case "suggestion":
+        void submitEntries([option.suggestion.entry], option.suggestion.kind);
+        break;
+      case "group": {
+        const token =
+          parseFilterEntry(`${option.item.name}${typedGroupAttrs(input.value)}`, "group") ??
+          `${GROUP_PREFIX}${option.item.name}`;
+        void submitEntries([token], "group");
+        break;
+      }
+      case "browse":
+        browsing = true;
+        render();
+        break;
+    }
   }
 
   // ── Adding ──
 
   function setBusy(on: boolean, restore: boolean[]): void {
-    const controlsToLock = [select, input, button];
+    const controlsToLock = [input, button];
     controlsToLock.forEach((control, i) => {
       control.disabled = on ? true : restore[i];
     });
@@ -452,16 +485,15 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
 
   function clearAfterAdd(): void {
     input.value = "";
-    closePicker();
-    if (!userPicked) setKind("site", false);
+    close();
   }
 
   async function submitEntries(entries: string[], kind: EntryInputKind): Promise<void> {
     if (busy) return;
     busy = true;
-    closePicker();
+    close();
     const showBusy = kind === "link";
-    const before = [select.disabled, input.disabled, button.disabled];
+    const before = [input.disabled, button.disabled];
     if (showBusy) setBusy(true, before);
     let result: EntrySubmitResult;
     try {
@@ -481,19 +513,26 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
     else showError(result.message);
   }
 
+  /** Add the typed text, read as auto-detection reads it. */
   function submit(): void {
     if (busy) return;
     hideError();
-    const kind = effectiveKind();
-    if (!userPicked) setKind(kind, kind !== "site");
+    const kind = detectKind(input.value) ?? "site";
     if (kind === "group" && typedGroupName(input.value) === "") {
       input.focus();
-      openPicker();
+      browsing = true;
+      render();
       return;
     }
     const parsed = parseEntries(input.value, kind, context);
     if (parsed.error !== null) {
       showError(parsed.error);
+      // "google": the message names the fix, and the group stays in the list
+      // to pick (K1).
+      const offersGroups = optionItems.some(
+        (option) => option.type !== "suggestion" || option.suggestion.kind === "group"
+      );
+      if (!(context === "filters" && kind === "site" && open && offersGroups)) close();
       return;
     }
     void submitEntries(parsed.entries, kind);
@@ -501,50 +540,28 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
 
   // ── Events ──
 
-  select.addEventListener("change", () => {
-    const kind = currentKind();
-    userPicked = true;
-    autoSet = false;
-    const normalized = normalizeInputForKind(input.value, kind);
-    if (normalized !== input.value) input.value = normalized;
-    hideError();
-    applyKind(kind);
-  });
-
   input.addEventListener("input", () => {
     hideError();
-    if (!userPicked) {
-      const detected = detectKind(input.value);
-      if (detected !== null) {
-        if (detected !== currentKind() || !autoSet) setKind(detected, true);
-      } else if (autoSet) {
-        setKind("site", false);
-      }
-    }
-    if (currentKind() === "group") openPicker();
+    browsing = false;
+    if (!busy) render();
   });
 
   input.addEventListener("focus", () => {
-    if (currentKind() === "group") openPicker();
+    if (!busy && input.value.trim() !== "") render();
   });
 
   input.addEventListener("blur", () => {
-    closePicker();
+    close();
   });
 
   input.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (currentKind() !== "group") {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        submit();
-      }
-      return;
-    }
     switch (e.key) {
       case "ArrowDown":
       case "ArrowUp":
+        if (!open && !busy) render();
+        // Nothing to show: the arrows keep their usual meaning.
+        if (!open) return;
         e.preventDefault();
-        if (!open) openPicker();
         move(e.key === "ArrowDown" ? 1 : -1);
         break;
       case "Home":
@@ -561,16 +578,16 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
         else submit();
         break;
       case "Escape":
-        // Closing the picker is all Escape does here; the per-site editor's
+        // Closing the listbox is all Escape does here; the per-site editor's
         // own Escape (close the editor) must not also run.
         if (open) {
           e.preventDefault();
           e.stopPropagation();
-          closePicker();
+          close();
         }
         break;
       case "Tab":
-        closePicker();
+        close();
         break;
     }
   });
@@ -592,17 +609,14 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
   const control: EntryAddControl = {
     reset(): void {
       input.value = "";
-      userPicked = false;
-      select.value = "site";
-      setKind("site", false);
+      close();
       hideError();
     },
     readPending() {
       if (input.value.trim() === "") return null;
-      return parseEntries(input.value, effectiveKind(), context);
+      return parseEntries(input.value, detectKind(input.value) ?? "site", context);
     },
   };
-  applyKind("site");
   controls.set(input, control);
   return control;
 }

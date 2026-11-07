@@ -1,7 +1,8 @@
 /**
- * The shared add control (GeoSpoof/geospoof#206), against the real Filters
- * markup in assets/popup.html: the type menu, typing auto-detect, the site
- * group combobox, the link busy state, inline errors, and the Safari gate.
+ * The shared add control (GeoSpoof/geospoof#206, K1), against the real
+ * Filters markup in assets/popup.html: one field with suggestions (manual
+ * selection), typing auto-detect, "Browse all site groups…", the link busy
+ * state, inline errors, and the Safari gate.
  */
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
@@ -18,12 +19,10 @@ import {
   type EntryAddControl,
   type EntrySubmitResult,
 } from "@/popup/entry-add-control";
-import { __resetPopupSiteGroupsForTest, formatCount } from "@/popup/site-groups";
+import { __resetPopupSiteGroupsForTest, describeEntry, formatCount } from "@/popup/site-groups";
 
-const BODY = (() => {
-  const html = readFileSync("assets/popup.html", "utf8");
-  return new DOMParser().parseFromString(html, "text/html").body.innerHTML;
-})();
+const HTML = readFileSync("assets/popup.html", "utf8");
+const BODY = new DOMParser().parseFromString(HTML, "text/html").body.innerHTML;
 
 const sendMessage = vi.mocked(browser.runtime.sendMessage);
 
@@ -34,9 +33,11 @@ const INDEX = {
     { name: "google", count: 964 },
     { name: "google-cn", count: 12 },
     { name: "netflix", count: 40 },
-    { name: "youtube", count: 178 },
+    { name: "twitch", count: 35 },
   ],
 };
+
+const ERROR_SITE_OR_GROUP = "Use a site like example.com, or pick a site group below.";
 
 function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -44,10 +45,10 @@ function byId<T extends HTMLElement = HTMLElement>(id: string): T {
   return node as T;
 }
 
-const kindSelect = () => byId<HTMLSelectElement>("scopeAddKind");
 const input = () => byId<HTMLInputElement>("scopeAddInput");
 const addButton = () => byId<HTMLButtonElement>("scopeAddButton");
 const listbox = () => byId("scopeGroupListbox");
+const attribution = () => byId("scopeGroupAttribution");
 const errorEl = () => byId("scopeAddError");
 
 let onSubmit: ReturnType<
@@ -57,7 +58,6 @@ let onSubmit: ReturnType<
 function create(context: "filters" | "siteLocation" = "filters"): EntryAddControl {
   const control = createEntryAddControl({
     ids: {
-      kind: "scopeAddKind",
       input: "scopeAddInput",
       button: "scopeAddButton",
       listbox: "scopeGroupListbox",
@@ -76,11 +76,6 @@ function type(value: string): void {
   input().dispatchEvent(new Event("input"));
 }
 
-function pick(kind: EntryInputKind): void {
-  kindSelect().value = kind;
-  kindSelect().dispatchEvent(new Event("change"));
-}
-
 function key(name: string): KeyboardEvent {
   const event = new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true });
   input().dispatchEvent(event);
@@ -91,12 +86,38 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 }
 
+/** Let the site group index load (it's requested on the first suggestions). */
+async function indexLoaded(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function errorShown(): boolean {
   return errorEl().style.display === "block";
 }
 
 function options(): HTMLElement[] {
   return Array.from(listbox().querySelectorAll<HTMLElement>("[role='option']"));
+}
+
+/** Each suggestion row as "title · meta", and the Browse row by its text. */
+function rows(): string[] {
+  return options().map((o) => {
+    const title = o.querySelector(".entry-suggestion-title")?.textContent;
+    const meta = o.querySelector(".entry-suggestion-meta")?.textContent;
+    return title === undefined ? (o.textContent ?? "") : `${title} · ${meta}`;
+  });
+}
+
+function optionByText(text: string): HTMLElement {
+  const option = options().find((o) => o.textContent?.startsWith(text));
+  if (!option) throw new Error(`no option ${text}`);
+  return option;
+}
+
+function indexRequests(): number {
+  return sendMessage.mock.calls.filter(
+    ([m]) => (m as unknown as { type: string }).type === "GET_SITE_GROUP_INDEX"
+  ).length;
 }
 
 beforeEach(() => {
@@ -116,103 +137,310 @@ beforeEach(() => {
   onSubmit = vi.fn(() => Promise.resolve<EntrySubmitResult>({ ok: true }));
 });
 
-describe("the type menu and auto-detect", () => {
-  test("offers five kinds, starting at 'Site and its subdomains'", () => {
+describe("one field with suggestions", () => {
+  test("there is no type menu, and the field says 'Add another site'", () => {
+    const doc = new DOMParser().parseFromString(HTML, "text/html");
+    expect(doc.getElementById("scopeAddKind")).toBeNull();
+    expect(doc.getElementById("siteLocationAddKind")).toBeNull();
+    expect(doc.querySelector(".entry-kind-row")).toBeNull();
+    for (const id of ["scopeAddInput", "siteLocationPatterns"]) {
+      const field = doc.getElementById(id) as HTMLInputElement;
+      expect(field.placeholder).toBe("Add another site");
+      expect(field.getAttribute("data-i18n-placeholder")).toBe("filters_addAnother");
+    }
+  });
+
+  test("the input is always an ARIA 1.2 combobox, closed until there's text", () => {
     create();
-    expect(Array.from(kindSelect().options).map((o) => o.value)).toEqual([
-      "site",
-      "exact",
-      "subdomains",
-      "group",
-      "link",
+    expect(input().getAttribute("role")).toBe("combobox");
+    expect(input().getAttribute("aria-autocomplete")).toBe("list");
+    expect(input().getAttribute("aria-controls")).toBe("scopeGroupListbox");
+    expect(input().getAttribute("aria-expanded")).toBe("false");
+    input().focus();
+    expect(listbox().hidden).toBe(true);
+  });
+
+  test("twitch.tv lists its readings, the Twitch group and Browse, with no row highlighted", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    expect(input().getAttribute("aria-expanded")).toBe("true");
+    expect(listbox().hidden).toBe(false);
+    expect(rows()).toEqual([
+      "twitch.tv · Site and its subdomains",
+      "twitch.tv · Exact address only",
+      "*.twitch.tv · Subdomains only",
+      "Twitch · Site group · 35 sites",
+      "Browse all site groups…",
     ]);
-    expect(kindSelect().value).toBe("site");
-    expect(kindSelect().getAttribute("aria-label")).toBe("Type");
+    // Manual selection: nothing is active until an arrow key is pressed.
+    expect(options().every((o) => o.getAttribute("aria-selected") === "false")).toBe(true);
+    expect(listbox().querySelector(".active")).toBeNull();
+    expect(input().hasAttribute("aria-activedescendant")).toBe(false);
+    // The v2fly credit shows with the group row.
+    expect(attribution().hidden).toBe(false);
+    expect(indexRequests()).toBe(1);
   });
 
-  test.each<[string, EntryInputKind]>([
-    ["geosite:google", "group"],
-    ["GeoSite:Google@cn", "group"],
-    ["*.example.com", "subdomains"],
-    ["=a.com", "exact"],
-    ["list:https://example.com/x", "link"],
-    ["https://example.com/list.txt", "link"],
-    ["https://example.com/rules.list", "link"],
-    ["https://example.com/clash.conf", "link"],
-    ["https://example.com/a/b.yaml", "link"],
-    ["https://example.com/a/b.yml", "link"],
-  ])("typing %s picks %s", (value, kind) => {
+  test("Enter adds the typed text, read by auto-detection", async () => {
     create();
-    type(value);
-    expect(kindSelect().value).toBe(kind);
+    type("twitch.tv");
+    await indexLoaded();
+    const event = key("Enter");
+    await flush();
+    expect(event.defaultPrevented).toBe(true);
+    expect(onSubmit).toHaveBeenCalledWith(["twitch.tv"], "site");
+    expect(input().value).toBe("");
+    expect(listbox().hidden).toBe(true);
   });
 
-  test.each(["https://example.com", "https://example.com/app/*", "example.com", "site.com/app/*"])(
-    "%s stays a typed site",
-    (value) => {
+  test("arrow keys pick a reading: ArrowDown twice, then Enter, adds =twitch.tv", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    key("ArrowDown");
+    expect(input().getAttribute("aria-activedescendant")).toBe(options()[0].id);
+    expect(options()[0].getAttribute("aria-selected")).toBe("true");
+    expect(options()[0].classList.contains("active")).toBe(true);
+    key("ArrowDown");
+    expect(input().getAttribute("aria-activedescendant")).toBe(options()[1].id);
+    expect(options()[0].getAttribute("aria-selected")).toBe("false");
+    key("Enter");
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["=twitch.tv"], "exact");
+  });
+
+  test("ArrowUp wraps, and Home and End work while an option is active", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    const active = () => input().getAttribute("aria-activedescendant");
+    // Before an option is active, Home and End move the caret.
+    expect(key("Home").defaultPrevented).toBe(false);
+    key("ArrowUp");
+    expect(active()).toBe(options()[4].id);
+    key("ArrowDown");
+    expect(active()).toBe(options()[0].id);
+    expect(key("End").defaultPrevented).toBe(true);
+    expect(active()).toBe(options()[4].id);
+    key("Home");
+    expect(active()).toBe(options()[0].id);
+  });
+
+  test("clicking the group row adds geosite:twitch, keeping focus in the input", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    const option = optionByText("Twitch");
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    option.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
+    option.querySelector<HTMLElement>(".entry-suggestion-title")!.click();
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["geosite:twitch"], "group");
+  });
+
+  test("'Browse all site groups…' shows Popular and All site groups; typing goes back", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    optionByText("Browse all site groups…").click();
+
+    const groups = Array.from(listbox().querySelectorAll<HTMLElement>("[role='group']"));
+    expect(groups.map((g) => byId(g.getAttribute("aria-labelledby")!).textContent)).toEqual([
+      "Popular",
+      "All site groups",
+    ]);
+    // Featured in table order (google, netflix, twitch), then the rest A-Z.
+    expect(options().map((o) => o.querySelector(".entry-option-label")?.textContent)).toEqual([
+      "Google · 964 sites",
+      "Netflix · 40 sites",
+      "Twitch · 35 sites",
+      `category-ads-all · ${formatCount(6000)} sites`,
+      "google-cn · 12 sites",
+    ]);
+    expect(options()[0].querySelector(".entry-option-secondary")?.textContent).toBe(
+      "geosite:google"
+    );
+    expect(attribution().hidden).toBe(false);
+    expect(input().hasAttribute("aria-activedescendant")).toBe(false);
+
+    key("ArrowDown");
+    key("ArrowDown");
+    key("Enter");
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["geosite:netflix"], "group");
+
+    type("twitch.tv");
+    optionByText("Browse all site groups…").click();
+    type("twitch.t");
+    expect(listbox().querySelector("[role='group']")).toBeNull();
+    expect(rows()[0]).toBe("twitch.t · Site and its subdomains");
+  });
+
+  test("Browse from the keyboard: ArrowUp to it, then Enter", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    key("ArrowUp");
+    key("Enter");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(listbox().querySelectorAll("[role='group']")).toHaveLength(2);
+  });
+
+  test("'google' + Enter names the fix and keeps the Google group to pick (K1)", async () => {
+    create();
+    input().focus();
+    type("google");
+    await indexLoaded();
+    expect(rows()).toEqual([
+      "Google · Site group · 964 sites",
+      "google-cn · Site group · 12 sites",
+      "Browse all site groups…",
+    ]);
+    key("Enter");
+    await flush();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(errorShown()).toBe(true);
+    expect(errorEl().getAttribute("role")).toBe("alert");
+    expect(errorEl().textContent).toBe(ERROR_SITE_OR_GROUP);
+    expect(input().getAttribute("aria-invalid")).toBe("true");
+    expect(listbox().hidden).toBe(false);
+    expect(rows()[0]).toBe("Google · Site group · 964 sites");
+
+    key("ArrowDown");
+    key("Enter");
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["geosite:google"], "group");
+  });
+
+  test("the error shows between the field and the suggestions", () => {
+    const doc = new DOMParser().parseFromString(HTML, "text/html");
+    const box = doc.getElementById("scopeAddError")!.parentElement!;
+    expect(box.classList.contains("entry-add-field")).toBe(true);
+    expect(Array.from(box.children).map((c) => c.className)).toEqual([
+      "scope-add-row",
+      "scope-inline-msg",
+      "entry-picker",
+    ]);
+  });
+
+  test("Escape closes the suggestions without bubbling; a second Escape bubbles", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    const outer = vi.fn();
+    document.body.addEventListener("keydown", outer);
+    const first = key("Escape");
+    expect(first.defaultPrevented).toBe(true);
+    expect(input().getAttribute("aria-expanded")).toBe("false");
+    expect(listbox().hidden).toBe(true);
+    expect(attribution().hidden).toBe(true);
+    expect(outer).not.toHaveBeenCalled();
+    key("Escape");
+    expect(outer).toHaveBeenCalledTimes(1);
+    document.body.removeEventListener("keydown", outer);
+  });
+
+  test("ArrowDown reopens them", async () => {
+    create();
+    type("twitch.tv");
+    await indexLoaded();
+    key("Escape");
+    key("ArrowDown");
+    expect(input().getAttribute("aria-expanded")).toBe("true");
+    expect(input().getAttribute("aria-activedescendant")).toBe(options()[0].id);
+  });
+
+  test("Tab and blur close them", async () => {
+    create();
+    input().focus();
+    type("twitch.tv");
+    await indexLoaded();
+    key("Tab");
+    expect(listbox().hidden).toBe(true);
+
+    // Focus coming back with text reopens them.
+    input().blur();
+    input().focus();
+    expect(listbox().hidden).toBe(false);
+    input().blur();
+    expect(listbox().hidden).toBe(true);
+    expect(input().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test.each(["=mail.example.com", "*.example.com", "https://example.com/list"])(
+    "%s: a typed form with nothing to suggest leaves the listbox closed",
+    async (value) => {
       create();
       type(value);
-      expect(kindSelect().value).toBe("site");
+      await indexLoaded();
+      if (value.startsWith("https://")) {
+        // Not a list file, so it's a typed site: only the groups' Browse row.
+        expect(rows()).toEqual(["Browse all site groups…"]);
+      } else {
+        expect(listbox().hidden).toBe(true);
+      }
     }
   );
 
-  test("removing the marker puts an auto-picked kind back", () => {
+  test("the v2fly credit shows only while a site group is listed", async () => {
     create();
-    type("*.example.com");
-    expect(kindSelect().value).toBe("subdomains");
-    type("example.com");
-    expect(kindSelect().value).toBe("site");
-  });
-
-  test("never overrides a kind the user picked", () => {
-    create();
-    pick("exact");
-    type("geosite:google");
-    expect(kindSelect().value).toBe("exact");
-    type("*.example.com");
-    expect(kindSelect().value).toBe("exact");
-  });
-
-  test("picking a kind rewrites the input without markers that ask for another", () => {
-    create();
-    type("=mail.example.com");
-    pick("site");
-    expect(input().value).toBe("mail.example.com");
-    type("geosite:google");
-    pick("exact");
-    expect(input().value).toBe("google");
-  });
-
-  test("each kind has its own placeholder", () => {
-    create();
-    const placeholders = (["site", "exact", "subdomains", "group", "link"] as const).map((kind) => {
-      pick(kind);
-      return input().placeholder;
-    });
-    expect(placeholders).toEqual([
-      "example.com, *.ru, site.com/app/*",
-      "mail.example.com",
-      "example.com",
-      "Search site groups, e.g. Google",
-      "https://example.com/list.txt",
+    type("example.org");
+    await indexLoaded();
+    expect(rows().map((r) => r.split(" · ")[1] ?? r)).toEqual([
+      "Site and its subdomains",
+      "Exact address only",
+      "Subdomains only",
+      "Browse all site groups…",
     ]);
+    expect(attribution().hidden).toBe(true);
+    type("goog");
+    expect(attribution().hidden).toBe(false);
+  });
+
+  test("a typed group name that matches nothing says so", async () => {
+    create();
+    type("geosite:qqqq");
+    await indexLoaded();
+    expect(options()[0].getAttribute("aria-disabled")).toBe("true");
+    expect(options()[0].textContent).toBe("No site groups match qqqq");
+    expect(rows().slice(1)).toEqual(["Browse all site groups…"]);
+    key("ArrowDown");
+    expect(input().getAttribute("aria-activedescendant")).toBe(options()[1].id);
+  });
+
+  test("a typed @tag carries over to the chosen group", async () => {
+    create();
+    type("goo@cn");
+    await indexLoaded();
+    expect(rows()[0]).toBe("Google @cn · Site group");
+    key("ArrowDown");
+    key("Enter");
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["geosite:google@cn"], "group");
+  });
+
+  test("Enter on an empty geosite: opens the full list", async () => {
+    create();
+    type("geosite:");
+    await indexLoaded();
+    key("Enter");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(listbox().querySelectorAll("[role='group']")).toHaveLength(2);
   });
 });
 
 describe("adding", () => {
-  test.each<[string, EntryInputKind | null, string[], EntryInputKind]>([
-    ["https://www.Example.com/path", null, ["https://www.example.com/path"], "site"],
-    ["*.ru", null, ["*.ru"], "subdomains"],
-    ["=Mail.Example.com", null, ["=mail.example.com"], "exact"],
-    ["geosite:Google@CN", null, ["geosite:google@cn"], "group"],
-    ["https://example.com/list.txt#x", null, ["list:https://example.com/list.txt"], "link"],
-    ["example.com", "subdomains", ["*.example.com"], "subdomains"],
-    ["mail.example.com", "exact", ["=mail.example.com"], "exact"],
-    ["netflix", "group", ["geosite:netflix"], "group"],
-    ["https://example.com/rules", "link", ["list:https://example.com/rules"], "link"],
-  ])("%s (picked: %s) adds %j", async (value, picked, entries, kind) => {
+  test.each<[string, string[], EntryInputKind]>([
+    ["https://www.Example.com/path", ["https://www.example.com/path"], "site"],
+    ["*.ru", ["*.ru"], "subdomains"],
+    ["=Mail.Example.com", ["=mail.example.com"], "exact"],
+    ["geosite:Google@CN", ["geosite:google@cn"], "group"],
+    ["https://example.com/list.txt#x", ["list:https://example.com/list.txt"], "link"],
+    ["list:https://example.com/rules", ["list:https://example.com/rules"], "link"],
+  ])("%s adds %j as %s", async (value, entries, kind) => {
     create();
-    if (picked) pick(picked);
     // Set without an input event too: the kind is read again on Add.
     input().value = value;
     addButton().click();
@@ -222,38 +450,14 @@ describe("adding", () => {
     expect(errorShown()).toBe(false);
   });
 
-  test("Enter adds", async () => {
+  test.each<[string, string]>([
+    ["nodot", ERROR_SITE_OR_GROUP],
+    ["", ERROR_SITE_OR_GROUP],
+    ["=*", "Enter one address, like mail.example.com, without *"],
+    ["geosite:Bad Name", "No site group is called Bad Name."],
+    ["list:http://example.com/list.txt", "Enter a link that starts with https://"],
+  ])("%j shows %j and sends nothing", (value, message) => {
     create();
-    type("example.com");
-    const event = key("Enter");
-    await flush();
-    expect(event.defaultPrevented).toBe(true);
-    expect(onSubmit).toHaveBeenCalledWith(["example.com"], "site");
-  });
-
-  test("after adding, an auto-picked kind returns to the default; a picked one stays", async () => {
-    create();
-    type("=a.com");
-    addButton().click();
-    await flush();
-    expect(kindSelect().value).toBe("site");
-
-    pick("exact");
-    type("b.com");
-    addButton().click();
-    await flush();
-    expect(kindSelect().value).toBe("exact");
-  });
-
-  test.each<[string, EntryInputKind | null, string]>([
-    ["nodot", null, "Not a valid pattern"],
-    ["", null, "Not a valid pattern"],
-    ["*", "exact", "Enter one address, like mail.example.com, without *"],
-    ["geosite:Bad Name", null, "No site group is called Bad Name."],
-    ["http://example.com/list.txt", "link", "Enter a link that starts with https://"],
-  ])("%j (picked: %s) shows %j and sends nothing", (value, picked, message) => {
-    create();
-    if (picked) pick(picked);
     input().value = value;
     addButton().click();
     expect(onSubmit).not.toHaveBeenCalled();
@@ -281,6 +485,7 @@ describe("adding", () => {
   test("per-site: typed sites split on commas, read their own markers, and dedupe", async () => {
     create("siteLocation");
     type("a.com, *.b.com, =c.com, A.com");
+    expect(listbox().hidden).toBe(true);
     addButton().click();
     await flush();
     expect(onSubmit).toHaveBeenCalledWith(["a.com", "*.b.com", "=c.com"], "site");
@@ -292,6 +497,15 @@ describe("adding", () => {
     addButton().click();
     expect(onSubmit).not.toHaveBeenCalled();
     expect(errorEl().textContent).toBe("Use a site like example.com, with no path and not just *.");
+  });
+
+  test("per-site: a word that isn't a site closes the suggestions with the per-site message", async () => {
+    create("siteLocation");
+    type("google");
+    await indexLoaded();
+    key("Enter");
+    expect(errorEl().textContent).toBe("Use a site like example.com, with no path and not just *.");
+    expect(listbox().hidden).toBe(true);
   });
 
   test("readPending parses without adding", () => {
@@ -306,14 +520,17 @@ describe("adding", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  test("reset clears the input and the picked kind", () => {
+  test("reset clears the input, closes the suggestions and hides the error", async () => {
     const control = create();
-    pick("group");
     type("goo");
+    await indexLoaded();
+    key("Enter");
+    expect(errorShown()).toBe(true);
     control.reset();
     expect(input().value).toBe("");
-    expect(kindSelect().value).toBe("site");
-    expect(input().hasAttribute("role")).toBe(false);
+    expect(listbox().hidden).toBe(true);
+    expect(errorShown()).toBe(false);
+    expect(input().getAttribute("role")).toBe("combobox");
   });
 
   test("wires once: a second create for the same elements is the same control", async () => {
@@ -326,172 +543,6 @@ describe("adding", () => {
   });
 });
 
-describe("the site group combobox", () => {
-  async function openPicker(): Promise<void> {
-    create();
-    pick("group");
-    input().focus();
-    // The index loads on first open.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-
-  test("is an ARIA 1.2 combobox only while the kind is Site group", async () => {
-    create();
-    expect(input().hasAttribute("role")).toBe(false);
-    pick("group");
-    expect(input().getAttribute("role")).toBe("combobox");
-    expect(input().getAttribute("aria-autocomplete")).toBe("list");
-    expect(input().getAttribute("aria-controls")).toBe("scopeGroupListbox");
-    expect(input().getAttribute("aria-expanded")).toBe("false");
-    pick("site");
-    for (const attr of ["role", "aria-autocomplete", "aria-controls", "aria-expanded"]) {
-      expect(input().hasAttribute(attr)).toBe(false);
-    }
-    await flush();
-  });
-
-  test("focus opens it with Popular first, then All site groups, and the attribution", async () => {
-    await openPicker();
-    expect(input().getAttribute("aria-expanded")).toBe("true");
-    expect(listbox().hidden).toBe(false);
-    expect(listbox().getAttribute("role")).toBe("listbox");
-    expect(listbox().getAttribute("aria-label")).toBe("Site groups");
-    expect(byId("scopeGroupAttribution").hidden).toBe(false);
-    expect(byId("scopeGroupAttribution").textContent?.trim()).toBe(
-      "Site groups come from the v2fly domain list (MIT license)."
-    );
-
-    const groups = Array.from(listbox().querySelectorAll<HTMLElement>("[role='group']"));
-    expect(groups.map((g) => byId(g.getAttribute("aria-labelledby")!).textContent)).toEqual([
-      "Popular",
-      "All site groups",
-    ]);
-    // Featured in table order (google, youtube, netflix), then the rest A-Z.
-    expect(options().map((o) => o.querySelector(".entry-option-label")?.textContent)).toEqual([
-      "Google · 964 sites",
-      "YouTube · 178 sites",
-      "Netflix · 40 sites",
-      `category-ads-all · ${formatCount(6000)} sites`,
-      "google-cn · 12 sites",
-    ]);
-    expect(options()[0].querySelector(".entry-option-secondary")?.textContent).toBe(
-      "geosite:google"
-    );
-    expect(options()[3].querySelector(".entry-option-secondary")).toBeNull();
-    expect(options().every((o) => o.getAttribute("aria-selected") === "false")).toBe(true);
-    expect(sendMessage.mock.calls.map(([m]) => (m as unknown as { type: string }).type)).toEqual([
-      "GET_SITE_GROUP_INDEX",
-    ]);
-  });
-
-  test("arrow keys, Home and End move the active option", async () => {
-    await openPicker();
-    const active = () => input().getAttribute("aria-activedescendant");
-
-    key("ArrowDown");
-    expect(active()).toBe(options()[0].id);
-    expect(options()[0].getAttribute("aria-selected")).toBe("true");
-    expect(options()[0].classList.contains("active")).toBe(true);
-
-    key("ArrowDown");
-    expect(active()).toBe(options()[1].id);
-    expect(options()[0].getAttribute("aria-selected")).toBe("false");
-
-    key("ArrowUp");
-    expect(active()).toBe(options()[0].id);
-    key("ArrowUp");
-    expect(active()).toBe(options()[4].id);
-
-    expect(key("Home").defaultPrevented).toBe(true);
-    expect(active()).toBe(options()[0].id);
-    key("End");
-    expect(active()).toBe(options()[4].id);
-  });
-
-  test("Enter adds the active option", async () => {
-    await openPicker();
-    key("ArrowDown");
-    key("ArrowDown");
-    key("Enter");
-    await flush();
-    expect(onSubmit).toHaveBeenCalledWith(["geosite:youtube"], "group");
-    expect(input().value).toBe("");
-    expect(listbox().hidden).toBe(true);
-  });
-
-  test("typing searches; a typed @tag carries over to the chosen group", async () => {
-    await openPicker();
-    type("goo@cn");
-    expect(options().map((o) => o.querySelector(".entry-option-label")?.textContent)).toEqual([
-      "Google · 964 sites",
-      "google-cn · 12 sites",
-    ]);
-    key("ArrowDown");
-    key("Enter");
-    await flush();
-    expect(onSubmit).toHaveBeenCalledWith(["geosite:google@cn"], "group");
-  });
-
-  test("Enter with no active option adds the typed geosite:name@tag", async () => {
-    await openPicker();
-    type("geosite:Netflix@US");
-    key("Enter");
-    await flush();
-    expect(onSubmit).toHaveBeenCalledWith(["geosite:netflix@us"], "group");
-  });
-
-  test("a click adds the option, keeping focus in the input", async () => {
-    await openPicker();
-    const option = options()[2];
-    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
-    option.dispatchEvent(down);
-    expect(down.defaultPrevented).toBe(true);
-    option.querySelector<HTMLElement>(".entry-option-label")!.click();
-    await flush();
-    expect(onSubmit).toHaveBeenCalledWith(["geosite:netflix"], "group");
-  });
-
-  test("Escape closes it without bubbling; a second Escape bubbles", async () => {
-    await openPicker();
-    const outer = vi.fn();
-    document.body.addEventListener("keydown", outer);
-    const first = key("Escape");
-    expect(first.defaultPrevented).toBe(true);
-    expect(input().getAttribute("aria-expanded")).toBe("false");
-    expect(listbox().hidden).toBe(true);
-    expect(byId("scopeGroupAttribution").hidden).toBe(true);
-    expect(outer).not.toHaveBeenCalled();
-    key("Escape");
-    expect(outer).toHaveBeenCalledTimes(1);
-    document.body.removeEventListener("keydown", outer);
-  });
-
-  test("ArrowDown reopens it", async () => {
-    await openPicker();
-    key("Escape");
-    key("ArrowDown");
-    expect(input().getAttribute("aria-expanded")).toBe("true");
-    expect(input().getAttribute("aria-activedescendant")).toBe(options()[0].id);
-  });
-
-  test("says when nothing matches", async () => {
-    await openPicker();
-    type("qqqq");
-    expect(options()).toHaveLength(1);
-    expect(options()[0].getAttribute("aria-disabled")).toBe("true");
-    expect(options()[0].textContent).toBe("No site groups match qqqq");
-    key("ArrowDown");
-    expect(input().hasAttribute("aria-activedescendant")).toBe(false);
-  });
-
-  test("blur closes it", async () => {
-    await openPicker();
-    input().blur();
-    expect(listbox().hidden).toBe(true);
-    expect(input().getAttribute("aria-expanded")).toBe("false");
-  });
-});
-
 describe("a list from a link", () => {
   test("shows 'Downloading list…' and disables the control while the add runs", async () => {
     let finish: (result: EntrySubmitResult) => void = () => {};
@@ -500,14 +551,16 @@ describe("a list from a link", () => {
     );
     create();
     type("https://example.com/list.txt");
+    const name = describeEntry("list:https://example.com/list.txt", { unsaved: true }).title;
+    expect(rows()).toEqual([`${name} · List from a link`]);
     addButton().click();
     await flush();
 
     expect(addButton().textContent).toBe("Downloading list…");
     expect(addButton().disabled).toBe(true);
     expect(input().disabled).toBe(true);
-    expect(kindSelect().disabled).toBe(true);
     expect(input().getAttribute("aria-busy")).toBe("true");
+    expect(listbox().hidden).toBe(true);
 
     // A second press meanwhile does nothing.
     addButton().dispatchEvent(new MouseEvent("click"));
@@ -518,9 +571,25 @@ describe("a list from a link", () => {
     expect(addButton().textContent).toBe("Add");
     expect(addButton().disabled).toBe(false);
     expect(input().disabled).toBe(false);
-    expect(kindSelect().disabled).toBe(false);
     expect(input().hasAttribute("aria-busy")).toBe(false);
     expect(input().value).toBe("");
+  });
+
+  test("picking the link's suggestion shows the busy label too", async () => {
+    let finish: (result: EntrySubmitResult) => void = () => {};
+    onSubmit.mockImplementationOnce(
+      () => new Promise<EntrySubmitResult>((resolve) => (finish = resolve))
+    );
+    create();
+    type("https://example.com/list.txt");
+    key("ArrowDown");
+    key("Enter");
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["list:https://example.com/list.txt"], "link");
+    expect(addButton().textContent).toBe("Downloading list…");
+    finish({ ok: true });
+    await flush();
+    expect(addButton().textContent).toBe("Add");
   });
 
   test("a failed download keeps the link and shows why", async () => {
@@ -560,27 +629,42 @@ describe("where site groups are unavailable (Safari)", () => {
     gate.available = false;
   });
 
-  test("the exact, group and link kinds are not offered", () => {
+  test("twitch.tv suggests only the two typed readings, and asks for no index", async () => {
     create();
-    expect(Array.from(kindSelect().options).map((o) => o.value)).toEqual(["site", "subdomains"]);
+    type("twitch.tv");
+    await indexLoaded();
+    expect(rows()).toEqual([
+      "twitch.tv · Site and its subdomains",
+      "*.twitch.tv · Subdomains only",
+    ]);
+    expect(attribution().hidden).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    key("ArrowDown");
+    key("ArrowDown");
+    key("Enter");
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["*.twitch.tv"], "subdomains");
   });
 
-  test.each(["geosite:google", "=a.com", "*.example.com", "https://example.com/list.txt"])(
-    "typing %s picks nothing",
-    (value) => {
-      create();
-      type(value);
-      expect(kindSelect().value).toBe("site");
-      expect(input().hasAttribute("role")).toBe(false);
-    }
-  );
+  test.each([
+    "geosite:google",
+    "=a.com",
+    "*.example.com",
+    "https://example.com/list.txt",
+    "google",
+  ])("typing %s suggests nothing", (value) => {
+    create();
+    type(value);
+    expect(listbox().hidden).toBe(true);
+  });
 
-  test("the new forms are refused as typed patterns; typed ones still add", async () => {
+  test("the new forms are refused with 'Use a site like example.com.'; typed ones still add", async () => {
     create();
     type("geosite:google");
     addButton().click();
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(errorEl().textContent).toBe("Not a valid pattern");
+    expect(errorEl().textContent).toBe("Use a site like example.com.");
 
     type("*.ru");
     addButton().click();

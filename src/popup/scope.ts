@@ -171,9 +171,8 @@ function applyScopeLock(locked: boolean): void {
 
   // The add controls live inside the list manager (hidden in "all" mode, which
   // is what a locked user always sees), but disable them defensively too.
-  for (const id of ["scopeAddKind", "scopeAddInput", "scopeAddButton", "scopeAddCurrentButton"]) {
-    const el = document.getElementById(id) as
-      HTMLInputElement | HTMLSelectElement | HTMLButtonElement | null;
+  for (const id of ["scopeAddInput", "scopeAddButton", "scopeAddCurrentButton"]) {
+    const el = document.getElementById(id) as HTMLInputElement | HTMLButtonElement | null;
     if (el) el.disabled = locked;
   }
 }
@@ -395,9 +394,9 @@ function buildSiteRow(listKey: "allowlist" | "denylist", domain: string): HTMLEl
 }
 
 /**
- * Wire the add control (type menu, input, Add) for the active list mode. The
- * control is wired once per element and adds to `activeListKey`; switching
- * lists clears what was typed for the previous one.
+ * Wire the add control (input with suggestions, Add) for the active list
+ * mode. The control is wired once per element and adds to `activeListKey`;
+ * switching lists clears what was typed for the previous one.
  */
 function wireAddControls(mode: ScopeMode): void {
   const listKey = listKeyForMode(mode);
@@ -408,7 +407,6 @@ function wireAddControls(mode: ScopeMode): void {
 
   const control = createEntryAddControl({
     ids: {
-      kind: "scopeAddKind",
       input: "scopeAddInput",
       button: "scopeAddButton",
       listbox: "scopeGroupListbox",
