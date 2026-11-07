@@ -1,7 +1,8 @@
 /**
  * Popup Per-site locations (GeoSpoof/geospoof#177): the Main-tab line (only
- * when a site location applies), the Filters-tab "Per-site locations"
- * disclosure, the shared editor and its in-context hints, and the Details
+ * when a site location applies), the Filters root's Per-site locations row,
+ * the Per-site locations screen (site rows with their Filters marks), the
+ * editor on its own screen with its in-context hints, and the Details
  * readout, exercised in jsdom against the real assets/popup.html markup.
  */
 
@@ -12,6 +13,10 @@ import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 import {
   ENTRY_DUBLIN,
   ENTRY_MEXICO_CITY,
+  makeSiteLocation,
+  MEXICO_CITY,
+  MEXICO_CITY_NAME,
+  MEXICO_CITY_TZ,
   TOKYO,
   TOKYO_NAME,
   TOKYO_TZ,
@@ -36,6 +41,7 @@ import {
   renderSiteLocationsSection,
 } from "@/popup/site-locations";
 import { loadSettings } from "@/popup/settings";
+import { __resetFiltersNavForTest } from "@/popup/filters-nav";
 import {
   __resetPopupSiteGroupsForTest,
   loadCatalogIndex,
@@ -121,10 +127,6 @@ function isShown(id: string): boolean {
   return byId(id).closest("[hidden]") === null;
 }
 
-function disclosure(): HTMLDetailsElement {
-  return byId<HTMLDetailsElement>("siteLocationsDisclosure");
-}
-
 function messagesOfType(type: string): unknown[] {
   return sendMessage.mock.calls
     .map(([message]) => message as unknown as { type: string; payload?: unknown })
@@ -201,25 +203,51 @@ function showFiltersView(): void {
   byId("filtersView").style.display = "block";
 }
 
-/** Render both surfaces as loadSettings does. */
+/** Render every surface as loadSettings does. */
 function renderAll(settings: Settings, url: string | undefined, proLocked = false): void {
   renderSiteLocationLine(settings, url, proLocked);
   renderSiteLocationsSection(settings, url, proLocked);
   renderSiteLocationDetails(settings, url, proLocked);
 }
 
-/** The Filters-row Edit button of the entry with this id. */
-function rowEditButton(id: string): HTMLButtonElement {
-  const row = Array.from(byId("siteLocationsList").children).find(
+/** The Per-site locations screen's site row of the entry with this id; it opens the editor. */
+function siteRow(id: string): HTMLElement {
+  const item = Array.from(byId("siteLocationsList").children).find(
     (node) => (node as HTMLElement).dataset.siteLocationId === id
   );
-  const button = row?.querySelector<HTMLButtonElement>(".site-location-edit");
-  if (!button) throw new Error(`no Edit button for ${id}`);
-  return button;
+  const row = item?.querySelector<HTMLElement>(".site-row");
+  if (!row) throw new Error(`no row for ${id}`);
+  return row;
+}
+
+/** The Filters screens showing: root, list, Per-site locations, editor. */
+function shownScreens(): string[] {
+  return [
+    "filtersRoot",
+    "scopeListScreen",
+    "siteLocationsScreen",
+    "siteLocationEditorScreen",
+  ].filter((id) => !byId(id).hidden);
+}
+
+/** The editor's back row, as read: "Filters", "Per-site locations" or "Main". */
+function editorBackLabel(): string {
+  return text("siteLocationEditorBackLabel");
+}
+
+/** Stand in for index.ts's Main tab handler. */
+function wireMainTab(): ReturnType<typeof vi.fn> {
+  const toMain = vi.fn(() => {
+    byId("filtersView").style.display = "none";
+    byId("mainView").style.display = "block";
+  });
+  byId("mainTab").addEventListener("click", toMain);
+  return toMain;
 }
 
 beforeEach(() => {
   document.body.innerHTML = BODY;
+  __resetFiltersNavForTest();
   __resetSiteLocationsForTest();
   __resetPopupSiteGroupsForTest();
   sendMessage.mockReset();
@@ -445,261 +473,541 @@ describe("Main tab: the line when a site location applies", () => {
     expect(loadSettings).not.toHaveBeenCalled();
   });
 
-  test("'Edit' switches to Filters, expands the disclosure, and opens that entry", () => {
+  test("'Edit' switches to Filters and opens that entry, with '‹ Main' back to the line", () => {
     renderAll(makeSettings(), "https://chatgpt.com/c/1");
-    disclosure().open = false;
-    // Stand in for index.ts's tab handler. Focus landing in the editor below
+    // Stand in for index.ts's tab handlers. Focus landing in the editor below
     // also proves the tab switch happens before the editor opens.
     const onFiltersTab = vi.fn(showFiltersView);
     byId("filtersTab").addEventListener("click", onFiltersTab);
+    const toMain = wireMainTab();
 
     byId("siteLocationLineEdit").click();
 
     expect(onFiltersTab).toHaveBeenCalledTimes(1);
-    expect(disclosure().open).toBe(true);
+    expect(shownScreens()).toEqual(["siteLocationEditorScreen"]);
     expect(isShown("siteLocationEditor")).toBe(true);
+    expect(text("siteLocationEditorTitle")).toBe("Per-site location");
+    expect(editorBackLabel()).toBe("Main");
     expect(chipTitles()).toEqual(["chatgpt.com", "openai.com"]);
     expect(byId<HTMLInputElement>("siteLocationPatterns").value).toBe("");
     expect(chosenName()).toBe("Dublin");
-    expect(document.activeElement).toBe(byId("siteLocationPatterns"));
+    // An existing entry: focus on the screen's title.
+    expect(document.activeElement).toBe(byId("siteLocationEditorTitle"));
 
-    // Cancel returns focus to that entry's Edit button in the list.
+    // Cancel returns to the Main tab, with focus on Edit; Filters is back on its root.
     byId("siteLocationCancel").click();
-    expect(document.activeElement).toBe(rowEditButton(ENTRY_DUBLIN.id));
+    expect(toMain).toHaveBeenCalledTimes(1);
+    expect(shownScreens()).toEqual(["filtersRoot"]);
+    expect(document.activeElement).toBe(byId("siteLocationLineEdit"));
   });
 
-  test("renderSiteLocations reads the active tab and reports whether one applies", async () => {
-    vi.mocked(browser.tabs.query).mockResolvedValueOnce([
-      { url: "https://twitch.tv/x" } as browser.tabs.Tab,
-    ]);
-    await expect(renderSiteLocations(makeSettings(), false)).resolves.toBe(true);
-    expect(browser.tabs.query).toHaveBeenCalledWith({ active: true, currentWindow: true });
+  test.each<[string, () => void]>([
+    [
+      "Escape",
+      () => {
+        byId("siteLocationEditorTitle").dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+        );
+      },
+    ],
+    ["the back row", () => byId("siteLocationEditorBack").click()],
+  ])("%s returns an editor opened from Main to Main too", (_name, back) => {
+    renderAll(makeSettings(), "https://chatgpt.com/c/1");
+    byId("filtersTab").addEventListener("click", showFiltersView);
+    const toMain = wireMainTab();
+    byId("siteLocationLineEdit").click();
+    back();
+    expect(toMain).toHaveBeenCalledTimes(1);
+    expect(isShown("siteLocationEditor")).toBe(false);
+    expect(document.activeElement).toBe(byId("siteLocationLineEdit"));
+  });
+
+  test("renderSiteLocations renders every surface for the tab it's given", () => {
+    expect(renderSiteLocations(makeSettings(), false, "https://twitch.tv/x")).toBe(true);
+    // loadSettings reads the tab once; this module doesn't.
+    expect(browser.tabs.query).not.toHaveBeenCalled();
     expect(text("siteLocationLineStatus")).toBe("On twitch.tv: Mexico City");
     expect(text("detailSiteLocation")).toBe("Mexico City (twitch.tv) · America/Mexico_City");
+    expect(text("siteLocationsRowValue")).toBe("2 locations");
 
-    vi.mocked(browser.tabs.query).mockResolvedValueOnce([
-      { url: "https://example.com/" } as browser.tabs.Tab,
-    ]);
-    await expect(renderSiteLocations(makeSettings(), false)).resolves.toBe(false);
+    expect(renderSiteLocations(makeSettings(), false, "https://example.com/")).toBe(false);
     expect(byId("siteLocationLine").hidden).toBe(true);
     expect(byId("detailSiteLocationSection").hidden).toBe(true);
   });
 });
 
-describe("Filters tab: the Per-site locations disclosure", () => {
-  test("is a native <details> at the bottom of the Filters tab, after the filter list", () => {
-    const details = disclosure();
-    expect(details.tagName).toBe("DETAILS");
-    expect(details.firstElementChild?.tagName).toBe("SUMMARY");
-    expect(byId("filtersView").lastElementChild).toBe(details);
-    expect(byId("scopeListManager").compareDocumentPosition(details)).toBe(
+describe("Filters root: the Per-site locations row", () => {
+  test("is a group of its own, after the list's row, at the end of the root", () => {
+    const card = byId("siteLocationsCard");
+    expect(card.classList.contains("drill-card-separate")).toBe(true);
+    expect(byId("filtersRoot").lastElementChild).toBe(card);
+    expect(byId("scopeListCard").compareDocumentPosition(card)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
-    // A plain divider ends the Filters group, so in list modes the bar can't
-    // read as another Filters bar like "What patterns can I use?".
-    expect(details.previousElementSibling?.matches("hr.section-divider")).toBe(true);
+    expect(byId("siteLocationsRow").getAttribute("role")).toBe("button");
+    expect(byId("siteLocationsRow").getAttribute("tabindex")).toBe("0");
   });
 
-  test("with no entries: collapsed, no count chip, no empty box, a quiet label", () => {
-    renderSiteLocationsSection(makeSettings({ siteLocations: [] }), undefined, false);
-    const details = disclosure();
-    expect(details.open).toBe(false);
-    expect(byId("siteLocationsCount").hidden).toBe(true);
-    expect(document.getElementById("siteLocationsEmpty")).toBeNull();
-    expect(details.querySelector(".scope-empty, .scope-list-title, .section-heading")).toBeNull();
-
-    const summary = details.querySelector("summary")!;
-    expect(summary.textContent).toContain("Per-site locations");
-    expect(summary.textContent).not.toContain("optional");
-    expect(summary.textContent).toContain("Use a different location on specific sites.");
-    expect(summary.querySelector("[aria-hidden='true']")?.textContent).toBe("▶");
+  test.each<[string, SiteLocation[], string]>([
+    ["no entries", [], "None"],
+    ["one entry", [ENTRY_DUBLIN], "1 location"],
+    ["two entries", [ENTRY_DUBLIN, ENTRY_MEXICO_CITY], "2 locations"],
+  ])("with %s it reads '%s'", (_name, siteLocations, value) => {
+    renderSiteLocationsSection(makeSettings({ siteLocations }), undefined, false);
+    expect(text("siteLocationsRow").replace(/\s+/g, " ")).toBe(`Per-site locations ${value} ›`);
+    expect(text("siteLocationsRowValue")).toBe(value);
+    expect(byId("siteLocationsRowChev").getAttribute("aria-hidden")).toBe("true");
+    expect(byId("siteLocationsRow").hasAttribute("aria-disabled")).toBe(false);
   });
 
-  test("with entries: starts expanded with the count", () => {
-    renderSiteLocationsSection(makeSettings(), undefined, false);
-    expect(disclosure().open).toBe(true);
-    expect(byId("siteLocationsCount").hidden).toBe(false);
-    expect(text("siteLocationsCount")).toBe("2");
+  test("opens the Per-site locations screen with focus on its title; back returns to the row", () => {
+    showFiltersView();
+    renderAll(makeSettings(), "https://example.com/");
+    const row = byId("siteLocationsRow");
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
+    expect(document.activeElement).toBe(byId("siteLocationsTitle"));
+    expect(text("siteLocationsTitle")).toBe("Per-site locations");
+
+    byId("siteLocationsBack").click();
+    expect(shownScreens()).toEqual(["filtersRoot"]);
+    expect(document.activeElement).toBe(row);
   });
 
-  test("the summary toggles it, and later renders leave the user's choice alone", () => {
-    renderSiteLocationsSection(makeSettings(), undefined, false);
-    const summary = disclosure().querySelector("summary")!;
-    summary.click();
-    expect(disclosure().open).toBe(false);
-    renderSiteLocationsSection(makeSettings(), undefined, false);
-    expect(disclosure().open).toBe(false);
+  test("locked (Safari without Pro): focusable, described by the Pro note, and inert (H-8)", () => {
+    showFiltersView();
+    renderAll(makeSettings(), "https://example.com/", true);
+    const row = byId("siteLocationsRow");
+    expect(row.getAttribute("tabindex")).toBe("0");
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    expect(row.getAttribute("aria-describedby")).toBe("scopeProNote");
+    expect(text("siteLocationsRowChev")).toBe("🔒");
+    expect(text("siteLocationsRowValue")).toBe("2 locations");
 
-    summary.click();
-    expect(disclosure().open).toBe(true);
-    renderSiteLocationsSection(makeSettings({ siteLocations: [] }), undefined, false);
-    expect(disclosure().open).toBe(true);
+    row.click();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(shownScreens()).toEqual(["filtersRoot"]);
+
+    // Unlocked again, it opens.
+    renderAll(makeSettings(), "https://example.com/", false);
+    expect(row.hasAttribute("aria-disabled")).toBe(false);
+    expect(row.hasAttribute("aria-describedby")).toBe(false);
+    expect(text("siteLocationsRowChev")).toBe("›");
+    row.click();
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
   });
+});
 
-  test("expanded: the list, then 'Set a location for a site' (not a full-width filter action)", () => {
+describe("the Per-site locations screen", () => {
+  /** Scenario S (direction.md 5.0): Allowlist, Paris on example.com, Los Angeles on twitch.tv. */
+  const PARIS = makeSiteLocation({
+    id: "paris",
+    patterns: ["example.com"],
+    locationName: { city: "Paris", country: "France", displayName: "Paris, France" },
+  });
+  const LOS_ANGELES = makeSiteLocation({
+    id: "la",
+    patterns: ["twitch.tv"],
+    location: MEXICO_CITY,
+    timezone: MEXICO_CITY_TZ,
+    locationName: { ...MEXICO_CITY_NAME, city: "Los Angeles", displayName: "Los Angeles" },
+  });
+  const SCENARIO_S: Partial<Settings> = {
+    scopeMode: "allowlist",
+    allowlist: ["example.com", "=mail.example.com", GOOGLE_TOKEN, "*.ru"],
+    siteLocations: [PARIS, LOS_ANGELES],
+  };
+
+  function rowTexts(): Array<{ host: string; value: string; sub: string | null }> {
+    return Array.from(byId("siteLocationsList").querySelectorAll(".site-row")).map((row) => ({
+      host: row.querySelector(".site-row-host")?.textContent ?? "",
+      value: row.querySelector(".site-row-value")?.textContent ?? "",
+      sub: row.querySelector(".site-row-sub")?.textContent ?? null,
+    }));
+  }
+
+  function markOf(id: string): Element | null {
+    return siteRow(id).querySelector(".site-row-sub");
+  }
+
+  test("a title, the caption, '＋ Set a location for …', then the list", () => {
     renderSiteLocationsSection(makeSettings(), "https://example.com/", false);
+    const screen = byId("siteLocationsScreen");
+    expect(screen.firstElementChild).toBe(byId("siteLocationsBack"));
+    expect(text("siteLocationsBack").replace(/\s+/g, " ")).toBe("‹ Filters");
+    expect(screen.querySelector(".view-caption")?.textContent?.trim()).toBe(
+      "Use a different location on specific sites."
+    );
     const add = byId("siteLocationsAddButton");
-    expect(text("siteLocationsAddButton")).toBe("Set a location for a site");
-    expect(add.classList.contains("scope-add-current")).toBe(false);
-    expect(byId("siteLocationsList").compareDocumentPosition(add)).toBe(
+    expect(add.classList.contains("primary-add")).toBe(true);
+    expect(add.querySelector(".primary-add-plus")?.getAttribute("aria-hidden")).toBe("true");
+    expect(add.compareDocumentPosition(byId("siteLocationsList"))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
-    expect(isShown("siteLocationsAddRow")).toBe(true);
-    expect(isShown("siteLocationsProNote")).toBe(false);
   });
 
-  test("lists entries with names, sites, a monogram, and labelled actions", () => {
+  test("each entry is one site row: its sites, its place and a ›; no ✕ and no badge", () => {
     renderSiteLocationsSection(makeSettings(), undefined, false);
-    const rows = byId("siteLocationsList").querySelectorAll('[role="listitem"]');
-    expect(rows).toHaveLength(2);
-    expect(rows[0].querySelector(".site-location-name")?.textContent).toBe("Dublin");
-    expect(rows[0].querySelector(".site-location-patterns")?.textContent).toBe(
-      "chatgpt.com, openai.com"
+    const items = byId("siteLocationsList").querySelectorAll('[role="listitem"]');
+    expect(items).toHaveLength(2);
+    expect(rowTexts()).toEqual([
+      { host: "chatgpt.com, openai.com", value: "Dublin", sub: null },
+      { host: "twitch.tv", value: "Mexico City", sub: null },
+    ]);
+    const row = siteRow(ENTRY_DUBLIN.id);
+    expect(row.getAttribute("role")).toBe("button");
+    expect(row.getAttribute("tabindex")).toBe("0");
+    expect(row.querySelector(".site-row-host")?.innerHTML).toBe(
+      "chatgpt.<wbr>com, openai.<wbr>com"
     );
-    expect(rows[0].querySelector(".scope-site-icon")).not.toBeNull();
-    expect(rows[0].querySelector(".site-location-edit")?.getAttribute("aria-label")).toBe(
-      "Edit location Dublin"
+    expect(row.querySelector(".site-row-trail")?.textContent).toBe("Dublin\u00A0›");
+    // Its description says what opening does.
+    const descId = row.getAttribute("aria-describedby")!;
+    expect(document.getElementById(descId)?.textContent).toBe(
+      "Change the location for chatgpt.com, openai.com"
     );
-    expect(rows[1].querySelector(".scope-site-remove")?.getAttribute("aria-label")).toBe(
-      "Remove location Mexico City"
-    );
+    expect(document.getElementById(descId)?.classList.contains("visually-hidden")).toBe(true);
+    expect(byId("siteLocationsList").querySelector("button, .scope-site-icon")).toBeNull();
   });
 
-  test("remove is optimistic and reverts on failure", async () => {
-    renderSiteLocationsSection(makeSettings(), undefined, false);
-    sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
-    const remove = byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove");
-    remove!.click();
-    expect(byId("siteLocationsList").children).toHaveLength(1);
-    expect(text("siteLocationsCount")).toBe("1");
+  test("a row opens its entry in the editor, '‹ Per-site locations', focus on the title", () => {
+    showFiltersView();
+    renderAll(makeSettings(), "https://example.com/");
+    byId("siteLocationsRow").click();
+    const row = siteRow(ENTRY_DUBLIN.id);
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(shownScreens()).toEqual(["siteLocationEditorScreen"]);
+    expect(text("siteLocationEditorTitle")).toBe("Per-site location");
+    expect(editorBackLabel()).toBe("Per-site locations");
+    expect(document.activeElement).toBe(byId("siteLocationEditorTitle"));
+    expect(chipTitles()).toEqual(["chatgpt.com", "openai.com"]);
+    expect(isShown("siteLocationRemove")).toBe(true);
+
+    // Cancel, Escape and the back row each return to the screen, on the row.
+    byId("siteLocationCancel").click();
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
+    expect(document.activeElement).toBe(row);
+
+    row.click();
+    byId("siteLocationSearch").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    );
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
+    expect(document.activeElement).toBe(row);
+
+    row.click();
+    byId("siteLocationEditorBack").click();
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
+    expect(document.activeElement).toBe(row);
+  });
+
+  describe("marks: when Filters keep a location from being used (M2, M13)", () => {
+    test("Scenario S: twitch.tv isn't in the Allowlist, so 'Not used · Off in Filters'", async () => {
+      const settings = makeSettings(SCENARIO_S);
+      await loadGroups(settings);
+      renderSiteLocationsSection(settings, "https://www.twitch.tv/", false);
+      expect(rowTexts()).toEqual([
+        { host: "example.com", value: "Paris", sub: null },
+        { host: "twitch.tv", value: "Los Angeles", sub: "⚠ Not used · Off in Filters" },
+      ]);
+      const mark = markOf("la")!;
+      expect(mark.classList.contains("warn")).toBe(true);
+      expect(mark.querySelector("[aria-hidden='true']")?.textContent).toBe("⚠ ");
+    });
+
+    test("an entry with several sites names the ones that are off", () => {
+      const both = makeSiteLocation({ id: "both", patterns: ["twitch.tv", "kick.com"] });
+      renderSiteLocationsSection(
+        makeSettings({ scopeMode: "allowlist", allowlist: ["kick.com"], siteLocations: [both] }),
+        undefined,
+        false
+      );
+      expect(markOf("both")?.textContent).toBe("⚠ Not used on twitch.tv · Off in Filters");
+    });
+
+    test("more than two: the first two, then how many more", () => {
+      const many = makeSiteLocation({
+        id: "many",
+        patterns: ["a.com", "b.com", "c.com", "d.com", "e.com"],
+      });
+      renderSiteLocationsSection(
+        makeSettings({ scopeMode: "allowlist", allowlist: ["x.com"], siteLocations: [many] }),
+        undefined,
+        false
+      );
+      expect(markOf("many")?.textContent).toBe(
+        "⚠ Not used on a.com, b.com and 3 more · Off in Filters"
+      );
+    });
+
+    // M13: the group's sites do use the place, so the mark names twitch.tv only.
+    test("a site group in the Allowlist keeps the entry in use; only twitch.tv is named", async () => {
+      const mixed = makeSiteLocation({ id: "mixed", patterns: ["twitch.tv", GOOGLE_TOKEN] });
+      const settings = makeSettings({
+        scopeMode: "allowlist",
+        allowlist: [GOOGLE_TOKEN],
+        siteLocations: [mixed],
+      });
+      await loadGroups(settings);
+      renderSiteLocationsSection(settings, undefined, false);
+      expect(markOf("mixed")?.textContent).toBe("⚠ Not used on twitch.tv · Off in Filters");
+    });
+
+    test("an Allowlist entry with a path covers only some pages", () => {
+      renderSiteLocationsSection(
+        makeSettings({
+          scopeMode: "allowlist",
+          allowlist: ["example.com/app/*"],
+          siteLocations: [PARIS],
+        }),
+        undefined,
+        false
+      );
+      expect(markOf("paris")?.textContent).toBe("⚠ Used on some pages only");
+    });
+
+    test("Denylist: a listed site is not used, a listed path is some pages, the rest none", () => {
+      renderSiteLocationsSection(
+        makeSettings({
+          scopeMode: "denylist",
+          denylist: ["twitch.tv", "example.com/app/*"],
+          siteLocations: [PARIS, LOS_ANGELES, ENTRY_DUBLIN],
+        }),
+        undefined,
+        false
+      );
+      expect(markOf("la")?.textContent).toBe("⚠ Not used · Off in Filters");
+      expect(markOf("paris")?.textContent).toBe("⚠ Used on some pages only");
+      expect(markOf(ENTRY_DUBLIN.id)).toBeNull();
+    });
+
+    test("All sites mode marks nothing, and only the active list counts", () => {
+      renderSiteLocationsSection(
+        makeSettings({ scopeMode: "all", allowlist: [], siteLocations: [PARIS, LOS_ANGELES] }),
+        undefined,
+        false
+      );
+      expect(rowTexts().map((row) => row.sub)).toEqual([null, null]);
+
+      renderSiteLocationsSection(
+        makeSettings({
+          scopeMode: "denylist",
+          denylist: [],
+          allowlist: [],
+          siteLocations: [PARIS, LOS_ANGELES],
+        }),
+        undefined,
+        false
+      );
+      expect(rowTexts().map((row) => row.sub)).toEqual([null, null]);
+    });
+  });
+
+  describe("'＋ Set a location for <site>'", () => {
+    test("names this site, without www., when it has no entry of its own", () => {
+      showFiltersView();
+      renderAll(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), "https://www.twitch.tv/x");
+      expect(text("siteLocationsAddLabel")).toBe("Set a location for twitch.tv");
+
+      byId("siteLocationsAddButton").click();
+      expect(shownScreens()).toEqual(["siteLocationEditorScreen"]);
+      expect(text("siteLocationEditorTitle")).toBe("New per-site location");
+      expect(editorBackLabel()).toBe("Per-site locations");
+      expect(chipTitles()).toEqual(["twitch.tv"]);
+      expect(isShown("siteLocationRemove")).toBe(false);
+      // The site is there, so the place is what's left (S6).
+      expect(document.activeElement).toBe(byId("siteLocationSearch"));
+    });
+
+    test.each<[string, Partial<Settings>, string]>([
+      ["the site already has an entry", {}, "https://twitch.tv/"],
+      ["a restricted page", {}, "about:blank"],
+      ["the options page", {}, "moz-extension://test/popup/popup.html"],
+    ])("is generic when %s, and opens with no sites", (_name, overrides, url) => {
+      showFiltersView();
+      renderAll(makeSettings(overrides), url);
+      expect(text("siteLocationsAddLabel")).toBe("Set a location for a site");
+      byId("siteLocationsAddButton").click();
+      expect(chipTitles()).toEqual([]);
+      expect(document.activeElement).toBe(byId("siteLocationPatterns"));
+    });
+  });
+});
+
+describe("Editor: Remove", () => {
+  const RELOAD = "Reload affected pages to apply the change.";
+
+  async function announced(): Promise<string> {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return text("siteLocationAnnouncer");
+  }
+
+  function openRow(id: string, url = "https://example.com/"): void {
+    showFiltersView();
+    renderAll(makeSettings(), url);
+    byId("siteLocationsRow").click();
+    siteRow(id).click();
+  }
+
+  test("removes the entry, returns to Per-site locations, and focuses the reload hint", async () => {
+    openRow(ENTRY_DUBLIN.id);
+    const remove = byId("siteLocationRemove");
+    expect(remove.textContent?.trim()).toBe("Remove location");
+    expect(byId("siteLocationEditor").lastElementChild).toBe(remove);
+
+    sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
+    vi.mocked(loadSettings).mockImplementationOnce(() => {
+      renderAll(makeSettings({ siteLocations: [ENTRY_MEXICO_CITY] }), "https://example.com/");
+      return Promise.resolve();
+    });
+    remove.focus();
+    remove.click();
     await flush();
 
     expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([{ id: ENTRY_DUBLIN.id }]);
-    expect(byId("siteLocationsList").children).toHaveLength(2);
-    expect(byId("siteLocationsList").firstElementChild?.textContent).toContain("Dublin");
-    expect(text("siteLocationsCount")).toBe("2");
-    expect(isShown("siteLocationsError")).toBe(true);
-    expect(loadSettings).not.toHaveBeenCalled();
-  });
-
-  test("removing the last entry hides the count chip", () => {
-    renderSiteLocationsSection(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), undefined, false);
-    sendMessage.mockReturnValue(new Promise(() => {}));
-    byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
-    expect(byId("siteLocationsCount").hidden).toBe(true);
-  });
-
-  test("a successful remove reloads, then shows the reload hint in the disclosure", async () => {
-    renderAll(makeSettings(), "https://example.com/");
-    sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
-    byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
-    await flush();
-    expect(loadSettings).toHaveBeenCalled();
-    expect(isShown("siteLocationsError")).toBe(false);
-
-    renderAll(makeSettings({ siteLocations: [ENTRY_MEXICO_CITY] }), "https://example.com/");
+    expect(loadSettings).toHaveBeenCalledTimes(1);
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
     expect(isShown("siteLocationsReloadHint")).toBe(true);
-    expect(byId("siteLocationLine").hidden).toBe(true);
+    expect(document.activeElement).toBe(byId("siteLocationsReloadHint"));
+    expect(await announced()).toBe(RELOAD);
   });
 
-  describe("focus after removing an entry", () => {
-    function removeButtonOf(id: string): HTMLButtonElement {
-      const row = Array.from(byId("siteLocationsList").children).find(
-        (node) => (node as HTMLElement).dataset.siteLocationId === id
-      );
-      const button = row?.querySelector<HTMLButtonElement>(".scope-site-remove");
-      if (!button) throw new Error(`no remove button for ${id}`);
-      return button;
-    }
-
-    /** Remove `id` successfully, with loadSettings re-rendering `remaining`. */
-    async function removeWithRerender(id: string, remaining: Settings["siteLocations"]) {
-      sendMessage.mockResolvedValue({ success: true, id });
-      vi.mocked(loadSettings).mockImplementationOnce(() => {
-        renderAll(makeSettings({ siteLocations: remaining }), "https://example.com/");
-        return Promise.resolve();
-      });
-      const remove = removeButtonOf(id);
-      remove.focus();
-      remove.click();
-      await flush();
-    }
-
-    test("removing the first of two focuses the remaining row's Edit, not its ✕", async () => {
-      showFiltersView();
-      renderAll(makeSettings(), "https://example.com/");
-      await removeWithRerender(ENTRY_DUBLIN.id, [ENTRY_MEXICO_CITY]);
-      expect(document.activeElement).toBe(rowEditButton(ENTRY_MEXICO_CITY.id));
-    });
-
-    test("removing the last row focuses the row before it", async () => {
-      showFiltersView();
-      renderAll(makeSettings(), "https://example.com/");
-      await removeWithRerender(ENTRY_MEXICO_CITY.id, [ENTRY_DUBLIN]);
-      expect(document.activeElement).toBe(rowEditButton(ENTRY_DUBLIN.id));
-    });
-
-    test("removing the only entry focuses 'Set a location for a site'", async () => {
-      showFiltersView();
-      renderAll(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), "https://example.com/");
-      await removeWithRerender(ENTRY_DUBLIN.id, []);
-      expect(document.activeElement).toBe(byId("siteLocationsAddButton"));
-    });
-
-    test("a failed remove puts focus back on the restored ✕", async () => {
-      showFiltersView();
-      renderAll(makeSettings(), "https://example.com/");
-      sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
-      const remove = removeButtonOf(ENTRY_DUBLIN.id);
-      remove.focus();
-      remove.click();
-      await flush();
-      expect(remove.isConnected).toBe(true);
-      expect(document.activeElement).toBe(remove);
-    });
+  test("a failed remove keeps the editor and focus, and says the change wasn't saved", async () => {
+    openRow(ENTRY_DUBLIN.id);
+    const remove = byId("siteLocationRemove");
+    sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
+    remove.focus();
+    remove.click();
+    await flush();
+    expect(shownScreens()).toEqual(["siteLocationEditorScreen"]);
+    expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
+    expect(document.activeElement).toBe(remove);
+    expect(remove.hasAttribute("aria-disabled")).toBe(false);
+    expect(loadSettings).not.toHaveBeenCalled();
+    expect(await announced()).toBe("");
   });
 
-  test("doesn't change Filters' 'Add current site' control", () => {
-    renderSiteLocationsSection(makeSettings(), undefined, false);
-    expect(byId("scopeAddCurrentButton").closest("#scopeListManager")).not.toBeNull();
-    expect(byId("scopeAddCurrentButton").closest("#siteLocationsDisclosure")).toBeNull();
+  test("while it's in flight a second press sends nothing, and Remove keeps focus", async () => {
+    openRow(ENTRY_DUBLIN.id);
+    const remove = byId<HTMLButtonElement>("siteLocationRemove");
+    let finish: (reply: unknown) => void = () => {};
+    sendMessage.mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    remove.focus();
+    remove.click();
+    remove.click();
+    expect(messagesOfType("REMOVE_SITE_LOCATION")).toHaveLength(1);
+    expect(remove.getAttribute("aria-disabled")).toBe("true");
+    expect(remove.disabled).toBe(false);
+    expect(document.activeElement).toBe(remove);
+    finish({ success: true, id: ENTRY_DUBLIN.id });
+    await flush();
+    expect(remove.hasAttribute("aria-disabled")).toBe(false);
+  });
+
+  test("from Main, it returns to Main with the line's reload hint", async () => {
+    renderAll(makeSettings(), "https://twitch.tv/");
+    byId("filtersTab").addEventListener("click", showFiltersView);
+    const toMain = wireMainTab();
+    byId("siteLocationLineEdit").click();
+    sendMessage.mockResolvedValue({ success: true, id: ENTRY_MEXICO_CITY.id });
+    vi.mocked(loadSettings).mockImplementationOnce(() => {
+      renderAll(makeSettings({ siteLocations: [ENTRY_DUBLIN] }), "https://twitch.tv/");
+      return Promise.resolve();
+    });
+    byId("siteLocationRemove").click();
+    await flush();
+    expect(toMain).toHaveBeenCalledTimes(1);
+    expect(isShown("siteLocationLineReloadHint")).toBe(true);
+    expect(document.activeElement).toBe(byId("siteLocationLineReloadHint"));
+    expect(isShown("siteLocationsReloadHint")).toBe(false);
+  });
+
+  test("a new entry has no Remove", () => {
+    showFiltersView();
+    renderAll(makeSettings(), "https://example.com/");
+    byId("siteLocationsAddButton").click();
+    expect(isShown("siteLocationRemove")).toBe(false);
   });
 });
 
-describe("Safari Pro lock", () => {
-  test("only the collapsed disclosure; the Pro note lives inside it", async () => {
-    vi.mocked(browser.tabs.query).mockResolvedValueOnce([
-      { url: "https://twitch.tv/" } as browser.tabs.Tab,
-    ]);
-    await expect(renderSiteLocations(makeSettings(), true)).resolves.toBe(false);
+describe("Editor: Save returns to where it was opened from", () => {
+  test("from a row: back on Per-site locations, focus on the entry's new row, the reload hint", async () => {
+    showFiltersView();
+    renderAll(makeSettings(), "https://example.com/");
+    byId("siteLocationsRow").click();
+    siteRow(ENTRY_DUBLIN.id).click();
+    chipRemoveButton("openai.com").click();
+    sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
+    // The reload rebuilds the list, so the row that opened the editor is gone.
+    vi.mocked(loadSettings).mockImplementationOnce(() => {
+      renderAll(
+        makeSettings({
+          siteLocations: [{ ...ENTRY_DUBLIN, patterns: ["chatgpt.com"] }, ENTRY_MEXICO_CITY],
+        }),
+        "https://example.com/"
+      );
+      return Promise.resolve();
+    });
+    saveButton().click();
+    await flush();
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
+    expect(isShown("siteLocationsReloadHint")).toBe(true);
+    expect(document.activeElement).toBe(siteRow(ENTRY_DUBLIN.id));
+  });
 
-    // Nothing on Main or Details.
+  test("from Main: back on the Main tab, with the line's reload hint", async () => {
+    renderAll(makeSettings(), "https://twitch.tv/");
+    byId("filtersTab").addEventListener("click", showFiltersView);
+    const toMain = wireMainTab();
+    byId("siteLocationLineEdit").click();
+    pickFavoriteAfterClearing();
+    sendMessage.mockResolvedValue({ success: true, id: ENTRY_MEXICO_CITY.id });
+    vi.mocked(loadSettings).mockImplementationOnce(() => {
+      renderAll(makeSettings(), "https://twitch.tv/");
+      return Promise.resolve();
+    });
+    saveButton().click();
+    await flush();
+    expect(toMain).toHaveBeenCalledTimes(1);
+    expect(shownScreens()).toEqual(["filtersRoot"]);
+    expect(isShown("siteLocationLineReloadHint")).toBe(true);
+    expect(isShown("siteLocationsReloadHint")).toBe(false);
+    // The line still applies, so focus is back on its Edit.
+    expect(document.activeElement).toBe(byId("siteLocationLineEdit"));
+  });
+
+  /** Swap the existing entry's place for the favorite. */
+  function pickFavoriteAfterClearing(): void {
+    chosenRemoveButton().click();
+    pickFavorite(FAVORITE.id);
+  }
+});
+
+describe("Safari Pro lock", () => {
+  test("nothing on Main or Details, and the root's row is locked", () => {
+    expect(renderSiteLocations(makeSettings(), true, "https://twitch.tv/")).toBe(false);
     expect(byId("siteLocationLine").hidden).toBe(true);
     expect(byId("detailSiteLocationSection").hidden).toBe(true);
-
-    // Collapsed, even with entries; the note is inside it.
-    expect(disclosure().open).toBe(false);
-    expect(disclosure().contains(byId("siteLocationsProNote"))).toBe(true);
-    expect(byId("siteLocationsProNote").hidden).toBe(false);
-
-    // Expanded: the note shows, and every control is disabled.
-    disclosure().open = true;
-    expect(isShown("siteLocationsProNote")).toBe(true);
+    expect(byId("siteLocationsRow").getAttribute("aria-disabled")).toBe("true");
     expect(byId<HTMLButtonElement>("siteLocationsAddButton").disabled).toBe(true);
-    byId("siteLocationsList")
-      .querySelectorAll<HTMLButtonElement>("button")
-      .forEach((button) => expect(button.disabled).toBe(true));
 
     byId("siteLocationsAddButton").click();
     expect(isShown("siteLocationEditor")).toBe(false);
   });
 
-  test("locking closes an open editor", () => {
+  test("locking closes an open editor and leaves the Per-site locations screen", () => {
+    showFiltersView();
     renderAll(makeSettings(), "https://example.com/");
+    byId("siteLocationsRow").click();
     byId("siteLocationsAddButton").click();
     expect(isShown("siteLocationEditor")).toBe(true);
     renderAll(makeSettings(), "https://example.com/", true);
     expect(isShown("siteLocationEditor")).toBe(false);
+    expect(shownScreens()).toEqual(["filtersRoot"]);
   });
 });
 
@@ -714,7 +1022,7 @@ describe("Editor", () => {
     openFromAdd();
     const input = byId<HTMLInputElement>("siteLocationPatterns");
     expect(isShown("siteLocationEditor")).toBe(true);
-    expect(disclosure().contains(byId("siteLocationEditor"))).toBe(true);
+    expect(byId("siteLocationEditorScreen").contains(byId("siteLocationEditor"))).toBe(true);
     expect(chipTitles()).toEqual(["example.com"]);
     expect(input.value).toBe("");
     expect(input.readOnly).toBe(false);
@@ -750,12 +1058,13 @@ describe("Editor", () => {
     expect(text("siteLocationExplain")).not.toMatch(/main location|embedded/i);
   });
 
-  test("the add row hides while the editor is open, and Cancel brings it and focus back", () => {
+  test("the editor is a screen of its own; Cancel returns to Per-site locations and the button", () => {
     openFromAdd();
-    expect(isShown("siteLocationsAddRow")).toBe(false);
+    expect(shownScreens()).toEqual(["siteLocationEditorScreen"]);
+    expect(isShown("siteLocationsAddButton")).toBe(false);
     byId("siteLocationCancel").click();
     expect(isShown("siteLocationEditor")).toBe(false);
-    expect(isShown("siteLocationsAddRow")).toBe(true);
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
     expect(document.activeElement).toBe(byId("siteLocationsAddButton"));
   });
 
@@ -856,8 +1165,7 @@ describe("Editor", () => {
 
   test("a pattern-only edit keeps the stored place (no locationName or label sent)", async () => {
     renderSiteLocationsSection(makeSettings(), "https://example.com/", false);
-    rowEditButton(ENTRY_DUBLIN.id).click();
-    expect(isShown("siteLocationsAddRow")).toBe(false);
+    siteRow(ENTRY_DUBLIN.id).click();
     chipRemoveButton("openai.com").click();
     sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
     byId("siteLocationSave").click();
@@ -924,6 +1232,7 @@ describe("Editor", () => {
       "siteLocationEditOwner",
       "siteLocationSave",
       "siteLocationCancel",
+      "siteLocationRemove",
     ];
     const BERLIN = {
       name: "Berlin, Germany",
@@ -1023,7 +1332,7 @@ describe("Editor", () => {
       byId("siteLocationResults").querySelector("button")!.click();
       expect(byId("siteLocationFavoritesList").children).toHaveLength(0);
       chosenRemoveButton().click();
-      rowEditButton(ENTRY_DUBLIN.id).click();
+      siteRow(ENTRY_DUBLIN.id).click();
       expect(chosenName()).toBe("Work");
       expect(chipTitles()).toEqual(["example.com"]);
 
@@ -1079,53 +1388,40 @@ describe("Editor", () => {
       expect(text("siteLocationErrorText")).toBe("⚠ Change not saved");
     });
 
-    function rowRemoveButton(id: string): HTMLButtonElement {
-      const row = Array.from(byId("siteLocationsList").children).find(
-        (node) => (node as HTMLElement).dataset.siteLocationId === id
-      );
-      const button = row?.querySelector<HTMLButtonElement>(".scope-site-remove");
-      if (!button) throw new Error(`no remove button for ${id}`);
-      return button;
-    }
-
     // A remove sent now would reach the background before the save, which
     // would then be refused as superseded.
-    test("the edited entry's ✕ and 'Use main location' wait for it; other rows don't", async () => {
+    test("'Use main location' and the editor's Remove wait for a save of that entry", async () => {
       showFiltersView();
       renderAll(makeSettings(), "https://twitch.tv/");
-      rowEditButton(ENTRY_MEXICO_CITY.id).click();
+      siteRow(ENTRY_MEXICO_CITY.id).click();
       const held = holdReplies();
       byId("siteLocationSave").click();
       await flush();
 
       const useMain = byId<HTMLButtonElement>("siteLocationLineUseMain");
-      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(true);
-      expect(rowRemoveButton(ENTRY_DUBLIN.id).disabled).toBe(false);
       expect(isShown("siteLocationLineUseMain")).toBe(true);
       expect(useMain.disabled).toBe(true);
+      expect(byId<HTMLButtonElement>("siteLocationRemove").disabled).toBe(true);
 
-      // A re-render meanwhile keeps them off.
+      // A re-render meanwhile keeps it off.
       renderAll(makeSettings(), "https://twitch.tv/");
-      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(true);
-      expect(rowRemoveButton(ENTRY_DUBLIN.id).disabled).toBe(false);
       expect(useMain.disabled).toBe(true);
 
-      rowRemoveButton(ENTRY_MEXICO_CITY.id).click();
       // A dispatched click reaches the listener even on a disabled button.
       useMain.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      byId("siteLocationRemove").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await flush();
       expect(messagesOfType("REMOVE_SITE_LOCATION")).toEqual([]);
 
       held.save({ success: true, id: ENTRY_MEXICO_CITY.id });
       await flush();
-      expect(rowRemoveButton(ENTRY_MEXICO_CITY.id).disabled).toBe(false);
       expect(useMain.disabled).toBe(false);
     });
 
     test("a save that lands after the Pro lock closed its editor still reloads and announces", async () => {
       showFiltersView();
       renderAll(makeSettings(), "https://example.com/");
-      rowEditButton(ENTRY_DUBLIN.id).click();
+      siteRow(ENTRY_DUBLIN.id).click();
       const held = holdReplies();
       byId("siteLocationSave").click();
       await flush();
@@ -1205,12 +1501,12 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     const settings = makeSettings({ siteLocations: [GROUP_ENTRY] });
     await loadGroups(settings);
     renderAll(settings, "https://example.com/");
-    rowEditButton(GROUP_ENTRY.id).click();
+    siteRow(GROUP_ENTRY.id).click();
 
     expect(chipTitles()).toEqual(["chatgpt.com", "Google"]);
     const chip = chipRemoveButton("Google").closest(".entry-chip")!;
     expect(chip.getAttribute("role")).toBe("listitem");
-    expect(chip.querySelector(".entry-chip-meta")?.textContent).toBe("964 sites");
+    expect(chip.querySelector(".entry-chip-meta")?.textContent).toBe("Site group · 964 sites");
     expect(chip.getAttribute("title")).toBe(GOOGLE_TOKEN);
     expect(chipRemoveButton("Google").getAttribute("aria-label")).toBe("Remove site Google");
     expect(chipRemoveButton("Google").type).toBe("button");
@@ -1219,16 +1515,15 @@ describe("Editor: sites as chips, added through the shared add control", () => {
       "siteLocationSitesLabel"
     );
     // The row names the group the same way.
-    const row = Array.from(byId("siteLocationsList").children).find(
-      (node) => (node as HTMLElement).dataset.siteLocationId === GROUP_ENTRY.id
+    expect(siteRow(GROUP_ENTRY.id).querySelector(".site-row-host")?.textContent).toBe(
+      "chatgpt.com, Google"
     );
-    expect(row?.querySelector(".site-location-patterns")?.textContent).toBe("chatgpt.com, Google");
   });
 
   test("a group without data shows 'Not available' with a warning sign, not colour alone", () => {
     const settings = makeSettings({ siteLocations: [GROUP_ENTRY] });
     renderAll(settings, "https://example.com/");
-    rowEditButton(GROUP_ENTRY.id).click();
+    siteRow(GROUP_ENTRY.id).click();
     const meta = chipRemoveButton("Google")
       .closest(".entry-chip")!
       .querySelector(".entry-chip-meta")!;
@@ -1282,7 +1577,7 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     expect(chipTitles()).toEqual(["example.com", "Netflix", "Google @cn", "direct-list"]);
     const meta = (title: string) =>
       chipRemoveButton(title).closest(".entry-chip")!.querySelector(".entry-chip-meta");
-    expect(meta("Netflix")?.textContent).toBe("30 sites");
+    expect(meta("Netflix")?.textContent).toBe("Site group · 30 sites");
     expect(meta("Netflix")?.classList.contains("warning")).toBe(false);
     // A tag's count isn't in the index, and a link is downloaded on Save.
     expect(meta("Google @cn")).toBeNull();
@@ -1344,7 +1639,7 @@ describe("Editor: sites as chips, added through the shared add control", () => {
     const settings = makeSettings();
     showFiltersView();
     renderAll(settings, "https://example.com/");
-    rowEditButton(ENTRY_DUBLIN.id).click();
+    siteRow(ENTRY_DUBLIN.id).click();
     const remove = chipRemoveButton("chatgpt.com");
     remove.focus();
     remove.click();
@@ -1602,7 +1897,7 @@ describe("Editor: the place (S6)", () => {
   test("an existing entry opens with its place as the token", () => {
     showFiltersView();
     renderAll(makeSettings(), "https://example.com/");
-    rowEditButton(ENTRY_DUBLIN.id).click();
+    siteRow(ENTRY_DUBLIN.id).click();
     expect(chosenName()).toBe("Dublin");
     expect(isShown("siteLocationSearch")).toBe(false);
     expect(saveButton().disabled).toBe(false);
@@ -1611,6 +1906,11 @@ describe("Editor: the place (S6)", () => {
 
 describe("Hints only in context", () => {
   const allowlist: Partial<Settings> = { scopeMode: "allowlist", allowlist: ["example.com"] };
+  // chatgpt.com has no entry of its own, so "＋ Set a location for chatgpt.com" fills it in.
+  const allowlistNoChatgpt: Partial<Settings> = {
+    ...allowlist,
+    siteLocations: [ENTRY_MEXICO_CITY],
+  };
 
   function openFromAddAt(url: string, settings: Settings): void {
     showFiltersView();
@@ -1624,6 +1924,7 @@ describe("Hints only in context", () => {
       "siteLocationFiltersHint",
       "siteLocationVpnHint",
       "siteLocationsReloadHint",
+      "siteLocationEditorReloadHint",
       "siteLocationLineVpnHint",
       "siteLocationLineReloadHint",
     ]) {
@@ -1633,7 +1934,7 @@ describe("Hints only in context", () => {
   });
 
   test("allowlist conflict: the hint and one-tap show in the editor for a covered site", async () => {
-    openFromAddAt("https://chatgpt.com/c/1", makeSettings(allowlist));
+    openFromAddAt("https://chatgpt.com/c/1", makeSettings(allowlistNoChatgpt));
     expect(chipTitles()).toEqual(["chatgpt.com"]);
     expect(isShown("siteLocationFiltersHint")).toBe(true);
     expect(text("siteLocationFiltersHintText")).toBe(
@@ -1645,7 +1946,10 @@ describe("Hints only in context", () => {
     // The reload loadSettings does, with the site now on the allowlist.
     vi.mocked(loadSettings).mockImplementationOnce(() => {
       renderAll(
-        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com", "chatgpt.com"] }),
+        makeSettings({
+          ...allowlistNoChatgpt,
+          allowlist: ["example.com", "chatgpt.com"],
+        }),
         "https://chatgpt.com/c/1"
       );
       return Promise.resolve();
@@ -1660,17 +1964,22 @@ describe("Hints only in context", () => {
     expect(loadSettings).toHaveBeenCalled();
 
     // The re-render keeps the editor open, drops the now-resolved hint, and
-    // says to reload (open pages on the site keep Filters' old answer).
+    // says to reload, in the editor (open pages on the site keep Filters' old
+    // answer).
     expect(isShown("siteLocationEditor")).toBe(true);
     expect(isShown("siteLocationFiltersHint")).toBe(false);
-    expect(isShown("siteLocationsReloadHint")).toBe(true);
+    expect(isShown("siteLocationEditorReloadHint")).toBe(true);
 
     // The one-tap hid itself, so focus moves to the confirmation; the next Tab
-    // lands in the still-open editor (the add row is hidden while it's open).
+    // lands in the still-open editor.
     expect(isShown("siteLocationAddToAllowlist")).toBe(false);
-    expect(document.activeElement).toBe(byId("siteLocationsReloadHint"));
-    expect(byId("siteLocationsReloadHint").getAttribute("tabindex")).toBe("-1");
-    expect(isShown("siteLocationsAddRow")).toBe(false);
+    expect(document.activeElement).toBe(byId("siteLocationEditorReloadHint"));
+    expect(byId("siteLocationEditorReloadHint").getAttribute("tabindex")).toBe("-1");
+
+    // Leaving the editor, the hint goes with it to the screen it returns to.
+    byId("siteLocationCancel").click();
+    expect(isShown("siteLocationsReloadHint")).toBe(true);
+    expect(byId("siteLocationEditorReloadHint").hidden).toBe(true);
   });
 
   test("the hint follows the Sites field", () => {
@@ -1693,7 +2002,7 @@ describe("Hints only in context", () => {
   });
 
   test("a failed one-tap shows the editor error", async () => {
-    renderAll(makeSettings(allowlist), "https://chatgpt.com/");
+    renderAll(makeSettings(allowlistNoChatgpt), "https://chatgpt.com/");
     byId("siteLocationsAddButton").click();
     sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
     byId("siteLocationAddToAllowlist").click();
@@ -1708,7 +2017,7 @@ describe("Hints only in context", () => {
       makeSettings({ scopeMode: "denylist", denylist: ["twitch.tv"] }),
       "https://twitch.tv/"
     );
-    rowEditButton(ENTRY_MEXICO_CITY.id).click();
+    siteRow(ENTRY_MEXICO_CITY.id).click();
     expect(isShown("siteLocationFiltersHint")).toBe(true);
     expect(text("siteLocationFiltersHintText")).toBe(
       "Filters don't spoof this site because it's on your denylist."
@@ -1782,11 +2091,16 @@ describe("Accessibility", () => {
 
   test("every button is a real button with text or an aria-label", () => {
     renderAll(makeSettings(), "https://twitch.tv/");
-    for (const scope of ["siteLocationLine", "siteLocationsDisclosure"]) {
+    for (const scope of [
+      "siteLocationLine",
+      "siteLocationsCard",
+      "siteLocationsScreen",
+      "siteLocationEditorScreen",
+    ]) {
       byId(scope)
-        .querySelectorAll("button")
+        .querySelectorAll("button, [role='button']")
         .forEach((button) => {
-          expect(button.type).toBe("button");
+          if (button instanceof HTMLButtonElement) expect(button.type).toBe("button");
           const name = button.getAttribute("aria-label") ?? button.textContent?.trim() ?? "";
           expect(name.length).toBeGreaterThan(0);
         });
@@ -1869,16 +2183,18 @@ describe("Accessibility", () => {
 
     test("Remove", async () => {
       renderAll(makeSettings(), "https://example.com/");
+      siteRow(ENTRY_DUBLIN.id).click();
       sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
-      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      byId("siteLocationRemove").click();
       await flush();
       expect(await announced()).toBe(RELOAD);
     });
 
     test("a failed Remove announces nothing", async () => {
       renderAll(makeSettings(), "https://example.com/");
+      siteRow(ENTRY_DUBLIN.id).click();
       sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
-      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      byId("siteLocationRemove").click();
       await flush();
       expect(await announced()).toBe("");
     });
@@ -1902,7 +2218,11 @@ describe("Accessibility", () => {
     test("the one-tap Add to allowlist", async () => {
       openEditorAt(
         "https://chatgpt.com/c/1",
-        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com"] })
+        makeSettings({
+          scopeMode: "allowlist",
+          allowlist: ["example.com"],
+          siteLocations: [ENTRY_MEXICO_CITY],
+        })
       );
       sendMessage.mockResolvedValue({ success: true });
       byId("siteLocationAddToAllowlist").click();
@@ -1913,7 +2233,11 @@ describe("Accessibility", () => {
     test("a failed one-tap announces nothing", async () => {
       openEditorAt(
         "https://chatgpt.com/c/1",
-        makeSettings({ scopeMode: "allowlist", allowlist: ["example.com"] })
+        makeSettings({
+          scopeMode: "allowlist",
+          allowlist: ["example.com"],
+          siteLocations: [ENTRY_MEXICO_CITY],
+        })
       );
       sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
       byId("siteLocationAddToAllowlist").click();
@@ -1924,11 +2248,13 @@ describe("Accessibility", () => {
     test("the same confirmation twice is spoken again: cleared, then set", async () => {
       renderAll(makeSettings(), "https://example.com/");
       sendMessage.mockResolvedValue({ success: true, id: ENTRY_DUBLIN.id });
-      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      siteRow(ENTRY_DUBLIN.id).click();
+      byId("siteLocationRemove").click();
       await flush();
       expect(await announced()).toBe(RELOAD);
 
-      byId("siteLocationsList").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
+      siteRow(ENTRY_DUBLIN.id).click();
+      byId("siteLocationRemove").click();
       await flush();
       // Cleared at once, so the repeat registers as a change...
       expect(text("siteLocationAnnouncer")).toBe("");

@@ -123,10 +123,11 @@ function indexRequests(): number {
 beforeEach(() => {
   gate.available = true;
   document.body.innerHTML = BODY;
-  // Show the Filters list manager, as a list mode does.
+  // Show the Filters list screen, as opening a list does.
   byId("mainView").style.display = "none";
   byId("filtersView").style.display = "block";
-  byId("scopeListManager").style.display = "block";
+  byId("filtersRoot").hidden = true;
+  byId("scopeListScreen").hidden = false;
   __resetPopupSiteGroupsForTest();
   sendMessage.mockReset();
   sendMessage.mockImplementation((message: unknown) =>

@@ -537,93 +537,128 @@
       </div>
       <!-- End Main View -->
 
-      <!-- Filters View -->
+      <!-- Filters View: a root and three screens, one shown at a time
+           (src/popup/filters-nav.ts). Each screen's back row names the
+           screen it returns to. -->
       <div class="tab-content" id="filtersView" style="display: none">
-        <!-- Settings load error -->
-        <div
-          class="warning"
-          id="scopeLoadError"
-          style="display: none"
-          data-i18n="filters_loadError"
-        >
-          ⚠️ Settings could not be loaded
-        </div>
-
-        <div class="section-heading" data-i18n="heading_mode">Mode</div>
-
-        <!-- Scope mode selector -->
-        <div
-          class="scope-mode-tabs"
-          id="scopeModeTabs"
-          role="radiogroup"
-          aria-label="Scope mode"
-          data-i18n-aria-label="filters_modeGroupAriaLabel"
-        >
-          <button
-            class="scope-mode-btn active"
-            id="scopeModeAll"
-            data-scope-mode="all"
-            role="radio"
-            aria-checked="true"
-            data-i18n="filters_modeAll"
+        <!-- Root: where GeoSpoof works (the mode, its sentence and the active
+             list's row), then Per-site locations in a group of their own.
+             Filters decide WHETHER GeoSpoof is on for a site; a site location
+             decides WHICH location it reports there. -->
+        <div class="filters-screen" id="filtersRoot">
+          <div
+            class="warning"
+            id="scopeLoadError"
+            style="display: none"
+            data-i18n="filters_loadError"
           >
-            All
-          </button>
-          <button
-            class="scope-mode-btn"
-            id="scopeModeAllowlist"
-            data-scope-mode="allowlist"
-            role="radio"
-            aria-checked="false"
-            data-i18n="filters_modeAllowlist"
-          >
-            Allowlist
-          </button>
-          <button
-            class="scope-mode-btn"
-            id="scopeModeDenylist"
-            data-scope-mode="denylist"
-            role="radio"
-            aria-checked="false"
-            data-i18n="filters_modeDenylist"
-          >
-            Denylist
-          </button>
-        </div>
-
-        <!-- Mode description -->
-        <div class="scope-mode-desc" id="scopeModeDesc" data-i18n="filters_modeAllDesc">
-          Spoofing applies to every site.
-        </div>
-
-        <!-- Pro lock note (shown for non-Pro iOS users; controls are disabled) -->
-        <div class="pro-lock-note" id="scopeProNote" style="display: none">
-          🔒 Site filtering is a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to limit spoofing
-          to specific sites.
-        </div>
-
-        <!-- Mode change error -->
-        <div
-          class="warning"
-          id="scopeModeError"
-          role="alert"
-          style="display: none"
-          data-i18n="filters_notSaved"
-        >
-          ⚠️ Change not saved
-        </div>
-
-        <!-- Site list manager (shown in list modes only) -->
-        <div class="scope-list-manager" id="scopeListManager" style="display: none">
-          <hr class="section-divider" />
-
-          <!-- List section heading: dynamic label (Allowed/Blocked sites) + count -->
-          <div class="scope-list-header" id="scopeListHeader">
-            <span class="scope-list-title" id="scopeListTitle" data-i18n="filters_allowedSites"
-              >Allowed sites</span
-            >
-            <span class="scope-list-count" id="scopeListCount">0</span>
+            ⚠️ Settings could not be loaded
           </div>
+
+          <div class="section-heading" id="scopeModeHeading" data-i18n="filters_where">
+            Where GeoSpoof works
+          </div>
+
+          <!-- The mode: three radios that apply on click (6.3). The group is
+               named by the heading and described by the sentence. -->
+          <div
+            class="scope-mode-tabs"
+            id="scopeModeTabs"
+            role="radiogroup"
+            aria-labelledby="scopeModeHeading"
+            aria-describedby="scopeModeDesc"
+          >
+            <button
+              class="scope-mode-btn active"
+              id="scopeModeAll"
+              data-scope-mode="all"
+              role="radio"
+              aria-checked="true"
+              data-i18n="filters_modeAll"
+            >
+              All sites
+            </button>
+            <button
+              class="scope-mode-btn"
+              id="scopeModeAllowlist"
+              data-scope-mode="allowlist"
+              role="radio"
+              aria-checked="false"
+              data-i18n="filters_modeAllowlist"
+            >
+              Allowlist
+            </button>
+            <button
+              class="scope-mode-btn"
+              id="scopeModeDenylist"
+              data-scope-mode="denylist"
+              role="radio"
+              aria-checked="false"
+              data-i18n="filters_modeDenylist"
+            >
+              Denylist
+            </button>
+          </div>
+
+          <div class="scope-mode-desc" id="scopeModeDesc" data-i18n="filters_descAll">
+            GeoSpoof works on every site.
+          </div>
+
+          <!-- The one Pro note (non-Pro iOS users), in place of the sentence.
+               The locked Per-site row is described by it. -->
+          <div class="pro-lock-note" id="scopeProNote" data-i18n="siteLocation_proNote" hidden>
+            🔒 Allowlist, Denylist and per-site locations are GeoSpoof Pro features. Upgrade in the
+            GeoSpoof app.
+          </div>
+
+          <div
+            class="warning"
+            id="scopeModeError"
+            role="alert"
+            style="display: none"
+            data-i18n="filters_notSaved"
+          >
+            ⚠️ Change not saved
+          </div>
+
+          <!-- The active list's row (hidden in All sites mode). -->
+          <div class="drill-card" id="scopeListCard" hidden>
+            <div class="drill-row" id="scopeListRow" role="button" tabindex="0">
+              <span class="drill-text">
+                <span class="drill-title" id="scopeListRowTitle">Allowlist</span>
+                <span class="drill-sub" id="scopeListRowValue"></span>
+              </span>
+              <span class="drill-chev" aria-hidden="true">›</span>
+            </div>
+          </div>
+
+          <div class="drill-card drill-card-separate" id="siteLocationsCard">
+            <div class="drill-row" id="siteLocationsRow" role="button" tabindex="0">
+              <span class="drill-text">
+                <span class="drill-title" data-i18n="siteLocation_sectionTitle"
+                  >Per-site locations</span
+                >
+                <span class="drill-sub" id="siteLocationsRowValue"></span>
+              </span>
+              <span class="drill-chev" id="siteLocationsRowChev" aria-hidden="true">›</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- The Allowlist or the Denylist. -->
+        <div class="filters-screen" id="scopeListScreen" hidden>
+          <button type="button" class="back-row" id="scopeListBack">
+            <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Filters</span>
+          </button>
+          <h2 class="view-title" id="scopeListTitle" tabindex="-1">Allowlist</h2>
+          <div class="view-caption" id="scopeListCaption"></div>
+
+          <!-- This site (without www.), one tap away, or whether it's listed. -->
+          <button type="button" class="primary-add" id="scopeAddSiteButton" hidden>
+            <span class="primary-add-plus" aria-hidden="true">＋</span
+            ><span id="scopeAddSiteLabel"></span>
+          </button>
+          <div class="scope-site-status" id="scopeSiteStatus" tabindex="-1" hidden></div>
 
           <!-- One field with suggestions (K1): the input is an ARIA 1.2
                combobox over #scopeGroupListbox, which offers the readings of
@@ -671,32 +706,35 @@
             </div>
           </div>
 
-          <!-- Add the current tab's site with one click -->
-          <div class="scope-add-current-row">
+          <!-- Shown only while a site group update runs, or after one failed,
+               when this list holds a site group or a list from a link. -->
+          <div class="site-groups-status" id="siteGroupsStatus" hidden>
+            <span id="siteGroupsStatusText" role="status" aria-live="polite"></span>
             <button
-              id="scopeAddCurrentButton"
-              class="scope-add-current"
               type="button"
-              data-i18n="filters_addCurrentButton"
+              class="site-location-link"
+              id="siteGroupsUpdateNow"
+              data-i18n="siteGroups_updateNow"
             >
-              Add current site
+              Update now
             </button>
           </div>
 
-          <!-- Inline status for the add-current-site action (restricted page
-               or an un-addable hostname) -->
-          <div class="scope-inline-msg" id="scopeCurrentMsg" role="alert" style="display: none">
-            This page cannot be added
+          <div
+            class="scope-empty"
+            id="scopeEmptyIndicator"
+            style="display: none"
+            data-i18n="filters_emptyList"
+          >
+            No sites added yet
           </div>
 
-          <!-- Supported-syntax reference (collapsible). Native <details> for
-               keyboard + screen-reader support; styled to match the Advanced
-               accordion. The <code> examples are literal (not localized); the
-               descriptions and notes carry data-i18n. -->
+          <div class="scope-list" id="scopeList" role="list" aria-labelledby="scopeListTitle"></div>
+
           <details class="scope-syntax" id="scopeSyntax">
             <summary class="scope-syntax-summary">
               <span class="scope-syntax-chevron" aria-hidden="true">▶</span>
-              <span data-i18n="filters_syntaxTitle">What patterns can I use?</span>
+              <span data-i18n="filters_help">What can I add?</span>
             </summary>
             <div class="scope-syntax-body">
               <dl class="scope-syntax-list">
@@ -759,260 +797,269 @@
               >
                 See full reference →
               </a>
+              <!-- S5: where site group data comes from, with Update now. The
+                   list and Per-site locations screens show their own line only
+                   while an update runs or after one failed. -->
+              <div class="site-groups-status" id="siteGroupsHelpStatus" hidden>
+                <span id="siteGroupsHelpStatusText" role="status" aria-live="polite"></span>
+                <button
+                  type="button"
+                  class="site-location-link"
+                  id="siteGroupsHelpUpdateNow"
+                  data-i18n="siteGroups_updateNow"
+                >
+                  Update now
+                </button>
+              </div>
             </div>
           </details>
-
-          <div
-            class="scope-empty"
-            id="scopeEmptyIndicator"
-            style="display: none"
-            data-i18n="filters_emptyList"
-          >
-            No sites added yet
-          </div>
-
-          <div class="scope-list" id="scopeList" role="list" aria-label="Scoped sites"></div>
         </div>
 
-        <!-- Site group data status, shown when the active list or any site
-             location holds a site group or a list from a link. Outside the
-             list manager so it also shows in "All sites" mode when only site
-             locations use groups. -->
-        <div class="site-groups-status" id="siteGroupsStatus" hidden>
-          <span id="siteGroupsStatusText" role="status" aria-live="polite"></span>
-          <button
-            type="button"
-            class="site-location-link"
-            id="siteGroupsUpdateNow"
-            data-i18n="siteGroups_updateNow"
-          >
-            Update now
+        <!-- Per-site locations (#177). -->
+        <div class="filters-screen" id="siteLocationsScreen" hidden>
+          <button type="button" class="back-row" id="siteLocationsBack">
+            <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Filters</span>
           </button>
+          <h2
+            class="view-title"
+            id="siteLocationsTitle"
+            tabindex="-1"
+            data-i18n="siteLocation_sectionTitle"
+          >
+            Per-site locations
+          </h2>
+          <div class="view-caption" data-i18n="siteLocation_sectionDesc">
+            Use a different location on specific sites.
+          </div>
+          <button type="button" class="primary-add" id="siteLocationsAddButton">
+            <span class="primary-add-plus" aria-hidden="true">＋</span
+            ><span id="siteLocationsAddLabel">Set a location for a site</span>
+          </button>
+          <!-- Shown only while a site group update runs, or after one failed,
+               when a per-site location holds a site group or a list. -->
+          <div class="site-groups-status" id="siteLocationsGroupsStatus" hidden>
+            <span id="siteLocationsGroupsStatusText" role="status" aria-live="polite"></span>
+            <button
+              type="button"
+              class="site-location-link"
+              id="siteLocationsGroupsUpdateNow"
+              data-i18n="siteGroups_updateNow"
+            >
+              Update now
+            </button>
+          </div>
+          <div
+            class="scope-list site-row-list"
+            id="siteLocationsList"
+            role="list"
+            aria-label="Per-site locations"
+            data-i18n-aria-label="siteLocation_listAriaLabel"
+          ></div>
+          <div
+            class="scope-inline-msg"
+            id="siteLocationsError"
+            role="alert"
+            data-i18n="filters_notSaved"
+            hidden
+          >
+            ⚠ Change not saved
+          </div>
+          <!-- tabindex="-1": after a change the button that made it is gone,
+               so focus moves here. No live role: #siteLocationAnnouncer speaks. -->
+          <div
+            class="site-location-hint"
+            id="siteLocationsReloadHint"
+            tabindex="-1"
+            data-i18n="siteLocation_reloadHint"
+            hidden
+          >
+            Reload affected pages to apply the change.
+          </div>
         </div>
 
-        <!-- Per-site locations (#177): optional and secondary, so a collapsed disclosure
-             at the bottom of the tab. Filters decide WHETHER GeoSpoof is on for a
-             site; a site location decides WHICH location it reports there. Native
-             <details> like #scopeSyntax, so it's keyboard- and screen-reader-
-             operable with no extra JS. The divider ends the Filters group, so in
-             list modes this bar can't read as another Filters bar like
-             #scopeSyntax. -->
-        <hr class="section-divider site-locations-divider" />
-        <details class="site-locations-disclosure" id="siteLocationsDisclosure">
-          <summary class="site-locations-summary">
-            <span class="site-locations-chevron" aria-hidden="true">▶</span>
-            <span class="site-locations-summary-text">
-              <span class="site-locations-summary-title" data-i18n="siteLocation_sectionTitle"
-                >Per-site locations</span
-              >
-              <span class="site-locations-summary-desc" data-i18n="siteLocation_sectionDesc"
-                >Use a different location on specific sites.</span
-              >
-            </span>
-            <span class="scope-list-count" id="siteLocationsCount" hidden>0</span>
-          </summary>
-          <div class="site-locations-body">
-            <div
-              class="pro-lock-note"
-              id="siteLocationsProNote"
-              data-i18n="siteLocation_proNote"
-              hidden
+        <!-- One per-site location. Its back row names where it was opened
+             from: Filters, Per-site locations or Main (6.4). -->
+        <div class="filters-screen" id="siteLocationEditorScreen" hidden>
+          <button type="button" class="back-row" id="siteLocationEditorBack">
+            <span aria-hidden="true">‹ </span><span id="siteLocationEditorBackLabel">Filters</span>
+          </button>
+          <h2 class="view-title" id="siteLocationEditorTitle" tabindex="-1">
+            New per-site location
+          </h2>
+          <div class="site-location-editor" id="siteLocationEditor">
+            <label
+              class="site-location-label"
+              id="siteLocationSitesLabel"
+              for="siteLocationPatterns"
+              data-i18n="siteLocation_sitesLabel"
+              >Sites</label
             >
-              🔒 Per-site locations are a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to give
-              sites their own location.
-            </div>
+            <!-- The entry's sites as chips; the add control below adds to
+                   them, and text left in its input is added on Save. -->
             <div
-              class="scope-list site-locations-list"
-              id="siteLocationsList"
+              class="entry-chips"
+              id="siteLocationEntries"
               role="list"
-              aria-label="Per-site locations"
-              data-i18n-aria-label="siteLocation_listAriaLabel"
+              aria-labelledby="siteLocationSitesLabel"
             ></div>
-            <div
-              class="scope-inline-msg"
-              id="siteLocationsError"
-              role="alert"
-              data-i18n="filters_notSaved"
-              hidden
-            >
-              ⚠ Change not saved
+            <!-- The Sites input has suggestions, as the Filters field does;
+                   they hang under the whole row. -->
+            <div class="entry-add-row">
+              <div class="entry-input-wrap">
+                <input
+                  type="text"
+                  id="siteLocationPatterns"
+                  placeholder="Add another site"
+                  autocomplete="off"
+                  spellcheck="false"
+                  maxlength="2048"
+                  data-i18n-placeholder="filters_addAnother"
+                />
+              </div>
+              <button
+                type="button"
+                class="entry-add-button"
+                id="siteLocationAddEntry"
+                data-i18n="filters_addButton"
+              >
+                Add
+              </button>
+              <div class="entry-picker">
+                <div
+                  class="entry-listbox"
+                  id="siteLocationGroupListbox"
+                  role="listbox"
+                  aria-label="Site groups"
+                  data-i18n-aria-label="siteGroups_listboxLabel"
+                  hidden
+                ></div>
+                <div
+                  class="entry-picker-attribution"
+                  id="siteLocationGroupAttribution"
+                  data-i18n="siteGroups_attribution"
+                  hidden
+                >
+                  Site groups come from the v2fly domain list (MIT license).
+                </div>
+              </div>
             </div>
-            <!-- tabindex="-1": the editor's one-tap "Add to allowlist" hides
-                 itself, so focus moves here and Tab continues from it. No live
-                 role: #siteLocationAnnouncer speaks the confirmation. -->
+
+            <label
+              class="site-location-label"
+              id="siteLocationSearchLabel"
+              for="siteLocationSearch"
+              data-i18n="siteLocation_searchLabel"
+              >Location</label
+            >
+            <input
+              type="text"
+              id="siteLocationSearch"
+              autocomplete="off"
+              placeholder="Search for a city..."
+              data-i18n-placeholder="search_placeholder"
+            />
+            <div class="site-location-results" id="siteLocationResults"></div>
+
+            <!-- Favorites as suggestions under the field, filtered by its
+                   text, while no place is chosen (S6). -->
+            <div class="favorite-suggestions-wrap" id="siteLocationFavorites" hidden>
+              <div
+                class="favorite-suggestions-head"
+                id="siteLocationFavoritesHeading"
+                data-i18n="siteLocation_favorites"
+              >
+                Favorites
+              </div>
+              <div
+                class="favorite-suggestions"
+                id="siteLocationFavoritesList"
+                role="group"
+                aria-labelledby="siteLocationFavoritesHeading"
+              ></div>
+            </div>
+
+            <!-- The chosen place, as a token in the field. While there is
+                   one, it replaces the search field, results and favorites. -->
+            <div class="site-location-chosen" id="siteLocationChosen" aria-live="polite"></div>
+            <div class="site-location-explain" id="siteLocationExplain"></div>
+
+            <!-- In-context hints: only while this editor is open. -->
+            <div class="site-location-hint" id="siteLocationFiltersHint" hidden>
+              <span id="siteLocationFiltersHintText"></span>
+              <button
+                type="button"
+                class="site-location-link"
+                id="siteLocationAddToAllowlist"
+                data-i18n="siteLocation_addToAllowlist"
+                hidden
+              >
+                Add to allowlist
+              </button>
+            </div>
             <div
               class="site-location-hint"
-              id="siteLocationsReloadHint"
+              id="siteLocationVpnHint"
+              data-i18n="siteLocation_hintVpn"
+              hidden
+            >
+              Sites still see your VPN's IP address. A different location here can look
+              inconsistent.
+            </div>
+            <!-- tabindex="-1": the hint's one-tap action hides itself, so
+                   focus moves here. No live role: #siteLocationAnnouncer speaks. -->
+            <div
+              class="site-location-hint"
+              id="siteLocationEditorReloadHint"
               tabindex="-1"
               data-i18n="siteLocation_reloadHint"
               hidden
             >
               Reload affected pages to apply the change.
             </div>
-            <div class="site-locations-add-row" id="siteLocationsAddRow">
+
+            <div class="site-location-error" id="siteLocationError" role="alert" hidden>
+              <span id="siteLocationErrorText"></span>
               <button
                 type="button"
-                class="site-location-action"
-                id="siteLocationsAddButton"
-                data-i18n="siteLocation_add"
-              >
-                Set a location for a site
-              </button>
-            </div>
-            <div class="site-location-editor" id="siteLocationEditor" hidden>
-              <label
-                class="site-location-label"
-                id="siteLocationSitesLabel"
-                for="siteLocationPatterns"
-                data-i18n="siteLocation_sitesLabel"
-                >Sites</label
-              >
-              <!-- The entry's sites as chips; the add control below adds to
-                   them, and text left in its input is added on Save. -->
-              <div
-                class="entry-chips"
-                id="siteLocationEntries"
-                role="list"
-                aria-labelledby="siteLocationSitesLabel"
-              ></div>
-              <!-- The Sites input has suggestions, as the Filters field does;
-                   they hang under the whole row. -->
-              <div class="entry-add-row">
-                <div class="entry-input-wrap">
-                  <input
-                    type="text"
-                    id="siteLocationPatterns"
-                    placeholder="Add another site"
-                    autocomplete="off"
-                    spellcheck="false"
-                    maxlength="2048"
-                    data-i18n-placeholder="filters_addAnother"
-                  />
-                </div>
-                <button
-                  type="button"
-                  class="entry-add-button"
-                  id="siteLocationAddEntry"
-                  data-i18n="filters_addButton"
-                >
-                  Add
-                </button>
-                <div class="entry-picker">
-                  <div
-                    class="entry-listbox"
-                    id="siteLocationGroupListbox"
-                    role="listbox"
-                    aria-label="Site groups"
-                    data-i18n-aria-label="siteGroups_listboxLabel"
-                    hidden
-                  ></div>
-                  <div
-                    class="entry-picker-attribution"
-                    id="siteLocationGroupAttribution"
-                    data-i18n="siteGroups_attribution"
-                    hidden
-                  >
-                    Site groups come from the v2fly domain list (MIT license).
-                  </div>
-                </div>
-              </div>
-
-              <label
-                class="site-location-label"
-                id="siteLocationSearchLabel"
-                for="siteLocationSearch"
-                data-i18n="siteLocation_searchLabel"
-                >Location</label
-              >
-              <input
-                type="text"
-                id="siteLocationSearch"
-                autocomplete="off"
-                placeholder="Search for a city..."
-                data-i18n-placeholder="search_placeholder"
-              />
-              <div class="site-location-results" id="siteLocationResults"></div>
-
-              <!-- Favorites as suggestions under the field, filtered by its
-                   text, while no place is chosen (S6). -->
-              <div class="favorite-suggestions-wrap" id="siteLocationFavorites" hidden>
-                <div
-                  class="favorite-suggestions-head"
-                  id="siteLocationFavoritesHeading"
-                  data-i18n="siteLocation_favorites"
-                >
-                  Favorites
-                </div>
-                <div
-                  class="favorite-suggestions"
-                  id="siteLocationFavoritesList"
-                  role="group"
-                  aria-labelledby="siteLocationFavoritesHeading"
-                ></div>
-              </div>
-
-              <!-- The chosen place, as a token in the field. While there is
-                   one, it replaces the search field, results and favorites. -->
-              <div class="site-location-chosen" id="siteLocationChosen" aria-live="polite"></div>
-              <div class="site-location-explain" id="siteLocationExplain"></div>
-
-              <!-- In-context hints: only while this editor is open. -->
-              <div class="site-location-hint" id="siteLocationFiltersHint" hidden>
-                <span id="siteLocationFiltersHintText"></span>
-                <button
-                  type="button"
-                  class="site-location-link"
-                  id="siteLocationAddToAllowlist"
-                  data-i18n="siteLocation_addToAllowlist"
-                  hidden
-                >
-                  Add to allowlist
-                </button>
-              </div>
-              <div
-                class="site-location-hint"
-                id="siteLocationVpnHint"
-                data-i18n="siteLocation_hintVpn"
+                class="site-location-link"
+                id="siteLocationEditOwner"
+                data-i18n="siteLocation_editOwner"
                 hidden
               >
-                Sites still see your VPN's IP address. A different location here can look
-                inconsistent.
-              </div>
-
-              <div class="site-location-error" id="siteLocationError" role="alert" hidden>
-                <span id="siteLocationErrorText"></span>
-                <button
-                  type="button"
-                  class="site-location-link"
-                  id="siteLocationEditOwner"
-                  data-i18n="siteLocation_editOwner"
-                  hidden
-                >
-                  Edit that one
-                </button>
-              </div>
-
-              <div class="site-location-editor-actions">
-                <button
-                  type="button"
-                  class="site-location-save"
-                  id="siteLocationSave"
-                  data-i18n="siteLocation_save"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  class="site-location-cancel"
-                  id="siteLocationCancel"
-                  data-i18n="siteLocation_cancel"
-                >
-                  Cancel
-                </button>
-              </div>
+                Edit that one
+              </button>
             </div>
+
+            <div class="site-location-editor-actions">
+              <button
+                type="button"
+                class="site-location-save"
+                id="siteLocationSave"
+                data-i18n="siteLocation_save"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                class="site-location-cancel"
+                id="siteLocationCancel"
+                data-i18n="siteLocation_cancel"
+              >
+                Cancel
+              </button>
+            </div>
+            <!-- Rows have no ✕ (H-6), so an entry is removed here. -->
+            <button
+              type="button"
+              class="site-location-remove"
+              id="siteLocationRemove"
+              data-i18n="siteLocation_removeAriaLabel"
+              hidden
+            >
+              Remove location
+            </button>
           </div>
-        </details>
+        </div>
       </div>
       <!-- End Filters View -->
 

@@ -75,13 +75,13 @@
     "message": "Filtros de sites",
     "description": "Heading for the site-scoping filters panel."
   },
-  "filters_modeGroupAriaLabel": {
-    "message": "Modo de escopo",
-    "description": "Accessible label for the scope-mode selector group."
+  "filters_where": {
+    "message": "Onde o GeoSpoof funciona",
+    "description": "Section heading above the scope-mode selector on the Filters tab (shown uppercase). Replaces the old 'Mode' heading."
   },
   "filters_modeAll": {
-    "message": "Todos",
-    "description": "Scope mode option: spoof on every site."
+    "message": "Todos os sites",
+    "description": "Scope mode segment: GeoSpoof works on every site."
   },
   "filters_modeAllowlist": {
     "message": "Lista de permissões",
@@ -91,17 +91,79 @@
     "message": "Lista de bloqueio",
     "description": "Scope mode option: spoof on every site except listed ones."
   },
-  "filters_modeAllDesc": {
-    "message": "A falsificação se aplica a todos os sites.",
-    "description": "Description shown under the selector when 'All' mode is active."
+  "filters_descAll": {
+    "message": "O GeoSpoof funciona em todos os sites.",
+    "description": "Sentence under the scope-mode selector in All sites mode. Describes the setting, stated positively with 'works'; it doesn't change with the site."
   },
-  "filters_modeAllowlistDesc": {
-    "message": "A falsificação se aplica apenas aos sites listados.",
-    "description": "Description shown under the selector when 'Allowlist' mode is active."
+  "filters_descAllow": {
+    "message": "O GeoSpoof funciona apenas nos sites da lista de permissões.",
+    "description": "Sentence under the scope-mode selector in Allowlist mode. 'Allowlist' is the list's name, as filters_allowlistName has it."
   },
-  "filters_modeDenylistDesc": {
-    "message": "A falsificação se aplica a todos os sites, exceto os listados.",
-    "description": "Description shown under the selector when 'Denylist' mode is active."
+  "filters_descDeny": {
+    "message": "O GeoSpoof funciona em todos os sites, exceto nos da lista de bloqueio.",
+    "description": "Sentence under the scope-mode selector in Denylist mode. 'Denylist' is the list's name, as filters_denylistName has it."
+  },
+  "filters_allowlistName": {
+    "message": "Lista de permissões",
+    "description": "The Allowlist's name as a noun: the Filters root's row, the list screen's title, and inside sentences. The segment label is filters_modeAllowlist."
+  },
+  "filters_denylistName": {
+    "message": "Lista de bloqueio",
+    "description": "The Denylist's name as a noun: the Filters root's row, the list screen's title, and inside sentences. The segment label is filters_modeDenylist."
+  },
+  "filters_countOnList": {
+    "message": "$COUNT$ na lista",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "4"
+      }
+    },
+    "description": "The list row's value on the Filters root. $COUNT$ is a formatted number of entries; one entry can be a site group of many sites, so this doesn't say 'sites'."
+  },
+  "filters_listEmpty": {
+    "message": "Vazia",
+    "description": "The Denylist row's value on the Filters root when the Denylist is empty. A status value, not a sentence."
+  },
+  "filters_listEmptyAllow": {
+    "message": "Vazia · Desativado em todos os sites",
+    "description": "The Allowlist row's value on the Filters root when the Allowlist is empty, after a ⚠ drawn by the markup. A status value with one detail after the '·'."
+  },
+  "filters_captionAllow": {
+    "message": "O GeoSpoof funciona apenas nestes sites.",
+    "description": "Caption under the Allowlist screen's title."
+  },
+  "filters_captionDeny": {
+    "message": "O GeoSpoof funciona em todos os sites, exceto nestes.",
+    "description": "Caption under the Denylist screen's title."
+  },
+  "filters_addSite": {
+    "message": "Adicionar $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Green button on a list screen that adds the current tab's site, without www. The markup draws a ＋ before it. $SITE$ is the site."
+  },
+  "filters_listed": {
+    "message": "Na lista",
+    "description": "On a list screen, after '✓ twitch.tv ·': the current tab's site is in this list. A status value."
+  },
+  "filters_coveredBy": {
+    "message": "Coberto por $ENTRY$",
+    "placeholders": {
+      "entry": {
+        "content": "$1",
+        "example": "*.tv"
+      }
+    },
+    "description": "After '✓ twitch.tv ·' on a list screen: the list entry that covers the current tab's site. A phrase without a subject. $ENTRY$ is the entry as the list shows it, for example *.tv or Google."
+  },
+  "filters_help": {
+    "message": "O que posso adicionar?",
+    "description": "Collapsible help on a list screen: what can be added (sites, patterns, site groups, lists from a link). Replaces 'What patterns can I use?'."
   },
   "filters_addButton": {
     "message": "Adicionar",
@@ -126,30 +188,6 @@
   "filters_removeAriaLabel": {
     "message": "Remover site",
     "description": "Accessible label prefix on a site's remove button."
-  },
-  "filters_addCurrentButton": {
-    "message": "Adicionar site atual",
-    "description": "Button that adds the active tab's site to the active list."
-  },
-  "filters_currentPageRestricted": {
-    "message": "Esta página não pode ser adicionada",
-    "description": "Inline message shown when the current page is a restricted URL that cannot be added."
-  },
-  "filters_currentPageInvalid": {
-    "message": "Este site não pode ser adicionado",
-    "description": "Inline message shown when the current tab's hostname cannot be added to a list."
-  },
-  "filters_allowedSites": {
-    "message": "Sites permitidos",
-    "description": "Header above the list of allowlisted sites."
-  },
-  "filters_blockedSites": {
-    "message": "Sites bloqueados",
-    "description": "Header above the list of denylisted sites."
-  },
-  "filters_syntaxTitle": {
-    "message": "Quais padrões posso usar?",
-    "description": "Summary label for the collapsible supported-pattern-syntax reference in the Filters tab."
   },
   "filters_syntaxDomain": {
     "message": "O site e todos os seus subdomínios",
@@ -210,10 +248,6 @@
   "heading_protection": {
     "message": "Proteção",
     "description": "Section heading above the protection toggles in the Main tab."
-  },
-  "heading_mode": {
-    "message": "Modo",
-    "description": "Section heading above the scope-mode selector in the Filters tab."
   },
   "location_none": {
     "message": "Nenhuma localização definida",
@@ -855,15 +889,103 @@
   },
   "siteLocation_sectionTitle": {
     "message": "Localizações por site",
-    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
+    "description": "The Filters root's row and the title of the Per-site locations screen. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
     "message": "Use uma localização diferente em sites específicos.",
-    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
+    "description": "Caption under the Per-site locations screen's title on the Filters tab."
   },
   "siteLocation_add": {
     "message": "Definir uma localização para um site",
-    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
+    "description": "Green button on the Per-site locations screen that opens the editor for a new entry with no site filled in (when the current tab's site already has one, or there's no site). The markup draws a ＋ before it. Worded so it can't be read as adding a filter."
+  },
+  "siteLocation_setForSite": {
+    "message": "Definir uma localização para $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Green button on the Per-site locations screen when the current tab's site has no entry of its own; opens the editor with the site filled in. The markup draws a ＋ before it. $SITE$ is the site without www."
+  },
+  "siteLocation_newLocation": {
+    "message": "Nova localização por site",
+    "description": "Title of the per-site editor screen for a new entry."
+  },
+  "siteLocation_srcSite": {
+    "message": "Localização por site",
+    "description": "Title of the per-site editor screen for an existing entry; also names where a site's place comes from. Glossary term, paired with 'Main location'."
+  },
+  "siteLocation_changeAria": {
+    "message": "Alterar a localização de $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    },
+    "description": "Screen-reader description of a row on the Per-site locations screen, which opens the editor. $SITE$ is the row's site or sites."
+  },
+  "siteLocation_countLocations": {
+    "message": "$COUNT$ localizações",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    },
+    "description": "The Per-site locations row's value on the Filters root, for 2 or more entries. $COUNT$ is a formatted number."
+  },
+  "siteLocation_countLocationsOne": {
+    "message": "1 localização",
+    "description": "The Per-site locations row's value with exactly one entry (WebExtension i18n has no plural forms)."
+  },
+  "siteLocation_noLocations": {
+    "message": "Nenhuma",
+    "description": "The Per-site locations row's value on the Filters root with no entries. A status value."
+  },
+  "siteLocation_notUsed": {
+    "message": "Não usada · Desativado em Filtros",
+    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: Filters keep GeoSpoof off there, so its location isn't used. 'Filters' is the Filters tab's name (tab_filters), inflected as the grammar needs and written the way the locale writes a UI element's name."
+  },
+  "siteLocation_notUsedOn": {
+    "message": "Não usada em $SITES$ · Desativado em Filtros",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "As siteLocation_notUsed, for an entry with several sites, naming the ones Filters keep off. $SITES$ is up to two sites, or two and 'and N more' (siteLocation_sitesAndMore)."
+  },
+  "siteLocation_somePages": {
+    "message": "Usada apenas em algumas páginas",
+    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: Filters cover only some pages of the site."
+  },
+  "siteLocation_somePagesOn": {
+    "message": "Usada apenas em algumas páginas de $SITES$",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "As siteLocation_somePages, for an entry with several sites. $SITES$ names the sites as in siteLocation_notUsedOn."
+  },
+  "siteLocation_sitesAndMore": {
+    "message": "$SITES$ e mais $COUNT$",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv, kick.com"
+      },
+      "count": {
+        "content": "$2",
+        "example": "3"
+      }
+    },
+    "description": "Names more than two sites in a mark: the first two, then how many more. $SITES$ is the first two joined by ', ', $COUNT$ a formatted number."
   },
   "siteLocation_edit": {
     "message": "Editar",
@@ -882,8 +1004,8 @@
     "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
-    "message": "🔒 Localizações por site é um recurso do GeoSpoof Pro. Faça upgrade no app GeoSpoof para dar aos sites sua própria localização.",
-    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
+    "message": "🔒 Lista de permissões, lista de bloqueio e localizações por site são recursos do GeoSpoof Pro. Faça upgrade no app GeoSpoof.",
+    "description": "Shown on the Filters tab in place of the mode sentence for non-Pro iOS users, whose Allowlist, Denylist and per-site location controls are locked; the locked Per-site locations row is described by it. Must contain siteLocation_sectionTitle's words."
   },
   "details_siteLocation": {
     "message": "Neste site",

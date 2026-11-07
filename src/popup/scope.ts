@@ -1,17 +1,16 @@
 /**
  * Popup Site-Scoping (Filters tab)
  *
- * Renders the scope-mode selector (All / Allowlist / Denylist) and the active
- * site-list manager into the `filtersView` panel. The allowlist/denylist arrays
- * are read straight from the full `Settings` the popup receives (they never
- * cross into a content/injected script). All list mutations follow the same
- * optimistic-update + revert-on-failure pattern as the protection toggle.
+ * Renders "Where GeoSpoof works" on the Filters root (the mode selector, its
+ * sentence and the active list's row) and the list's own screen: its caption,
+ * "＋ Add <site>" or whether the site is already listed, the add field, the
+ * entries and "What can I add?". The allowlist/denylist arrays are read
+ * straight from the full `Settings` the popup receives (they never cross into
+ * a content/injected script). List removals are optimistic and reverted on
+ * failure; the mode selector is optimistic, and everything that depends on
+ * the mode recomputes once it saved.
  *
- * Manual domain entry and the "add current site" convenience are both add
- * paths here; both run the typed/derived value through the Domain_Normalizer
- * before sending to the background.
- *
- * Requirements: 9.5, 13.1–13.8, 14.1, 14.2, 14.3, 14.4, 14.5, 14.6, 14.7, 14.8, 14.9
+ * Requirements: 9.5, 13.1–13.8, 14.1, 14.2, 14.4, 14.5, 14.6, 14.8
  */
 
 import type { ScopeMode, Settings } from "@/shared/types/settings";
@@ -19,9 +18,10 @@ import type { ScopeResponse, ScopeSitePayload, SetScopeModePayload } from "@/sha
 import { siteGroupsAvailable } from "@/shared/site-groups/availability";
 import { isSiteGroupToken, LINK_PREFIX } from "@/shared/site-groups/tokens";
 import type { EntryInputKind } from "@/shared/utils/filter-entries";
-import { parsePattern } from "@/shared/utils/scope";
 import { loadSettings, isRestrictedUrl } from "./settings";
 import { t } from "./i18n";
+import { announce } from "./announce";
+import { isOwnExtensionPage } from "./active-tab";
 import {
   createEntryAddControl,
   entryInvalidText,
@@ -29,17 +29,29 @@ import {
   type EntrySubmitResult,
 } from "./entry-add-control";
 import {
+  backFromFiltersScreen,
+  getFiltersScreen,
+  isFocusable,
+  openFiltersScreen,
+  setFiltersScreenFallback,
+  wireButtonRow,
+  wireFiltersNavOnce,
+} from "./filters-nav";
+import { buildEntryMeta } from "./site-row";
+import {
   describeEntry,
   formatCatalogDate,
+  formatCount,
   isSiteGroupErrorCode,
   linkAddedText,
+  popupSiteGroupLookup,
   requestSiteGroupUpdate,
   siteGroupErrorText,
   siteGroupsStatus,
 } from "./site-groups";
+import { listScreenSiteStatus, type ListScreenSiteStatus } from "./this-site";
 
-/** Modes that show the list manager. */
-const LIST_MODES: ReadonlyArray<ScopeMode> = ["allowlist", "denylist"];
+type ListKey = "allowlist" | "denylist";
 
 /** Timeout (ms) after which an unconfirmed scope mutation is reverted (Req 13.5). */
 const REVERT_TIMEOUT_MS = 5000;
@@ -48,14 +60,25 @@ const REVERT_TIMEOUT_MS = 5000;
 let lastPersistedMode: ScopeMode = "all";
 
 /** The list the add control adds to (null in "all" mode), and the control itself. */
-let activeListKey: "allowlist" | "denylist" | null = null;
+let activeListKey: ListKey | null = null;
 let addControl: EntryAddControl | null = null;
+
+/** What the list screen offers for the current tab ("＋ Add twitch.tv", "✓ twitch.tv · Listed"). */
+let siteStatus: ListScreenSiteStatus = { kind: "none" };
+/** "＋ Add <site>" is in flight. */
+let addingSite = false;
 
 /** "Update now" is running. */
 let siteGroupsUpdating = false;
 /** The release a manual check found already in use, for "up to date". */
 let upToDateRelease: string | null = null;
-let announceTimer: ReturnType<typeof setTimeout> | undefined;
+/** The last render's inputs, so "Update now" can re-render the status lines at once. */
+let lastStatusArgs: { settings: Settings; listKey: ListKey | null; proLocked: boolean } | null =
+  null;
+
+function el<T extends HTMLElement = HTMLElement>(id: string): T | null {
+  return document.getElementById(id) as T | null;
+}
 
 /** Resolve the active scope mode, defaulting to "all" for legacy/partial settings. */
 function resolveScopeMode(value: unknown): ScopeMode {
@@ -63,36 +86,29 @@ function resolveScopeMode(value: unknown): ScopeMode {
 }
 
 /** The settings list key backing a given list mode. */
-function listKeyForMode(mode: ScopeMode): "allowlist" | "denylist" | null {
+function listKeyForMode(mode: ScopeMode): ListKey | null {
   if (mode === "allowlist") return "allowlist";
   if (mode === "denylist") return "denylist";
   return null;
 }
 
-/** Localized mode description shown under the selector. */
+/** The sentence under the selector: what the mode does, stated positively. */
 function modeDescription(mode: ScopeMode): string {
   switch (mode) {
     case "allowlist":
-      return t("filters_modeAllowlistDesc") || "Spoofing applies only to listed sites.";
+      return t("filters_descAllow") || "GeoSpoof works only on sites in the Allowlist.";
     case "denylist":
-      return t("filters_modeDenylistDesc") || "Spoofing applies to every site except listed ones.";
+      return t("filters_descDeny") || "GeoSpoof works on every site except those in the Denylist.";
     default:
-      return t("filters_modeAllDesc") || "Spoofing applies to every site.";
+      return t("filters_descAll") || "GeoSpoof works on every site.";
   }
 }
 
-/** Localized header label for the active list. */
-function listTitle(listKey: "allowlist" | "denylist"): string {
+/** The list's name as a noun: the root row, the screen's title. */
+function listName(listKey: ListKey): string {
   return listKey === "denylist"
-    ? t("filters_blockedSites") || "Blocked sites"
-    : t("filters_allowedSites") || "Allowed sites";
-}
-
-/** Sync the header count chip to the number of rows currently in the DOM. */
-function updateListCountFromDom(): void {
-  const listEl = document.getElementById("scopeList");
-  const countEl = document.getElementById("scopeListCount");
-  if (listEl && countEl) countEl.textContent = String(listEl.children.length);
+    ? t("filters_denylistName") || "Denylist"
+    : t("filters_allowlistName") || "Allowlist";
 }
 
 /**
@@ -101,33 +117,37 @@ function updateListCountFromDom(): void {
  * GET_SETTINGS failure.
  */
 export function renderScopeLoadError(): void {
+  wireFiltersNavOnce();
   lastPersistedMode = "all";
   reflectModeSelection("all");
-  setListManagerVisible(false);
+  setListCardVisible(false);
+  if (getFiltersScreen() === "list") backFromFiltersScreen({ restoreFocus: false });
 
-  const loadError = document.getElementById("scopeLoadError");
+  const loadError = el("scopeLoadError");
   if (loadError) loadError.style.display = "block";
 
-  const desc = document.getElementById("scopeModeDesc");
+  const desc = el("scopeModeDesc");
   if (desc) desc.textContent = modeDescription("all");
 }
 
 /**
  * Main entry point, called from loadSettings() after the favorites render.
- * Renders the selector + list manager for the loaded settings.
+ * Renders the root's mode, sentence and list row, and the list screen, for
+ * the loaded settings and the active tab's URL.
  *
- * `proLocked` (Safari/iOS non-Pro) disables the mode selector + add controls
- * and surfaces the Pro note: per-site filtering is a Pro feature and the
- * background already forces scope "all" for these users, so the popup reflects
- * "all" and prevents interaction rather than letting it silently no-op.
+ * `proLocked` (Safari/iOS non-Pro) disables the mode selector and the add
+ * controls, and the Pro note replaces the sentence: Filters are a Pro feature
+ * and the background already forces scope "all" for these users, so the popup
+ * reflects "all" and prevents interaction rather than letting it silently
+ * no-op.
  */
-export function renderScope(settings: Settings, proLocked = false): void {
-  const loadError = document.getElementById("scopeLoadError");
+export function renderScope(settings: Settings, proLocked = false, tabUrl?: string): void {
+  wireFiltersNavOnce();
+  const loadError = el("scopeLoadError");
   if (loadError) loadError.style.display = "none";
 
   hideModeError();
   hideAddError();
-  hideCurrentMsg();
 
   // Locked free iOS users always reflect "all" (what the background enforces),
   // regardless of any stale stored mode from a lapsed subscription.
@@ -136,29 +156,33 @@ export function renderScope(settings: Settings, proLocked = false): void {
 
   reflectModeSelection(mode);
   wireModeSelector();
+  wireListScreenOnce();
   wireAddControls(mode);
   applyScopeLock(proLocked);
 
-  const desc = document.getElementById("scopeModeDesc");
+  const desc = el("scopeModeDesc");
   if (desc) desc.textContent = modeDescription(mode);
 
   const listKey = listKeyForMode(mode);
   renderSiteGroupsStatus(settings, listKey, proLocked);
   if (listKey === null) {
-    // "all" mode — hide the list manager entirely (Req 13.8).
-    setListManagerVisible(false);
+    // "all" mode: no list row, and its screen no longer applies (Req 13.8).
+    setListCardVisible(false);
+    siteStatus = { kind: "none" };
+    if (getFiltersScreen() === "list") backFromFiltersScreen({ restoreFocus: false });
     return;
   }
 
-  setListManagerVisible(true);
-  renderSiteList(listKey, settings[listKey] ?? []);
+  const entries = settings[listKey] ?? [];
+  renderListRow(listKey, entries);
+  renderListScreen(settings, listKey, entries, tabUrl);
 }
 
 /**
  * Enable/disable the scope controls for the Pro gate. Disabled buttons can't be
- * clicked (so the mode can't change) and the Pro note explains why; toggling it
- * off restores normal interaction (loadSettings can run multiple times in one
- * popup session).
+ * clicked (so the mode can't change) and the Pro note, in place of the
+ * sentence, explains why; toggling it off restores normal interaction
+ * (loadSettings can run multiple times in one popup session).
  */
 function applyScopeLock(locked: boolean): void {
   const buttons = document.querySelectorAll<HTMLButtonElement>(".scope-mode-btn");
@@ -166,14 +190,16 @@ function applyScopeLock(locked: boolean): void {
     btn.disabled = locked;
   });
 
-  const note = document.getElementById("scopeProNote");
-  if (note) note.style.display = locked ? "block" : "none";
+  const note = el("scopeProNote");
+  if (note) note.hidden = !locked;
+  const desc = el("scopeModeDesc");
+  if (desc) desc.hidden = locked;
 
-  // The add controls live inside the list manager (hidden in "all" mode, which
-  // is what a locked user always sees), but disable them defensively too.
-  for (const id of ["scopeAddInput", "scopeAddButton", "scopeAddCurrentButton"]) {
-    const el = document.getElementById(id) as HTMLInputElement | HTMLButtonElement | null;
-    if (el) el.disabled = locked;
+  // The add controls live on the list screen, which a locked user can't
+  // reach, but disable them defensively too.
+  for (const id of ["scopeAddInput", "scopeAddButton", "scopeAddSiteButton"]) {
+    const node = el<HTMLInputElement | HTMLButtonElement>(id);
+    if (node) node.disabled = locked;
   }
 }
 
@@ -194,7 +220,7 @@ function reflectModeSelection(mode: ScopeMode): void {
  * listeners (the buttons are static markup, so the same nodes persist).
  */
 function wireModeSelector(): void {
-  const container = document.getElementById("scopeModeTabs");
+  const container = el("scopeModeTabs");
   if (!container || container.dataset.wired === "1") return;
   container.dataset.wired = "1";
 
@@ -209,8 +235,10 @@ function wireModeSelector(): void {
 }
 
 /**
- * Optimistically reflect the new mode, then persist it. Revert the selection
- * and surface an inline message on failure or 5s timeout (Req 13.4, 13.5, 9.5).
+ * Optimistically reflect the new mode and its sentence, then persist it. The
+ * list row recomputes only from the saved settings, in the reload after
+ * success (6.2). Revert the selection and surface an inline message on
+ * failure or 5s timeout (Req 13.4, 13.5, 9.5).
  */
 async function handleModeChange(next: ScopeMode): Promise<void> {
   const previous = lastPersistedMode;
@@ -218,9 +246,8 @@ async function handleModeChange(next: ScopeMode): Promise<void> {
 
   // Optimistic update.
   reflectModeSelection(next);
-  const desc = document.getElementById("scopeModeDesc");
+  const desc = el("scopeModeDesc");
   if (desc) desc.textContent = modeDescription(next);
-  setListManagerVisible(LIST_MODES.includes(next));
 
   const payload: SetScopeModePayload = { scopeMode: next };
 
@@ -245,7 +272,7 @@ async function handleModeChange(next: ScopeMode): Promise<void> {
 
     if (result && "success" in result && result.success) {
       lastPersistedMode = next;
-      // Re-render lists for the new mode from authoritative settings.
+      // Re-render the list row and screen for the new mode from authoritative settings.
       await loadSettings();
       return;
     }
@@ -262,35 +289,158 @@ async function handleModeChange(next: ScopeMode): Promise<void> {
 function revertMode(previous: ScopeMode): void {
   lastPersistedMode = previous;
   reflectModeSelection(previous);
-  const desc = document.getElementById("scopeModeDesc");
+  const desc = el("scopeModeDesc");
   if (desc) desc.textContent = modeDescription(previous);
-  setListManagerVisible(LIST_MODES.includes(previous));
   showModeError();
 }
 
-// ── List manager ─────────────────────────────────────────────────────────────
+// ── The root's list row ────────────────────────────────────────────────────
 
-function setListManagerVisible(visible: boolean): void {
-  const manager = document.getElementById("scopeListManager");
-  if (manager) manager.style.display = visible ? "block" : "none";
+function setListCardVisible(visible: boolean): void {
+  const card = el("scopeListCard");
+  if (card) card.hidden = !visible;
+}
+
+/**
+ * "Allowlist / 4 on the list ›". An empty Denylist reads "Empty"; an empty
+ * Allowlist "⚠ Empty · Off on every site", because nothing is spoofed then.
+ */
+function renderListRow(listKey: ListKey, entries: readonly string[]): void {
+  setListCardVisible(true);
+  const title = el("scopeListRowTitle");
+  if (title) title.textContent = listName(listKey);
+  const value = el("scopeListRowValue");
+  if (!value) return;
+  value.replaceChildren();
+  const warn = entries.length === 0 && listKey === "allowlist";
+  value.classList.toggle("warn", warn);
+  if (entries.length > 0) {
+    const count = formatCount(entries.length);
+    value.textContent = t("filters_countOnList", [count]) || `${count} on the list`;
+  } else if (warn) {
+    const sign = document.createElement("span");
+    sign.setAttribute("aria-hidden", "true");
+    sign.textContent = "⚠ ";
+    value.append(sign, t("filters_listEmptyAllow") || "Empty · Off on every site");
+  } else {
+    value.textContent = t("filters_listEmpty") || "Empty";
+  }
+}
+
+/** The root's list row opens the list screen; leaving it, focus returns to the row. */
+function wireListScreenOnce(): void {
+  const row = el("scopeListRow");
+  if (!row || row.dataset.wired === "1") return;
+  row.dataset.wired = "1";
+  wireButtonRow(row, () => {
+    if (activeListKey === null) return;
+    openFiltersScreen("list", { opener: row });
+  });
+  setFiltersScreenFallback("list", () => el("scopeListRow"));
+
+  const addSite = el("scopeAddSiteButton");
+  addSite?.addEventListener("click", () => {
+    void handleAddSite();
+  });
+}
+
+// ── The list screen ────────────────────────────────────────────────────────
+
+function renderListScreen(
+  settings: Settings,
+  listKey: ListKey,
+  entries: string[],
+  tabUrl: string | undefined
+): void {
+  const title = el("scopeListTitle");
+  if (title) title.textContent = listName(listKey);
+  const caption = el("scopeListCaption");
+  if (caption) {
+    caption.textContent =
+      listKey === "denylist"
+        ? t("filters_captionDeny") || "GeoSpoof works on every site except these."
+        : t("filters_captionAllow") || "GeoSpoof works only on these sites.";
+  }
+
+  siteStatus = listScreenSiteStatus({
+    settings,
+    list: listKey,
+    tabUrl,
+    isOptionsPage: tabUrl !== undefined && isOwnExtensionPage(tabUrl),
+    isRestricted: isRestrictedUrl,
+    siteGroups: popupSiteGroupLookup(),
+  });
+  renderSiteStatus(siteStatus);
+  renderSiteList(listKey, entries);
+}
+
+/**
+ * "＋ Add twitch.tv" when the site isn't in the list (`www.` dropped, as
+ * everywhere "this site" is named); "✓ twitch.tv · Listed" or "✓ twitch.tv ·
+ * Covered by *.tv" when it is; nothing on restricted pages and the options
+ * page.
+ */
+function renderSiteStatus(status: ListScreenSiteStatus): void {
+  const button = el("scopeAddSiteButton");
+  const label = el("scopeAddSiteLabel");
+  const line = el("scopeSiteStatus");
+  if (button) button.hidden = status.kind !== "add";
+  if (label) {
+    label.textContent =
+      status.kind === "add" ? t("filters_addSite", [status.site]) || `Add ${status.site}` : "";
+  }
+  if (!line) return;
+  line.hidden = status.kind !== "listed" && status.kind !== "coveredBy";
+  line.replaceChildren();
+  if (status.kind !== "listed" && status.kind !== "coveredBy") return;
+  const detail =
+    status.kind === "listed"
+      ? t("filters_listed") || "Listed"
+      : t("filters_coveredBy", [describeEntry(status.entry).title]) ||
+        `Covered by ${describeEntry(status.entry).title}`;
+  const sign = document.createElement("span");
+  sign.setAttribute("aria-hidden", "true");
+  sign.textContent = "✓ ";
+  line.append(sign, `${status.site} · ${detail}`);
+}
+
+/** "＋ Add <site>": add exactly the site the button names, then say it's listed. */
+async function handleAddSite(): Promise<void> {
+  const listKey = activeListKey;
+  if (addingSite || listKey === null || siteStatus.kind !== "add") return;
+  hideAddError();
+  addingSite = true;
+  const payload: ScopeSitePayload = { list: listKey, pattern: siteStatus.site };
+  try {
+    const result = (await browser.runtime.sendMessage({
+      type: "ADD_SCOPE_SITE",
+      payload,
+    })) as ScopeResponse | undefined;
+    if (result && "success" in result && result.success) {
+      await loadSettings();
+      // The button hid itself; its status line took its place.
+      const line = el("scopeSiteStatus");
+      if (isFocusable(line)) line.focus();
+      return;
+    }
+  } catch (error: unknown) {
+    console.error("Failed to add the current site:", error);
+  } finally {
+    addingSite = false;
+  }
+  showAddError(t("filters_notSaved") || "⚠ Change not saved");
 }
 
 /**
  * Render the active list's entries with per-entry remove controls, or the
  * empty-list indicator when there are none (Req 14.1, 14.8).
  */
-function renderSiteList(listKey: "allowlist" | "denylist", entries: string[]): void {
-  const listEl = document.getElementById("scopeList");
-  const emptyEl = document.getElementById("scopeEmptyIndicator");
+function renderSiteList(listKey: ListKey, entries: string[]): void {
+  const listEl = el("scopeList");
+  const emptyEl = el("scopeEmptyIndicator");
   if (!listEl) return;
 
   while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
-
-  // Keep the slim header label + count in sync on every render.
-  const titleEl = document.getElementById("scopeListTitle");
-  if (titleEl) titleEl.textContent = listTitle(listKey);
-  const countEl = document.getElementById("scopeListCount");
-  if (countEl) countEl.textContent = String(entries.length);
 
   if (entries.length === 0) {
     if (emptyEl) emptyEl.style.display = "block";
@@ -299,70 +449,21 @@ function renderSiteList(listKey: "allowlist" | "denylist", entries: string[]): v
   if (emptyEl) emptyEl.style.display = "none";
 
   for (const domain of entries) {
-    listEl.appendChild(buildSiteRow(listKey, domain));
+    listEl.appendChild(buildFilterRow(listKey, domain));
   }
 }
 
 /**
- * Deterministic hue (0–359) derived from the domain string, so each site keeps
- * a stable colour across renders without any stored state.
+ * Build a single list row: the entry + its remove button. An exact address,
+ * site group or list from a link shows as one row too: its name, and a muted
+ * meta line ("Site group · 964 sites"), in the warning style when its data is
+ * missing or its last refresh failed. No letter badge (S4).
  */
-function monogramHue(domain: string): number {
-  let hash = 0;
-  for (let i = 0; i < domain.length; i++) {
-    hash = (hash * 31 + domain.charCodeAt(i)) % 360;
-  }
-  return hash;
-}
-
-/**
- * Build a decorative monogram tile for a domain: the first character on a
- * deterministic coloured background. Generated entirely locally — we never
- * fetch a favicon, so the user's site list never leaves the device (a network
- * request, even for a public icon, would reveal the list to that host or a
- * third-party favicon service).
- */
-export function buildMonogram(domain: string): HTMLElement {
-  const tile = document.createElement("span");
-  tile.className = "scope-site-icon";
-  tile.setAttribute("aria-hidden", "true");
-  tile.textContent = (domain.charAt(0) || "?").toUpperCase();
-  tile.style.backgroundColor = `hsl(${monogramHue(domain)}, 52%, 38%)`;
-  return tile;
-}
-
-/**
- * The meta text of an entry row or chip ("964 sites"). A warning ("Not
- * available") gets a ⚠ sign and the `warning` class, so it isn't colour alone.
- */
-export function buildEntryMeta(meta: string, warning: boolean, className: string): HTMLElement {
-  const metaEl = document.createElement("span");
-  metaEl.className = warning ? `${className} warning` : className;
-  if (warning) {
-    const sign = document.createElement("span");
-    sign.setAttribute("aria-hidden", "true");
-    sign.textContent = "⚠ ";
-    metaEl.appendChild(sign);
-  }
-  metaEl.appendChild(document.createTextNode(meta));
-  return metaEl;
-}
-
-/**
- * Build a single list row: the domain label + its remove button. An exact
- * address, site group or list from a link shows as one row too: its name, and
- * a muted meta line ("964 sites"), in the warning style when its data is
- * missing or its last refresh failed.
- */
-function buildSiteRow(listKey: "allowlist" | "denylist", domain: string): HTMLElement {
+function buildFilterRow(listKey: ListKey, domain: string): HTMLElement {
   const display = describeEntry(domain);
   const row = document.createElement("div");
   row.className = "scope-site-row";
   row.setAttribute("role", "listitem");
-
-  // Decorative monogram tile: deterministic colour from the domain, generated
-  // locally — no favicon fetch, so the list never leaves the device.
-  row.appendChild(buildMonogram(display.title));
 
   const label = document.createElement("span");
   label.className = "scope-site-domain";
@@ -420,86 +521,10 @@ function wireAddControls(mode: ScopeMode): void {
   addControl = control;
   activeListKey = listKey;
 
-  // The syntax rows for the forms this build can't add.
+  // The help rows for the forms this build can't add.
   document.querySelectorAll<HTMLElement>("[data-site-groups-only]").forEach((row) => {
     row.hidden = !siteGroupsAvailable();
   });
-
-  // "Add current site" convenience: reads the active tab's top-level URL,
-  // normalizes its hostname, and adds it to the active list (Req 14.3, 14.7,
-  // 14.9). Clone the button to drop listeners from a prior render/mode.
-  const currentBtn = document.getElementById("scopeAddCurrentButton") as HTMLButtonElement | null;
-  if (currentBtn) {
-    const freshCurrentBtn = currentBtn.cloneNode(true) as HTMLButtonElement;
-    currentBtn.parentNode?.replaceChild(freshCurrentBtn, currentBtn);
-    freshCurrentBtn.addEventListener("click", () => {
-      void handleAddCurrent(listKey);
-    });
-  }
-}
-
-/**
- * Add the current tab's site to the active list.
- *
- * Reads the active tab's top-level URL, then short-circuits with an inline
- * message and sends nothing when the page is a Restricted_URL (Req 14.7) or
- * when the derived hostname normalizes to null (Req 14.9). Otherwise sends
- * ADD_SCOPE_SITE with the normalized domain (Req 14.3).
- */
-async function handleAddCurrent(listKey: "allowlist" | "denylist"): Promise<void> {
-  hideAddError();
-  hideCurrentMsg();
-
-  let url: string | undefined;
-  try {
-    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-    url = tabs[0]?.url;
-  } catch (error: unknown) {
-    console.error("Failed to read the current tab:", error);
-    showCurrentMsg(t("filters_currentPageInvalid") || "This site cannot be added");
-    return;
-  }
-
-  // Restricted pages (about:, chrome:, store pages, …) cannot be added (Req 14.7).
-  if (isRestrictedUrl(url)) {
-    showCurrentMsg(t("filters_currentPageRestricted") || "This page cannot be added");
-    return;
-  }
-
-  // Derive the top-level hostname, then parse it as a bare-host Pattern
-  // (Req 14.3 / 14.9). Add-current scopes the current site's host; port/path
-  // are intentionally not included.
-  let hostname = "";
-  try {
-    hostname = new URL(url as string).hostname;
-  } catch {
-    hostname = "";
-  }
-  const canonical = parsePattern(hostname);
-  if (canonical === null) {
-    showCurrentMsg(t("filters_currentPageInvalid") || "This site cannot be added");
-    return;
-  }
-
-  const payload: ScopeSitePayload = { list: listKey, pattern: canonical };
-
-  try {
-    const result = (await browser.runtime.sendMessage({
-      type: "ADD_SCOPE_SITE",
-      payload,
-    })) as ScopeResponse;
-
-    if (result && "success" in result && result.success) {
-      await loadSettings();
-      return;
-    }
-
-    // Defensive: background reported INVALID_PATTERN / STORAGE_ERROR.
-    showCurrentMsg(t("filters_currentPageInvalid") || "This site cannot be added");
-  } catch (error: unknown) {
-    console.error("Failed to add current site:", error);
-    showCurrentMsg(t("filters_currentPageInvalid") || "This site cannot be added");
-  }
 }
 
 /**
@@ -547,79 +572,94 @@ async function handleAdd(entries: string[], kind: EntryInputKind): Promise<Entry
   return { ok: false, message: notSaved };
 }
 
-/** Long enough for screen readers to register the cleared region first. */
-const ANNOUNCE_DELAY_MS = 100;
+// ── Site group status (S5) ─────────────────────────────────────────────────
+
+/** The three status lines and their Update now buttons. */
+const STATUS_LINES = [
+  {
+    box: "siteGroupsHelpStatus",
+    text: "siteGroupsHelpStatusText",
+    button: "siteGroupsHelpUpdateNow",
+  },
+  { box: "siteGroupsStatus", text: "siteGroupsStatusText", button: "siteGroupsUpdateNow" },
+  {
+    box: "siteLocationsGroupsStatus",
+    text: "siteLocationsGroupsStatusText",
+    button: "siteLocationsGroupsUpdateNow",
+  },
+] as const;
 
 /**
- * Speak a confirmation through #siteLocationAnnouncer, the popup's polite live
- * region outside every view: cleared first and set a moment later, so the same
- * message repeated is spoken again.
- */
-function announce(text: string): void {
-  const region = document.getElementById("siteLocationAnnouncer");
-  if (!region) return;
-  clearTimeout(announceTimer);
-  region.textContent = "";
-  announceTimer = setTimeout(() => {
-    region.textContent = text;
-  }, ANNOUNCE_DELAY_MS);
-}
-
-// ── Site group status ──────────────────────────────────────────────────────
-
-/**
- * The status line under the list: where site group data comes from and
- * whether its last update worked, with "Update now". Shown only when the
+ * Where site group data comes from and whether its last update worked, with
+ * "Update now". The date line lives in "What can I add?", shown when the
  * active list or any site location holds a site group or a list from a link.
+ * While an update runs, or after one failed, the list screen and the
+ * Per-site locations screen say so too, each where its own entries use one.
  */
 function renderSiteGroupsStatus(
   settings: Settings,
-  listKey: "allowlist" | "denylist" | null,
+  listKey: ListKey | null,
   proLocked: boolean
 ): void {
-  const box = document.getElementById("siteGroupsStatus");
-  const textEl = document.getElementById("siteGroupsStatusText");
-  const button = document.getElementById("siteGroupsUpdateNow");
-  if (!box || !textEl || !button) return;
-  if (button.dataset.wired !== "1") {
-    button.dataset.wired = "1";
-    button.addEventListener("click", () => {
-      void handleUpdateNow();
-    });
+  lastStatusArgs = { settings, listKey, proLocked };
+  for (const ids of STATUS_LINES) {
+    const button = el(ids.button);
+    if (button && button.dataset.wired !== "1") {
+      button.dataset.wired = "1";
+      button.addEventListener("click", () => {
+        void handleUpdateNow();
+      });
+    }
   }
 
   const hasToken = (list: unknown): boolean =>
     Array.isArray(list) && list.some((p) => typeof p === "string" && isSiteGroupToken(p));
   const status = siteGroupsStatus();
-  const shown =
-    !proLocked &&
-    siteGroupsAvailable() &&
-    status !== null &&
-    ((listKey !== null && hasToken(settings[listKey])) ||
-      (Array.isArray(settings.siteLocations) &&
-        settings.siteLocations.some((entry) => hasToken(entry?.patterns))));
-  box.hidden = !shown;
-  if (!shown || status === null) return;
+  const known = !proLocked && siteGroupsAvailable() && status !== null;
+  const listHasToken = listKey !== null && hasToken(settings[listKey]);
+  const perSiteHasToken =
+    Array.isArray(settings.siteLocations) &&
+    settings.siteLocations.some((entry) => hasToken(entry?.patterns));
+  const problem =
+    status !== null && (siteGroupsUpdating || status.updating || status.lastError !== null);
+  const shown = [
+    known && (listHasToken || perSiteHasToken),
+    known && problem && listHasToken,
+    known && problem && perSiteHasToken,
+  ];
 
+  const text = status === null ? "" : siteGroupsStatusText(status);
+  STATUS_LINES.forEach((ids, index) => {
+    const box = el(ids.box);
+    const textEl = el(ids.text);
+    const button = el(ids.button);
+    if (box) box.hidden = !shown[index];
+    if (!shown[index]) return;
+    // Only a real change, so the polite region isn't re-read on every render.
+    if (textEl && textEl.textContent !== text) textEl.textContent = text;
+    // aria-disabled rather than disabled, so a focused button keeps focus.
+    if (siteGroupsUpdating) button?.setAttribute("aria-disabled", "true");
+    else button?.removeAttribute("aria-disabled");
+  });
+}
+
+function siteGroupsStatusText(status: NonNullable<ReturnType<typeof siteGroupsStatus>>): string {
   const date = status.releasedAt === null ? "" : formatCatalogDate(Date.parse(status.releasedAt));
-  let text: string;
   if (siteGroupsUpdating || status.updating) {
-    text = t("siteGroups_statusUpdating") || "Updating site groups…";
-  } else if (status.lastError !== null) {
-    text =
-      t("siteGroups_statusFailed", [date]) ||
-      `Couldn't update site groups. Using lists from ${date}.`;
-  } else if (upToDateRelease !== null && upToDateRelease === status.release) {
-    text =
-      t("siteGroups_statusUpToDate", [date]) || `Site groups are up to date (lists from ${date})`;
-  } else {
-    text = t("siteGroups_statusFrom", [date]) || `Site group lists from ${date}`;
+    return t("siteGroups_statusUpdating") || "Updating site groups…";
   }
-  // Only a real change, so the polite region isn't re-read on every render.
-  if (textEl.textContent !== text) textEl.textContent = text;
-  // aria-disabled rather than disabled, so a focused button keeps focus.
-  if (siteGroupsUpdating) button.setAttribute("aria-disabled", "true");
-  else button.removeAttribute("aria-disabled");
+  if (status.lastError !== null) {
+    return (
+      t("siteGroups_statusFailed", [date]) ||
+      `Couldn't update site groups. Using lists from ${date}.`
+    );
+  }
+  if (upToDateRelease !== null && upToDateRelease === status.release) {
+    return (
+      t("siteGroups_statusUpToDate", [date]) || `Site groups are up to date (lists from ${date})`
+    );
+  }
+  return t("siteGroups_statusFrom", [date]) || `Site group lists from ${date}`;
 }
 
 /** "Update now": a manual refresh, then a reload that re-renders the status. */
@@ -628,13 +668,17 @@ async function handleUpdateNow(): Promise<void> {
   const before = siteGroupsStatus()?.release ?? null;
   siteGroupsUpdating = true;
   upToDateRelease = null;
-  const textEl = document.getElementById("siteGroupsStatusText");
-  if (textEl) textEl.textContent = t("siteGroups_statusUpdating") || "Updating site groups…";
-  document.getElementById("siteGroupsUpdateNow")?.setAttribute("aria-disabled", "true");
+  if (lastStatusArgs) {
+    renderSiteGroupsStatus(
+      lastStatusArgs.settings,
+      lastStatusArgs.listKey,
+      lastStatusArgs.proLocked
+    );
+  }
 
   const result = await requestSiteGroupUpdate();
   siteGroupsUpdating = false;
-  document.getElementById("siteGroupsUpdateNow")?.removeAttribute("aria-disabled");
+  for (const ids of STATUS_LINES) el(ids.button)?.removeAttribute("aria-disabled");
   if (result.ok && before !== null && result.status?.release === before) {
     upToDateRelease = before;
   }
@@ -644,22 +688,17 @@ async function handleUpdateNow(): Promise<void> {
 /**
  * Remove an entry with optimistic removal + revert-on-failure (Req 14.6).
  */
-async function handleRemove(
-  listKey: "allowlist" | "denylist",
-  domain: string,
-  row: HTMLElement
-): Promise<void> {
+async function handleRemove(listKey: ListKey, domain: string, row: HTMLElement): Promise<void> {
   // Optimistically remove the row.
   const parent = row.parentNode;
   const nextSibling = row.nextSibling;
   row.remove();
 
-  const listEl = document.getElementById("scopeList");
-  const emptyEl = document.getElementById("scopeEmptyIndicator");
+  const listEl = el("scopeList");
+  const emptyEl = el("scopeEmptyIndicator");
   if (listEl && emptyEl && listEl.children.length === 0) {
     emptyEl.style.display = "block";
   }
-  updateListCountFromDom();
 
   const payload: ScopeSitePayload = { list: listKey, pattern: domain };
 
@@ -695,28 +734,20 @@ function restoreRow(
     parent.insertBefore(row, nextSibling);
   }
   if (emptyEl) emptyEl.style.display = "none";
-  updateListCountFromDom();
 }
 
 // ── Inline messages ────────────────────────────────────────────────────────
 
+function showAddError(text: string): void {
+  const node = el("scopeAddError");
+  if (!node) return;
+  node.textContent = text;
+  node.style.display = "block";
+}
+
 function hideAddError(): void {
-  const el = document.getElementById("scopeAddError");
-  if (el) el.style.display = "none";
-}
-
-/** Show the add-current-site inline status with the given text. */
-function showCurrentMsg(text: string): void {
-  const el = document.getElementById("scopeCurrentMsg");
-  if (el) {
-    el.textContent = text;
-    el.style.display = "block";
-  }
-}
-
-function hideCurrentMsg(): void {
-  const el = document.getElementById("scopeCurrentMsg");
-  if (el) el.style.display = "none";
+  const node = el("scopeAddError");
+  if (node) node.style.display = "none";
 }
 
 /** Test hook: forget popup-session state between cases. */
@@ -724,18 +755,19 @@ export function __resetScopeForTest(): void {
   lastPersistedMode = "all";
   activeListKey = null;
   addControl = null;
+  siteStatus = { kind: "none" };
+  addingSite = false;
   siteGroupsUpdating = false;
   upToDateRelease = null;
-  clearTimeout(announceTimer);
-  announceTimer = undefined;
+  lastStatusArgs = null;
 }
 
 function showModeError(): void {
-  const el = document.getElementById("scopeModeError");
-  if (el) el.style.display = "block";
+  const node = el("scopeModeError");
+  if (node) node.style.display = "block";
 }
 
 function hideModeError(): void {
-  const el = document.getElementById("scopeModeError");
-  if (el) el.style.display = "none";
+  const node = el("scopeModeError");
+  if (node) node.style.display = "none";
 }

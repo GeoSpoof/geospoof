@@ -75,13 +75,13 @@
     "message": "網站篩選",
     "description": "Heading for the site-scoping filters panel."
   },
-  "filters_modeGroupAriaLabel": {
-    "message": "範圍模式",
-    "description": "Accessible label for the scope-mode selector group."
+  "filters_where": {
+    "message": "GeoSpoof 的生效範圍",
+    "description": "Section heading above the scope-mode selector on the Filters tab (shown uppercase). Replaces the old 'Mode' heading."
   },
   "filters_modeAll": {
-    "message": "全部",
-    "description": "Scope mode option: spoof on every site."
+    "message": "所有網站",
+    "description": "Scope mode segment: GeoSpoof works on every site."
   },
   "filters_modeAllowlist": {
     "message": "允許清單",
@@ -91,17 +91,79 @@
     "message": "封鎖清單",
     "description": "Scope mode option: spoof on every site except listed ones."
   },
-  "filters_modeAllDesc": {
-    "message": "偽造適用於所有網站。",
-    "description": "Description shown under the selector when 'All' mode is active."
+  "filters_descAll": {
+    "message": "GeoSpoof 在所有網站上生效。",
+    "description": "Sentence under the scope-mode selector in All sites mode. Describes the setting, stated positively with 'works'; it doesn't change with the site."
   },
-  "filters_modeAllowlistDesc": {
-    "message": "偽造僅適用於列出的網站。",
-    "description": "Description shown under the selector when 'Allowlist' mode is active."
+  "filters_descAllow": {
+    "message": "GeoSpoof 僅在允許清單中的網站上生效。",
+    "description": "Sentence under the scope-mode selector in Allowlist mode. 'Allowlist' is the list's name, as filters_allowlistName has it."
   },
-  "filters_modeDenylistDesc": {
-    "message": "偽造適用於除列出網站之外的所有網站。",
-    "description": "Description shown under the selector when 'Denylist' mode is active."
+  "filters_descDeny": {
+    "message": "GeoSpoof 在除封鎖清單中網站以外的所有網站上生效。",
+    "description": "Sentence under the scope-mode selector in Denylist mode. 'Denylist' is the list's name, as filters_denylistName has it."
+  },
+  "filters_allowlistName": {
+    "message": "允許清單",
+    "description": "The Allowlist's name as a noun: the Filters root's row, the list screen's title, and inside sentences. The segment label is filters_modeAllowlist."
+  },
+  "filters_denylistName": {
+    "message": "封鎖清單",
+    "description": "The Denylist's name as a noun: the Filters root's row, the list screen's title, and inside sentences. The segment label is filters_modeDenylist."
+  },
+  "filters_countOnList": {
+    "message": "清單中有 $COUNT$ 項",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "4"
+      }
+    },
+    "description": "The list row's value on the Filters root. $COUNT$ is a formatted number of entries; one entry can be a site group of many sites, so this doesn't say 'sites'."
+  },
+  "filters_listEmpty": {
+    "message": "空白",
+    "description": "The Denylist row's value on the Filters root when the Denylist is empty. A status value, not a sentence."
+  },
+  "filters_listEmptyAllow": {
+    "message": "空白 · 在所有網站上關閉",
+    "description": "The Allowlist row's value on the Filters root when the Allowlist is empty, after a ⚠ drawn by the markup. A status value with one detail after the '·'."
+  },
+  "filters_captionAllow": {
+    "message": "GeoSpoof 僅在這些網站上生效。",
+    "description": "Caption under the Allowlist screen's title."
+  },
+  "filters_captionDeny": {
+    "message": "GeoSpoof 在除這些網站以外的所有網站上生效。",
+    "description": "Caption under the Denylist screen's title."
+  },
+  "filters_addSite": {
+    "message": "新增 $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Green button on a list screen that adds the current tab's site, without www. The markup draws a ＋ before it. $SITE$ is the site."
+  },
+  "filters_listed": {
+    "message": "已在清單中",
+    "description": "On a list screen, after '✓ twitch.tv ·': the current tab's site is in this list. A status value."
+  },
+  "filters_coveredBy": {
+    "message": "已由 $ENTRY$ 涵蓋",
+    "placeholders": {
+      "entry": {
+        "content": "$1",
+        "example": "*.tv"
+      }
+    },
+    "description": "After '✓ twitch.tv ·' on a list screen: the list entry that covers the current tab's site. A phrase without a subject. $ENTRY$ is the entry as the list shows it, for example *.tv or Google."
+  },
+  "filters_help": {
+    "message": "我可以新增什麼？",
+    "description": "Collapsible help on a list screen: what can be added (sites, patterns, site groups, lists from a link). Replaces 'What patterns can I use?'."
   },
   "filters_addButton": {
     "message": "新增",
@@ -126,30 +188,6 @@
   "filters_removeAriaLabel": {
     "message": "移除網站",
     "description": "Accessible label prefix on a site's remove button."
-  },
-  "filters_addCurrentButton": {
-    "message": "新增目前網站",
-    "description": "Button that adds the active tab's site to the active list."
-  },
-  "filters_currentPageRestricted": {
-    "message": "無法新增此頁面",
-    "description": "Inline message shown when the current page is a restricted URL that cannot be added."
-  },
-  "filters_currentPageInvalid": {
-    "message": "無法新增此網站",
-    "description": "Inline message shown when the current tab's hostname cannot be added to a list."
-  },
-  "filters_allowedSites": {
-    "message": "允許的網站",
-    "description": "Header above the list of allowlisted sites."
-  },
-  "filters_blockedSites": {
-    "message": "已封鎖的網站",
-    "description": "Header above the list of denylisted sites."
-  },
-  "filters_syntaxTitle": {
-    "message": "我可以使用哪些模式？",
-    "description": "Summary label for the collapsible supported-pattern-syntax reference in the Filters tab."
   },
   "filters_syntaxDomain": {
     "message": "該網站及其所有子網域",
@@ -210,10 +248,6 @@
   "heading_protection": {
     "message": "保護",
     "description": "Section heading above the protection toggles in the Main tab."
-  },
-  "heading_mode": {
-    "message": "模式",
-    "description": "Section heading above the scope-mode selector in the Filters tab."
   },
   "location_none": {
     "message": "未設定位置",
@@ -855,15 +889,103 @@
   },
   "siteLocation_sectionTitle": {
     "message": "網站專屬位置",
-    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
+    "description": "The Filters root's row and the title of the Per-site locations screen. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
     "message": "在特定網站上使用不同的位置。",
-    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
+    "description": "Caption under the Per-site locations screen's title on the Filters tab."
   },
   "siteLocation_add": {
     "message": "為網站設定位置",
-    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
+    "description": "Green button on the Per-site locations screen that opens the editor for a new entry with no site filled in (when the current tab's site already has one, or there's no site). The markup draws a ＋ before it. Worded so it can't be read as adding a filter."
+  },
+  "siteLocation_setForSite": {
+    "message": "為 $SITE$ 設定位置",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Green button on the Per-site locations screen when the current tab's site has no entry of its own; opens the editor with the site filled in. The markup draws a ＋ before it. $SITE$ is the site without www."
+  },
+  "siteLocation_newLocation": {
+    "message": "新的網站專屬位置",
+    "description": "Title of the per-site editor screen for a new entry."
+  },
+  "siteLocation_srcSite": {
+    "message": "網站專屬位置",
+    "description": "Title of the per-site editor screen for an existing entry; also names where a site's place comes from. Glossary term, paired with 'Main location'."
+  },
+  "siteLocation_changeAria": {
+    "message": "變更 $SITE$ 的位置",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    },
+    "description": "Screen-reader description of a row on the Per-site locations screen, which opens the editor. $SITE$ is the row's site or sites."
+  },
+  "siteLocation_countLocations": {
+    "message": "$COUNT$ 個位置",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    },
+    "description": "The Per-site locations row's value on the Filters root, for 2 or more entries. $COUNT$ is a formatted number."
+  },
+  "siteLocation_countLocationsOne": {
+    "message": "1 個位置",
+    "description": "The Per-site locations row's value with exactly one entry (WebExtension i18n has no plural forms)."
+  },
+  "siteLocation_noLocations": {
+    "message": "無",
+    "description": "The Per-site locations row's value on the Filters root with no entries. A status value."
+  },
+  "siteLocation_notUsed": {
+    "message": "未使用 · 已在「篩選」中關閉",
+    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: Filters keep GeoSpoof off there, so its location isn't used. 'Filters' is the Filters tab's name (tab_filters), inflected as the grammar needs and written the way the locale writes a UI element's name."
+  },
+  "siteLocation_notUsedOn": {
+    "message": "在 $SITES$ 上未使用 · 已在「篩選」中關閉",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "As siteLocation_notUsed, for an entry with several sites, naming the ones Filters keep off. $SITES$ is up to two sites, or two and 'and N more' (siteLocation_sitesAndMore)."
+  },
+  "siteLocation_somePages": {
+    "message": "僅在部分頁面上使用",
+    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: Filters cover only some pages of the site."
+  },
+  "siteLocation_somePagesOn": {
+    "message": "僅在 $SITES$ 的部分頁面上使用",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "As siteLocation_somePages, for an entry with several sites. $SITES$ names the sites as in siteLocation_notUsedOn."
+  },
+  "siteLocation_sitesAndMore": {
+    "message": "$SITES$ 及另外 $COUNT$ 個",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv, kick.com"
+      },
+      "count": {
+        "content": "$2",
+        "example": "3"
+      }
+    },
+    "description": "Names more than two sites in a mark: the first two, then how many more. $SITES$ is the first two joined by ', ', $COUNT$ a formatted number."
   },
   "siteLocation_edit": {
     "message": "編輯",
@@ -882,8 +1004,8 @@
     "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
-    "message": "🔒 網站專屬位置是 GeoSpoof Pro 功能。請在 GeoSpoof App 中升級，即可為網站設定專屬位置。",
-    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
+    "message": "🔒 允許清單、封鎖清單和網站專屬位置是 GeoSpoof Pro 功能。請在 GeoSpoof App 中升級。",
+    "description": "Shown on the Filters tab in place of the mode sentence for non-Pro iOS users, whose Allowlist, Denylist and per-site location controls are locked; the locked Per-site locations row is described by it. Must contain siteLocation_sectionTitle's words."
   },
   "details_siteLocation": {
     "message": "在此網站上",

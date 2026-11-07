@@ -90,6 +90,73 @@ describe("Popup HTML Structure", () => {
     expect(warningMessage!.style.display).toBe("none");
   });
 
+  test("the Filters tab is a root and three screens, only the root shown", () => {
+    const screens = Array.from(document.querySelectorAll("#filtersView > .filters-screen"));
+    expect(screens.map((screen) => screen.id)).toEqual([
+      "filtersRoot",
+      "scopeListScreen",
+      "siteLocationsScreen",
+      "siteLocationEditorScreen",
+    ]);
+    expect(screens.filter((screen) => !screen.hasAttribute("hidden")).map((s) => s.id)).toEqual([
+      "filtersRoot",
+    ]);
+    // Each screen below the root has a back row and a script-focusable title.
+    for (const screen of screens.slice(1)) {
+      expect(screen.firstElementChild?.matches("button.back-row"), screen.id).toBe(true);
+      const title = screen.querySelector(".view-title");
+      expect(title?.getAttribute("tabindex"), screen.id).toBe("-1");
+      expect(screen.querySelector(".back-row [aria-hidden='true']")?.textContent).toBe("‹ ");
+    }
+    expect(
+      document.getElementById("siteLocationEditor")?.closest("#siteLocationEditorScreen")
+    ).not.toBeNull();
+  });
+
+  test("the root: the heading names the mode group, and the two drill rows", () => {
+    const tabs = document.getElementById("scopeModeTabs")!;
+    expect(tabs.getAttribute("role")).toBe("radiogroup");
+    expect(tabs.getAttribute("aria-labelledby")).toBe("scopeModeHeading");
+    expect(tabs.getAttribute("aria-describedby")).toBe("scopeModeDesc");
+    expect(tabs.hasAttribute("aria-label")).toBe(false);
+    expect(document.getElementById("scopeModeHeading")?.textContent?.trim()).toBe(
+      "Where GeoSpoof works"
+    );
+    for (const id of ["scopeListRow", "siteLocationsRow"]) {
+      const row = document.getElementById(id)!;
+      expect(row.classList.contains("drill-row")).toBe(true);
+      expect(row.getAttribute("role")).toBe("button");
+      expect(row.getAttribute("tabindex")).toBe("0");
+    }
+    expect(document.getElementById("siteLocationsCard")?.classList).toContain(
+      "drill-card-separate"
+    );
+  });
+
+  test("one Pro note, localized, for Filters and per-site locations together", () => {
+    const notes = document.querySelectorAll(".pro-lock-note[data-i18n='siteLocation_proNote']");
+    expect(notes).toHaveLength(1);
+    expect(notes[0].id).toBe("scopeProNote");
+    expect(document.getElementById("siteLocationsProNote")).toBeNull();
+  });
+
+  test("no menus and none of the old list chrome in the Filters tab", () => {
+    const filters = document.getElementById("filtersView")!;
+    expect(filters.querySelector("select")).toBeNull();
+    for (const id of [
+      "scopeListManager",
+      "scopeListHeader",
+      "scopeListCount",
+      "scopeAddCurrentButton",
+      "scopeCurrentMsg",
+      "siteLocationsDisclosure",
+      "siteLocationsAddRow",
+    ]) {
+      expect(document.getElementById(id), id).toBeNull();
+    }
+    expect(filters.querySelector("hr, details.site-locations-disclosure")).toBeNull();
+  });
+
   test("should link popup.css and popup.js", () => {
     const cssLink = document.querySelector('link[href="popup.css"]');
     expect(cssLink).toBeTruthy();

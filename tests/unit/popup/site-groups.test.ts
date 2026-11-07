@@ -361,11 +361,11 @@ describe("describeEntry", () => {
     });
   });
 
-  test("a group shows its label and size, without skipped rules", async () => {
+  test("a group shows its label, 'Site group' and its size, without skipped rules", async () => {
     await load(reply({ "geosite:google": group("geosite:google") }));
     expect(describeEntry("geosite:google")).toEqual({
       title: "Google",
-      meta: "964 sites",
+      meta: "Site group · 964 sites",
       tooltip: "geosite:google",
       warning: false,
       kind: "group",
@@ -385,11 +385,11 @@ describe("describeEntry", () => {
     );
     expect(describeEntry("geosite:google@ads@cn")).toMatchObject({
       title: "Google @ads @cn",
-      meta: "4 sites",
+      meta: "Site group · 4 sites",
     });
     expect(describeEntry("geosite:category-ads-all")).toMatchObject({
       title: "category-ads-all",
-      meta: `${formatCount(6000)} sites`,
+      meta: `Site group · ${formatCount(6000)} sites`,
     });
   });
 
@@ -405,7 +405,7 @@ describe("describeEntry", () => {
     );
     expect(describeEntry("geosite:youtube@cn")).toMatchObject({
       title: "YouTube @cn",
-      meta: "1 site",
+      meta: "Site group · 1 site",
     });
   });
 
@@ -470,7 +470,7 @@ describe("describeEntry", () => {
     await loadIndex();
     const netflix = INDEX_REPLY.lists.find((list) => list.name === "netflix")!;
     expect(describeEntry("geosite:netflix", unsaved)).toMatchObject({
-      meta: `${netflix.count} sites`,
+      meta: `Site group · ${netflix.count} sites`,
       warning: false,
     });
     // The index counts the whole list, not what a tag keeps.
