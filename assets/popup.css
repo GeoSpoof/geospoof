@@ -2972,7 +2972,14 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   padding: 8px;
 }
 
-/* Favorites as suggestions under the Location field (S6). */
+/* Favorites as suggestions under the Location field (S6). The heading and
+   the list keep the editor's 4 px gap between them. */
+.favorite-suggestions-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .favorite-suggestions-head {
   height: 20px;
   display: flex;
@@ -3037,6 +3044,17 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   border: 1px solid var(--border-input);
   border-radius: 8px;
   background: var(--surface);
+}
+
+/* With no place chosen, the token's live region is empty and the summary has
+   nothing to say. Neither may add an editor gap (H-7). The live region stays
+   rendered, out of the flex flow, so it still speaks when a token arrives. */
+.site-location-chosen:empty {
+  position: absolute;
+}
+
+.site-location-explain:empty {
+  display: none;
 }
 
 .site-location-explain {
