@@ -6,9 +6,9 @@
 
 import type { ScopeResponse, ScopeSitePayload } from "@/shared/types/messages";
 import { t } from "./i18n";
-import type { ThisSiteButton } from "./this-site";
+import type { ThisSiteListAction } from "./this-site";
 
-export type FiltersAction = NonNullable<ThisSiteButton>;
+export type FiltersAction = ThisSiteListAction;
 
 /** A verb and the list's name: "Add to Allowlist", "Remove from Denylist". */
 export function filtersActionLabel(action: FiltersAction): string {

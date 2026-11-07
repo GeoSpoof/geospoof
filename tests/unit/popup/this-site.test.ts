@@ -110,7 +110,7 @@ describe("computeThisSiteCard: the rows of 6.1", () => {
       expect(card(scenario, "http://intranet/")).toEqual({ kind: "hidden" });
     });
 
-    it("row 2: Location Protection off opens Main", () => {
+    it("row 2: Location Protection off is plain and offers Turn On Location Protection", () => {
       expect(card({ ...scenario, enabled: false }, "https://example.com/")).toEqual({
         kind: "shown",
         row: 2,
@@ -118,9 +118,9 @@ describe("computeThisSiteCard: the rows of 6.1", () => {
         tabUrl: "https://example.com/",
         value: { kind: "off" },
         source: "protection",
-        opens: { kind: "main" },
+        opens: none,
         reason: none,
-        button: null,
+        button: { action: "turnOn" },
       });
     });
 
@@ -138,7 +138,7 @@ describe("computeThisSiteCard: the rows of 6.1", () => {
       });
     });
 
-    it("row 3: Not set still opens Main", () => {
+    it("row 3: Not set is plain and offers Set Location", () => {
       const c = card({ ...scenario, location: null, locationName: null }, "https://example.com/", {
         proLocked: true,
       });
@@ -146,8 +146,8 @@ describe("computeThisSiteCard: the rows of 6.1", () => {
         row: 3,
         value: { kind: "notSet" },
         source: "main",
-        opens: { kind: "main" },
-        button: null,
+        opens: none,
+        button: { action: "setLocation" },
       });
     });
   });
@@ -166,7 +166,7 @@ describe("computeThisSiteCard: the rows of 6.1", () => {
     });
   });
 
-  it("row 4: a per-site location opens its editor; Not set opens Main", () => {
+  it("row 4: a per-site location opens its editor; Not set is plain and offers Set Location", () => {
     expect(card({ ...S0, siteLocations: [LOS_ANGELES] }, "https://www.twitch.tv/")).toMatchObject({
       row: 4,
       value: { kind: "place", name: "Los Angeles" },
@@ -175,7 +175,38 @@ describe("computeThisSiteCard: the rows of 6.1", () => {
     });
     expect(
       card({ ...S0, location: null, locationName: null }, "https://chatgpt.com/")
-    ).toMatchObject({ row: 4, value: { kind: "notSet" }, source: "main", opens: { kind: "main" } });
+    ).toMatchObject({
+      row: 4,
+      value: { kind: "notSet" },
+      source: "main",
+      opens: none,
+      button: { action: "setLocation" },
+    });
+  });
+
+  it("Not set: a list change keeps the button; Set Location takes it where none shows", () => {
+    const unset = { location: null, locationName: null };
+    // Row 5: the own entry's Remove stays.
+    expect(card({ ...S, ...unset, siteLocations: [] }, "https://example.com/")).toMatchObject({
+      row: 5,
+      value: { kind: "notSet" },
+      opens: none,
+      button: { action: "remove", list: "allowlist", pattern: "example.com" },
+    });
+    // Row 6: covered by *.ru, no list change, so Set Location.
+    expect(card({ ...S, ...unset }, "https://example.ru/")).toMatchObject({
+      row: 6,
+      value: { kind: "notSet" },
+      opens: none,
+      button: { action: "setLocation" },
+    });
+    // Row 12: Add to Denylist stays.
+    expect(card({ ...D, ...unset }, "https://chatgpt.com/")).toMatchObject({
+      row: 12,
+      value: { kind: "notSet" },
+      opens: none,
+      button: { action: "add", list: "denylist", pattern: "chatgpt.com" },
+    });
   });
 
   it("row 5: the Allowlist's own entry decides and flips (S, example.com)", () => {

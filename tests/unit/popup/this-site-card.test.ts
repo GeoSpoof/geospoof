@@ -337,24 +337,116 @@ describe("the frames of design H", () => {
 });
 
 describe("the rows of 6.1", () => {
-  test("row 2: Location Protection off reads Off, names its source, and opens the Main tab", () => {
+  test("row 2: Location Protection off reads Off, names its source, and the row opens nothing", () => {
     showFiltersView();
     renderAll({ ...S, enabled: false }, "https://example.com/");
     expect(card()).toEqual({
       host: "example.com",
       value: "Off",
-      chev: true,
+      chev: false,
       sub: "Location Protection",
     });
-    expect(description(row())).toBe("Opens the Main tab");
-    expect(byId("thisSiteActions").hidden).toBe(true);
+    expect(row().hasAttribute("role")).toBe(false);
+    expect(row().hasAttribute("tabindex")).toBe(false);
+    expect(row().hasAttribute("aria-describedby")).toBe(false);
+    // The button turns protection on; it isn't per site, so its name is its label.
+    expect(button()).toEqual({
+      label: "Turn On Location Protection",
+      name: null,
+      description: "Off",
+    });
 
+    // A click on the row doesn't leave Filters or write anything.
     const toMain = vi.fn();
     byId("mainTab").addEventListener("click", toMain);
     row().click();
-    expect(toMain).toHaveBeenCalledTimes(1);
-    // Opening the row changes nothing.
+    expect(toMain).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  test("row 2: Turn On Location Protection turns it on in place and speaks the new value", async () => {
+    showFiltersView();
+    renderAll({ ...S0, enabled: false }, "https://chatgpt.com/");
+    sendMessage.mockResolvedValue({ success: true });
+    reloadWith(S0, "https://chatgpt.com/");
+    const toMain = vi.fn();
+    byId("mainTab").addEventListener("click", toMain);
+    const btn = byId("thisSiteButton");
+    btn.focus();
+    btn.click();
+    await flush();
+
+    expect(messages()).toEqual([{ type: "SET_PROTECTION_STATUS", payload: { enabled: true } }]);
+    expect(toMain).not.toHaveBeenCalled();
+    expect(card()).toEqual({
+      host: "chatgpt.com",
+      value: "Tokyo",
+      chev: true,
+      sub: "Main location",
+    });
+    // The new state has no button, so focus moves to the row.
+    expect(button()).toBeNull();
+    expect(document.activeElement).toBe(row());
+    expect(isShown("thisSiteReloadHint")).toBe(false);
+    expect(await announced()).toBe("chatgpt.com: Tokyo.");
+  });
+
+  test("row 2: a failed Turn On keeps the card and focus, and says the change wasn't saved", async () => {
+    showFiltersView();
+    renderAll({ ...S, enabled: false }, "https://example.com/");
+    sendMessage.mockResolvedValue({ error: "boom" });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const btn = byId("thisSiteButton");
+    btn.focus();
+    btn.click();
+    await flush();
+
+    expect(loadSettings).not.toHaveBeenCalled();
+    expect(button()?.label).toBe("Turn On Location Protection");
+    expect(isShown("thisSiteError")).toBe(true);
+    expect(document.activeElement).toBe(btn);
+    expect(btn.hasAttribute("aria-disabled")).toBe(false);
+  });
+
+  test("Not set: the row opens nothing, and Set Location opens the Main tab's city search", () => {
+    showFiltersView();
+    renderAll({ ...S0, location: null, locationName: null }, "https://chatgpt.com/");
+    expect(card()).toEqual({
+      host: "chatgpt.com",
+      value: "Not set",
+      chev: false,
+      sub: "Main location",
+    });
+    expect(row().hasAttribute("tabindex")).toBe(false);
+    expect(button()).toEqual({
+      label: "Set Location",
+      name: null,
+      description: "Not set Opens the Main tab",
+    });
+
+    // index.ts's tab handler, as the popup wires it.
+    byId("mainTab").addEventListener("click", () => {
+      byId("filtersView").style.display = "none";
+      byId("mainView").style.display = "block";
+    });
+    row().click();
+    expect(byId("mainView").style.display).toBe("none");
+
+    byId("thisSiteButton").click();
+    expect(byId("mainView").style.display).toBe("block");
+    expect(document.activeElement).toBe(byId("locationSearch"));
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  test("H-8 with Not set: Safari without Pro offers Set Location", () => {
+    renderAll({ ...S, location: null, locationName: null }, "https://chatgpt.com/", true);
+    expect(card()).toEqual({
+      host: "chatgpt.com",
+      value: "Not set",
+      chev: false,
+      sub: "Main location",
+    });
+    expect(button()?.label).toBe("Set Location");
   });
 
   test("row 6: a broader entry covers the page; the row is described by its description, then the reason (N24)", () => {

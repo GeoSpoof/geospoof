@@ -88,18 +88,32 @@ export type ThisSiteValue = { kind: "off" } | { kind: "notSet" } | { kind: "plac
  */
 export type ThisSiteSource = "none" | "protection" | "main" | "site" | { entry: string };
 
-export type ThisSiteOpens =
-  { kind: "none" } | { kind: "main" } | { kind: "edit"; entryId: string } | { kind: "new" };
+/** What the row opens. A row with nothing to edit (Off, Not set) is plain text. */
+export type ThisSiteOpens = { kind: "none" } | { kind: "edit"; entryId: string } | { kind: "new" };
 
 /** `coveredBy.entry` is the stored entry; the renderer names it the way its list row does. */
 export type ThisSiteReason =
   { kind: "none" } | { kind: "coveredBy"; entry: string } | { kind: "somePages" };
 
-export type ThisSiteButton = null | {
+/** A list change: the one write the card's list buttons make. */
+export interface ThisSiteListAction {
   action: "add" | "remove";
   list: FilterListName;
   pattern: string;
-};
+}
+
+/**
+ * The card's one button: a list change, "Turn On Location Protection" (row 2,
+ * turns protection on in place), or "Set Location" (no location is set; opens
+ * the Main tab's city search).
+ */
+export type ThisSiteButton =
+  null | ThisSiteListAction | { action: "turnOn" } | { action: "setLocation" };
+
+/** The button when it's a list change, else null (the editor's Filters hint shows only those). */
+export function listActionOf(button: ThisSiteButton): ThisSiteListAction | null {
+  return button !== null && (button.action === "add" || button.action === "remove") ? button : null;
+}
 
 export type ThisSiteCard =
   | { kind: "hidden" }
@@ -181,9 +195,9 @@ export function computeThisSiteCard(input: ThisSiteInput): ThisSiteCard {
       row: 2,
       value: { kind: "off" },
       source: "protection",
-      opens: { kind: "main" },
+      opens: none,
       reason: none,
-      button: null,
+      button: { action: "turnOn" },
     };
   }
 
@@ -213,26 +227,34 @@ export function computeThisSiteCard(input: ThisSiteInput): ThisSiteCard {
     }
     const name = mainPlaceName(effective);
     return name === null
-      ? { value: { kind: "notSet" }, source: "main", opens: { kind: "main" } }
+      ? { value: { kind: "notSet" }, source: "main", opens: none }
       : { value: { kind: "place", name }, source: "main", opens: { kind: "new" } };
   };
 
-  // Row 3: Safari without Pro. A place is plain text; "Not set" opens Main.
+  // "Not set" offers "Set Location" wherever no list change takes the button.
+  const orSetLocation = (
+    value: ThisSiteValue,
+    button: ThisSiteListAction | null
+  ): ThisSiteButton =>
+    button === null && value.kind === "notSet" ? { action: "setLocation" } : button;
+
+  // Row 3: Safari without Pro. The row is plain text; "Not set" offers Set Location.
   if (proLocked) {
     const parts = onParts();
     return {
       ...base,
       row: 3,
       ...parts,
-      opens: parts.value.kind === "notSet" ? { kind: "main" } : none,
+      opens: none,
       reason: none,
-      button: null,
+      button: orSetLocation(parts.value, null),
     };
   }
 
   // Row 4: All sites.
   if (settings.scopeMode === "all") {
-    return { ...base, row: 4, ...onParts(), reason: none, button: null };
+    const parts = onParts();
+    return { ...base, row: 4, ...parts, reason: none, button: orSetLocation(parts.value, null) };
   }
 
   const list: FilterListName = settings.scopeMode;
@@ -265,7 +287,7 @@ export function computeThisSiteCard(input: ThisSiteInput): ThisSiteCard {
         row: list === "allowlist" ? 5 : 9,
         ...pageParts,
         reason: none,
-        button: { action: "remove", list, pattern: deciding },
+        button: orSetLocation(pageParts.value, { action: "remove", list, pattern: deciding }),
       };
     }
     // M12: name the entry that keeps the state. When the deciding entry is
@@ -285,7 +307,7 @@ export function computeThisSiteCard(input: ThisSiteInput): ThisSiteCard {
       row: list === "allowlist" ? 6 : 10,
       ...pageParts,
       reason: { kind: "coveredBy", entry: named },
-      button: null,
+      button: orSetLocation(pageParts.value, null),
     };
   }
 
@@ -296,7 +318,7 @@ export function computeThisSiteCard(input: ThisSiteInput): ThisSiteCard {
   const addFlips =
     parsePattern(site) !== null &&
     enabledWith(settings, list, [...entries, site], tabUrl, isRestricted, siteGroups) !== on;
-  let button: ThisSiteButton = addFlips ? { action: "add", list, pattern: site } : null;
+  let button: ThisSiteListAction | null = addFlips ? { action: "add", list, pattern: site } : null;
   if (button !== null && undo !== null && undo.tabUrl === tabUrl && undo.list === list) {
     button = { action: "add", list, pattern: undo.entry };
   }
@@ -306,7 +328,7 @@ export function computeThisSiteCard(input: ThisSiteInput): ThisSiteCard {
     row,
     ...pageParts,
     reason: somePages ? { kind: "somePages" } : none,
-    button,
+    button: orSetLocation(pageParts.value, button),
   };
 }
 

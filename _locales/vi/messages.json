@@ -179,7 +179,15 @@
   },
   "filters_openMainAria": {
     "message": "Mở thẻ Chính",
-    "description": "Screen-reader description of the This site card's row when it opens the Main tab (Location Protection off, or no location set). Names the Main tab as tab_main does."
+    "description": "Screen-reader description of the This site card's \"Set Location\" button (filters_setLocation), which opens the Main tab. Names the Main tab as tab_main does."
+  },
+  "filters_turnOnProtection": {
+    "message": "Bật Bảo vệ vị trí",
+    "description": "The This site card's button when Location Protection is off. Turns Location Protection on in place, as the Main tab's toggle does. Names the toggle as toggle_locationProtection does. Title-style capitalization in English, like the card's other buttons."
+  },
+  "filters_setLocation": {
+    "message": "Đặt vị trí",
+    "description": "The This site card's button when no location is set. Switches to the Main tab and focuses the city search; its screen-reader description is filters_openMainAria. Title-style capitalization in English, like the card's other buttons."
   },
   "filters_actionAria": {
     "message": "$ACTION$: $SITE$",

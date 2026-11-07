@@ -6,9 +6,11 @@
  *
  * The card shows state. It never predicts: after a write it re-reads the
  * settings and computes again (the model is `computeThisSiteCard`). The row
- * opens the editor or the Main tab and changes nothing; the button writes
- * only list membership, and after a Remove it re-adds exactly the entry it
- * removed (`card-undo.ts`).
+ * opens the editor and changes nothing; an Off or Not set row opens nothing.
+ * The button writes list membership, and after a Remove it re-adds exactly
+ * the entry it removed (`card-undo.ts`). With Location Protection off it is
+ * "Turn On Location Protection", which turns protection on in place; with no
+ * location set it is "Set Location", which opens the Main tab's city search.
  *
  * The row is rebuilt on every render. The button, the hint and the error are
  * static markup, so focus stays on the button while its label flips.
@@ -40,6 +42,7 @@ type ShownCard = Extract<ThisSiteCard, { kind: "shown" }>;
 /** The ids the card's accessible descriptions point at (6.1, "Accessible names"). */
 const ROW_ID_PREFIX = "card";
 const VALUE_ID = "card-value";
+const OPENS_MAIN_ID = "card-opens-main";
 const REASON_ID = "thisSiteReason";
 
 /** The last rendered inputs, so a failed write can re-render from them. */
@@ -87,11 +90,20 @@ function opensDescription(card: ShownCard): string | null {
       return t("siteLocation_changeAria", [site]) || `Change the location for ${site}`;
     case "new":
       return t("siteLocation_useHereAria", [site]) || `Use a different location on ${site}`;
-    case "main":
-      return t("filters_openMainAria") || "Opens the Main tab";
     case "none":
       return null;
   }
+}
+
+type CardButton = NonNullable<ShownCard["button"]>;
+
+/** The button's visible label. */
+function buttonLabel(button: CardButton): string {
+  if (button.action === "turnOn") {
+    return t("filters_turnOnProtection") || "Turn On Location Protection";
+  }
+  if (button.action === "setLocation") return t("filters_setLocation") || "Set Location";
+  return filtersActionLabel(button);
 }
 
 /** "Covered by *.ru" (the entry named the way its list row shows it), or "Covered on some pages only". */
@@ -197,17 +209,31 @@ function renderCard(): void {
   if (card.button === null) {
     hideButton(button);
   } else {
-    const label = filtersActionLabel(card.button);
+    const label = buttonLabel(card.button);
     button.textContent = label;
-    button.setAttribute("aria-label", filtersActionAriaLabel(label, card.site));
-    if (describeButton) {
-      button.setAttribute(
-        "aria-describedby",
-        reasonLine === null ? VALUE_ID : `${VALUE_ID} ${REASON_ID}`
-      );
+    // A list change names the site, because the row may not be a Tab stop.
+    // Turning protection on and setting the location aren't per site.
+    if (card.button.action === "add" || card.button.action === "remove") {
+      button.setAttribute("aria-label", filtersActionAriaLabel(label, card.site));
     } else {
-      button.removeAttribute("aria-describedby");
+      button.removeAttribute("aria-label");
     }
+    const describedBy: string[] = [];
+    if (describeButton) {
+      describedBy.push(VALUE_ID);
+      if (reasonLine !== null) describedBy.push(REASON_ID);
+    }
+    // "Set Location" says where it goes: "Opens the Main tab".
+    if (card.button.action === "setLocation") {
+      const opensMain = document.createElement("span");
+      opensMain.className = "visually-hidden";
+      opensMain.id = OPENS_MAIN_ID;
+      opensMain.textContent = t("filters_openMainAria") || "Opens the Main tab";
+      rowHost.appendChild(opensMain);
+      describedBy.push(OPENS_MAIN_ID);
+    }
+    if (describedBy.length > 0) button.setAttribute("aria-describedby", describedBy.join(" "));
+    else button.removeAttribute("aria-describedby");
     button.hidden = false;
   }
   // aria-disabled, never disabled: a disabled button would drop focus.
@@ -231,7 +257,7 @@ function syncActions(): void {
   actions.hidden = Array.from(actions.children).every((child) => (child as HTMLElement).hidden);
 }
 
-/** The row: the editor on the entry that applies, a new entry for the site, or the Main tab. */
+/** The row: the editor on the entry that applies, or a new entry for the site. */
 function activateRow(card: ShownCard, row: HTMLElement): void {
   switch (card.opens.kind) {
     case "edit":
@@ -240,16 +266,35 @@ function activateRow(card: ShownCard, row: HTMLElement): void {
     case "new":
       openSiteLocationEditor({ entryId: null, opener: row, origin: "root", prefill: card.site });
       return;
-    case "main": {
-      // index.ts's own tab handler switches the view.
-      const tab = el("mainTab");
-      tab?.click();
-      if (isFocusable(tab)) tab.focus();
-      return;
-    }
     case "none":
       return;
   }
+}
+
+/** "Set Location": the Main tab, focus on its city search. Writes nothing. */
+function openMainSearch(): void {
+  // index.ts's own tab handler switches the view.
+  const tab = el("mainTab");
+  tab?.click();
+  // The search is hidden while VPN sync or coordinates entry shows; focus the tab then.
+  const search = el("locationSearch");
+  search?.focus();
+  if (document.activeElement !== search && isFocusable(tab)) tab.focus();
+}
+
+/** Turn Location Protection on, with the message the Main tab's toggle sends. True when it saved. */
+async function sendTurnOn(): Promise<boolean> {
+  try {
+    const result = (await browser.runtime.sendMessage({
+      type: "SET_PROTECTION_STATUS",
+      payload: { enabled: true },
+    })) as { success?: boolean } | undefined;
+    if (result?.success === true) return true;
+    console.error("Failed to set protection status:", result);
+  } catch (error: unknown) {
+    console.error("Failed to set protection status:", error);
+  }
+  return false;
 }
 
 function wireCardOnce(): void {
@@ -262,24 +307,32 @@ function wireCardOnce(): void {
 }
 
 /**
- * The card's button: one ADD_SCOPE_SITE or REMOVE_SCOPE_SITE with the
- * model's exact pattern. On success the card recomputes from the saved
- * settings, focus stays on the button (or moves to the reload hint when the
- * new state has none), and the live region speaks the site's new status and
- * the hint. A failure keeps focus, the undo record and the card, and shows
- * "⚠ Change not saved".
+ * The card's button. "Set Location" opens the Main tab's city search. The
+ * others write: one ADD_SCOPE_SITE or REMOVE_SCOPE_SITE with the model's
+ * exact pattern, or SET_PROTECTION_STATUS on. On success the card recomputes
+ * from the saved settings, focus stays on the button (or moves to the row,
+ * then the reload hint, when the new state has none), and the live region
+ * speaks the site's new status, and after a list change the reload hint. A
+ * failure keeps focus, the undo record and the card, and shows "⚠ Change not
+ * saved".
  */
 async function handleButton(): Promise<void> {
-  if (pending || model.kind !== "shown" || model.button === null || last?.proLocked) return;
+  if (pending || model.kind !== "shown" || model.button === null) return;
   const card = model;
   const action = model.button;
+  if (action.action === "setLocation") {
+    openMainSearch();
+    return;
+  }
+  // Safari without Pro: the lists are locked.
+  if (last?.proLocked && action.action !== "turnOn") return;
   const button = el("thisSiteButton");
   pending = true;
   button?.setAttribute("aria-disabled", "true");
   setHidden("thisSiteError", true);
   syncActions();
 
-  const saved = await sendFiltersAction(action);
+  const saved = action.action === "turnOn" ? await sendTurnOn() : await sendFiltersAction(action);
   if (!saved) {
     pending = false;
     button?.removeAttribute("aria-disabled");
@@ -294,7 +347,9 @@ async function handleButton(): Promise<void> {
   } else {
     clearCardUndo();
   }
-  setReloadHintHost("card");
+  const listChange = action.action !== "turnOn";
+  // Turning protection on reaches open pages as the Main toggle's does, with no hint.
+  if (listChange) setReloadHintHost("card");
   try {
     await loadSettings();
   } finally {
@@ -305,11 +360,17 @@ async function handleButton(): Promise<void> {
   const active = document.activeElement;
   if (active === button || active === null || active === document.body) {
     const hint = el("thisSiteReloadHint");
+    const row = document.querySelector<HTMLElement>("#thisSiteRow .site-row");
     if (isFocusable(button)) button.focus();
+    else if (!listChange && row?.tabIndex === 0 && isFocusable(row)) row.focus();
     else if (isFocusable(hint)) hint.focus();
   }
-  const reload = t("siteLocation_reloadHint") || "Reload affected pages to apply the change.";
   const status = cardStatusText();
+  if (!listChange) {
+    if (status !== null) announce(status);
+    return;
+  }
+  const reload = t("siteLocation_reloadHint") || "Reload affected pages to apply the change.";
   announce(status === null ? reload : `${status} ${reload}`);
 }
 

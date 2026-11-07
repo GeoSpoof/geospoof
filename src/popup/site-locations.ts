@@ -95,6 +95,7 @@ import {
 } from "./site-groups";
 import {
   computeThisSiteCard,
+  listActionOf,
   ownSiteLocationExists,
   siteLocationMarkText,
   type SiteLocationMarkText,
@@ -946,7 +947,7 @@ function updateEditorHints(): void {
     siteGroups: popupSiteGroupLookup(),
     undo: getCardUndo(),
   });
-  const action = card.kind === "shown" ? card.button : null;
+  const action = card.kind === "shown" ? listActionOf(card.button) : null;
   editor.filtersAction = action;
   const site = currentSuggestion() ?? (tabUrl ? hostOf(tabUrl) : null) ?? "";
 

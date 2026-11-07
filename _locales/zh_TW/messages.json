@@ -179,7 +179,15 @@
   },
   "filters_openMainAria": {
     "message": "開啟「主頁」分頁",
-    "description": "Screen-reader description of the This site card's row when it opens the Main tab (Location Protection off, or no location set). Names the Main tab as tab_main does."
+    "description": "Screen-reader description of the This site card's \"Set Location\" button (filters_setLocation), which opens the Main tab. Names the Main tab as tab_main does."
+  },
+  "filters_turnOnProtection": {
+    "message": "開啟位置保護",
+    "description": "The This site card's button when Location Protection is off. Turns Location Protection on in place, as the Main tab's toggle does. Names the toggle as toggle_locationProtection does. Title-style capitalization in English, like the card's other buttons."
+  },
+  "filters_setLocation": {
+    "message": "設定位置",
+    "description": "The This site card's button when no location is set. Switches to the Main tab and focuses the city search; its screen-reader description is filters_openMainAria. Title-style capitalization in English, like the card's other buttons."
   },
   "filters_actionAria": {
     "message": "$ACTION$：$SITE$",
