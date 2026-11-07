@@ -765,5 +765,7 @@ async function initPopupSettings(): Promise<void> {
 
   // Bring back an unfinished Filters screen or editor kept for this site (S7).
   const proLocked = __SAFARI__ && settings.proFeaturesBlocked === true;
-  await restoreFiltersDraft(settings, await readActiveTabUrl(), proLocked);
+  // The tab read is passed unresolved, so the restore can tell whether the
+  // user moved while it was pending.
+  await restoreFiltersDraft(settings, readActiveTabUrl(), proLocked);
 }

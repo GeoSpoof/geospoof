@@ -380,6 +380,7 @@ describe("adding", () => {
 describe("removing a group row", () => {
   test("sends its token, and a failure puts the row back as it was", async () => {
     await render(ALLOW);
+    byId("scopeListRow").click();
     sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
     rowFor("Google").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
     expect(rows()).toHaveLength(3);
@@ -389,7 +390,11 @@ describe("removing a group row", () => {
     expect(rows()).toHaveLength(4);
     expect(rows()[2].querySelector(".scope-site-domain")?.textContent).toBe("Google");
     expect(rows()[2].querySelector(".scope-site-meta")?.textContent).toBe("Site group · 964 sites");
-    expect(byId("scopeModeError").style.display).toBe("block");
+    // The message shows on the list screen, where the remove happened.
+    const error = byId("scopeAddError");
+    expect(error.textContent).toBe("⚠ Change not saved");
+    expect(error.style.display).toBe("block");
+    expect(error.closest("[hidden]")).toBeNull();
   });
 
   test("a successful remove reloads", async () => {

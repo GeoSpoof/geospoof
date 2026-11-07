@@ -1020,6 +1020,31 @@ Ties, which cross-entry uniqueness makes defensive only, go to the higher `updat
 - **Swift must preserve unknown fields and kinds verbatim**, so an entry shape or `kind` added later survives an app round trip. The app mirrors `MAX_SITE_LOCATIONS` (50) and `MAX_PATTERNS_PER_SITE_LOCATION` (10), and validates patterns against `tests/fixtures/site-location-vectors.json`. A native conflict check has to compare patterns by the identity above (the literal host's A-label, UTS #46 ToASCII), not by stored string, or it accepts `münchen.de` next to `xn--mnchen-3ya.de` and the extension drops the later one on adoption. The fixture has no alias cases yet.
 - **Pro.** The app's UI gate is a convenience; `proFeaturesBlocked` is what enforces it, disabling the overlay for a non-Pro user while the stored list is kept.
 
+### Popup Filters drafts
+
+Unfinished work on the popup's Filters tab survives closing the popup. The popup alone reads and writes it, under one `storage.session` key, `popupFiltersDraft` (`FILTERS_DRAFT_STORAGE_KEY` in `src/popup/drafts.ts`):
+
+```typescript
+{
+  v: 1,
+  key: string,                          // the site the popup opened on ("twitch.tv"), or "options" in the Chromium options tab
+  screen: "list" | "perSite" | "editor",
+  list?: "allowlist" | "denylist",      // set for screen "list": the list it showed
+  listField?: string,                   // the text in the list screen's add field
+  editor?: {                            // set for screen "editor"
+    origin: "root" | "perSite" | "main",
+    entryId: string | null,             // null for a new entry
+    entries: string[], pending: string, // the Sites chips and the text still in the Sites input
+    chosen: { latitude, longitude, name, locationName?, label? } | null,
+    search: string
+  }
+}
+```
+
+**Lifetime.** Every change on a Filters screen writes it. Going back to the Filters root removes it, and so does closing the editor (Cancel, Save, Remove). The browser clears `storage.session` when it quits. A popup opened on another site, a restricted or host-less tab (where nothing is kept), a list draft whose list is no longer the active mode, an editor for an entry that's gone, and the Safari Pro lock each drop it. If the user switches views or opens a Filters screen before the restore's reads resolve, nothing is restored.
+
+**Never shared.** The draft isn't part of `Settings`, never travels in a runtime message, and never crosses the Safari app bridge.
+
 ### Location precision and cadence
 
 Every page-bound builder (the per-tab broadcast in `sendSettingsToTab`, the content-script `GET_SETTINGS` reply, `tabs.onCreated`, the injection-check alarm, and the Firefox bootstrap) is built in one module, `src/background/page-payload.ts`, and gets `location` from one resolver, `resolveCurrentPageLocation` in `src/background/precision-cadence.ts`:

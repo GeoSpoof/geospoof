@@ -323,6 +323,7 @@ describe("Popup Filters tab — site list manager (Req 14)", () => {
 
   test("remove failure restores the optimistically removed row (Req 14.6, 9.5)", async () => {
     renderScope(makeSettings({ scopeMode: "denylist", denylist: ["example.com"] }));
+    document.getElementById("scopeListRow")!.click();
 
     vi.mocked(browser.runtime.sendMessage).mockResolvedValue({ error: "STORAGE_ERROR" });
 
@@ -331,11 +332,14 @@ describe("Popup Filters tab — site list manager (Req 14)", () => {
     await flush();
 
     const list = document.getElementById("scopeList")!;
-    const modeError = document.getElementById("scopeModeError")!;
+    const error = document.getElementById("scopeAddError")!;
     // Row restored after the failed removal.
     expect(list.children.length).toBe(1);
     expect(list.querySelector(".scope-site-domain")!.textContent).toBe("example.com");
-    expect(modeError.style.display).toBe("block");
+    // The message shows on the list screen, not on the hidden root.
+    expect(document.getElementById("scopeListScreen")!.hidden).toBe(false);
+    expect(error.style.display).toBe("block");
+    expect(error.closest("[hidden]")).toBeNull();
   });
 });
 

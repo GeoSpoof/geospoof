@@ -161,6 +161,15 @@ async function flush(): Promise<void> {
  * renders loadSettings runs, then the one restore.
  */
 async function openPopup(settings: Settings, url: string | undefined, proLocked = false) {
+  await openPopupWith(settings, url, url, proLocked);
+}
+/** openPopup, with the tab read the restore waits on given separately. */
+async function openPopupWith(
+  settings: Settings,
+  url: string | undefined,
+  tabRead: string | undefined | Promise<string | undefined>,
+  proLocked = false
+) {
   document.body.innerHTML = BODY;
   __resetFiltersNavForTest();
   __resetScopeForTest();
@@ -168,17 +177,27 @@ async function openPopup(settings: Settings, url: string | undefined, proLocked 
   __resetPopupSiteGroupsForTest();
   __resetDraftsForTest();
   // Stand-ins for index.ts's tab handlers.
-  byId("filtersTab").addEventListener("click", () => {
-    byId("mainView").style.display = "none";
-    byId("filtersView").style.display = "block";
-  });
-  byId("mainTab").addEventListener("click", () => {
-    byId("filtersView").style.display = "none";
-    byId("mainView").style.display = "block";
-  });
+  const views = { mainTab: "mainView", filtersTab: "filtersView", detailsTab: "detailsView" };
+  for (const trigger of Object.keys(views)) {
+    byId(trigger).addEventListener("click", () => {
+      for (const [otherTrigger, otherView] of Object.entries(views)) {
+        const current = otherTrigger === trigger;
+        byId(otherView).style.display = current ? "block" : "none";
+        if (current) byId(otherTrigger).setAttribute("aria-current", "true");
+        else byId(otherTrigger).removeAttribute("aria-current");
+      }
+    });
+  }
+  byId("mainTab").setAttribute("aria-current", "true");
   renderScope(settings, proLocked, url);
   renderSiteLocations(settings, proLocked, url);
-  await restoreFiltersDraft(settings, url, proLocked);
+  await restoreFiltersDraft(settings, tabRead, proLocked);
+}
+/** A tab read that resolves when the test says. */
+function pendingTabRead(url: string): { read: Promise<string>; resolve: () => void } {
+  let resolve: () => void = () => {};
+  const read = new Promise<string>((done) => (resolve = () => done(url)));
+  return { read, resolve };
 }
 
 beforeEach(() => {
@@ -205,7 +224,13 @@ describe("the list screen", () => {
     byId("filtersTab").click();
     byId("scopeListRow").click();
     type("scopeAddInput", "example.org");
-    expect(stored()).toEqual({ v: 1, key: "twitch.tv", screen: "list", listField: "example.org" });
+    expect(stored()).toEqual({
+      v: 1,
+      key: "twitch.tv",
+      screen: "list",
+      list: "allowlist",
+      listField: "example.org",
+    });
 
     await openPopup(makeSettings(), TWITCH);
     expect(filtersViewShown()).toBe(true);
@@ -237,7 +262,7 @@ describe("the list screen", () => {
     pressEnter("scopeAddInput");
     await flush();
     expect(byId<HTMLInputElement>("scopeAddInput").value).toBe("");
-    expect(stored()).toEqual({ v: 1, key: "twitch.tv", screen: "list" });
+    expect(stored()).toEqual({ v: 1, key: "twitch.tv", screen: "list", list: "allowlist" });
   });
 
   test("going back to the root removes the draft", async () => {
@@ -264,8 +289,73 @@ describe("the list screen", () => {
     expect(filtersViewShown()).toBe(false);
     expect(stored()).toBeUndefined();
   });
-});
 
+  test("an Allowlist draft is dropped when the mode is now Denylist", async () => {
+    await openPopup(makeSettings(), TWITCH);
+    byId("filtersTab").click();
+    byId("scopeListRow").click();
+    type("scopeAddInput", "example.org");
+    // The mode changed outside this popup (the app, another window).
+    await openPopup(makeSettings({ scopeMode: "denylist", denylist: [] }), TWITCH);
+    expect(shownScreens()).toEqual(["filtersRoot"]);
+    expect(filtersViewShown()).toBe(false);
+    expect(byId<HTMLInputElement>("scopeAddInput").value).toBe("");
+    expect(stored()).toBeUndefined();
+  });
+  test("a list draft that doesn't name its list is dropped", async () => {
+    sessionStorageData[FILTERS_DRAFT_STORAGE_KEY] = {
+      v: 1,
+      key: "twitch.tv",
+      screen: "list",
+      listField: "example.org",
+    };
+    await openPopup(makeSettings(), TWITCH);
+    expect(shownScreens()).toEqual(["filtersRoot"]);
+    expect(byId<HTMLInputElement>("scopeAddInput").value).toBe("");
+    expect(stored()).toBeUndefined();
+  });
+});
+describe("a move made while the draft is being read", () => {
+  async function keepListDraft(): Promise<FiltersDraft | undefined> {
+    await openPopup(makeSettings(), TWITCH);
+    byId("filtersTab").click();
+    byId("scopeListRow").click();
+    type("scopeAddInput", "example.org");
+    return stored();
+  }
+  test("switching views first wins, and the draft is kept", async () => {
+    const draft = await keepListDraft();
+    const tab = pendingTabRead(TWITCH);
+    const restoring = openPopupWith(makeSettings(), TWITCH, tab.read);
+    byId("detailsTab").click();
+    tab.resolve();
+    await restoring;
+    expect(byId("detailsView").style.display).toBe("block");
+    expect(filtersViewShown()).toBe(false);
+    expect(shownScreens()).toEqual(["filtersRoot"]);
+    expect(stored()).toEqual(draft);
+  });
+  test("opening another Filters screen first wins", async () => {
+    await keepListDraft();
+    const tab = pendingTabRead(TWITCH);
+    const restoring = openPopupWith(makeSettings(), TWITCH, tab.read);
+    byId("filtersTab").click();
+    byId("siteLocationsRow").click();
+    tab.resolve();
+    await restoring;
+    expect(shownScreens()).toEqual(["siteLocationsScreen"]);
+    expect(byId<HTMLInputElement>("scopeAddInput").value).toBe("");
+  });
+  test("no move: the draft comes back once the read resolves", async () => {
+    await keepListDraft();
+    const tab = pendingTabRead(TWITCH);
+    const restoring = openPopupWith(makeSettings(), TWITCH, tab.read);
+    tab.resolve();
+    await restoring;
+    expect(shownScreens()).toEqual(["scopeListScreen"]);
+    expect(byId<HTMLInputElement>("scopeAddInput").value).toBe("example.org");
+  });
+});
 describe("the editor", () => {
   test("a new entry's chips, pending text and chosen place come back, with its back label", async () => {
     await openPopup(makeSettings(), EXAMPLE);

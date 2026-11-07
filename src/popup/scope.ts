@@ -754,13 +754,14 @@ async function handleRemove(listKey: ListKey, domain: string, row: HTMLElement):
       return;
     }
 
-    // Revert: restore the row and surface the message.
+    // Revert: restore the row and say so on the list screen, where the
+    // remove happened (the mode error sits on the hidden root).
     restoreRow(parent, row, nextSibling, emptyEl);
-    showModeError();
+    showAddError(t("filters_notSaved") || "⚠ Change not saved");
   } catch (error: unknown) {
     console.error("Failed to remove scope site:", error);
     restoreRow(parent, row, nextSibling, emptyEl);
-    showModeError();
+    showAddError(t("filters_notSaved") || "⚠ Change not saved");
   }
 }
 
@@ -791,6 +792,10 @@ function hideAddError(): void {
   if (node) node.style.display = "none";
 }
 
+/** The list the list screen shows, or null in All sites mode. */
+export function getActiveListKey(): ListKey | null {
+  return activeListKey;
+}
 /** Test hook: forget popup-session state between cases. */
 export function __resetScopeForTest(): void {
   lastPersistedMode = "all";

@@ -27,6 +27,7 @@ import {
   type EditorOrigin,
   type FiltersScreen,
 } from "./filters-nav";
+import { getActiveListKey } from "./scope";
 import { isRestrictedUrl } from "./settings";
 import { applyEditorDraft, openSiteLocationEditor, readEditorDraft } from "./site-locations";
 
@@ -61,6 +62,11 @@ export interface FiltersDraft {
   /** The site the popup opened on (see {@link draftKey}). */
   key: string;
   screen: Exclude<FiltersScreen, "root">;
+  /**
+   * Set when `screen` is the list: the list it showed, so a mode changed
+   * elsewhere (the app, another window) never puts its text in the other list.
+   */
+  list?: "allowlist" | "denylist";
   /** The text in the list screen's add field. */
   listField?: string;
   /** Set when `screen` is the editor. */
@@ -133,6 +139,11 @@ export function saveFiltersDraft(overrides: { listField?: string; pending?: stri
     return;
   }
   const draft: FiltersDraft = { v: 1, key: activeKey, screen };
+  if (screen === "list") {
+    const list = getActiveListKey();
+    if (list === null) return;
+    draft.list = list;
+  }
   const listField =
     overrides.listField ??
     (document.getElementById("scopeAddInput") as HTMLInputElement | null)?.value ??
@@ -197,10 +208,14 @@ function parseEditor(value: unknown): EditorDraft | null {
 /** The stored draft, or null when it isn't one this version wrote. */
 function parseDraft(value: unknown): FiltersDraft | null {
   if (!isRecord(value) || value.v !== 1 || typeof value.key !== "string") return null;
-  const { screen, listField } = value;
+  const { screen, list, listField } = value;
   if (screen !== "list" && screen !== "perSite" && screen !== "editor") return null;
   if (listField !== undefined && typeof listField !== "string") return null;
   const draft: FiltersDraft = { v: 1, key: value.key, screen };
+  if (screen === "list") {
+    if (list !== "allowlist" && list !== "denylist") return null;
+    draft.list = list;
+  }
   if (typeof listField === "string") draft.listField = listField;
   if (screen === "editor") {
     const editor = parseEditor(value.editor);
@@ -213,9 +228,7 @@ function parseDraft(value: unknown): FiltersDraft | null {
 /** Whether the screen the draft was on can still open with these settings. */
 function canRestore(draft: FiltersDraft, settings: Settings, proLocked: boolean): boolean {
   if (proLocked) return false;
-  if (draft.screen === "list") {
-    return settings.scopeMode === "allowlist" || settings.scopeMode === "denylist";
-  }
+  if (draft.screen === "list") return settings.scopeMode === draft.list;
   if (draft.screen === "editor") {
     const id = draft.editor?.entryId ?? null;
     const stored = Array.isArray(settings.siteLocations) ? settings.siteLocations : [];
@@ -224,20 +237,35 @@ function canRestore(draft: FiltersDraft, settings: Settings, proLocked: boolean)
   return true;
 }
 
+const POPUP_VIEW_TRIGGERS = ["mainTab", "filtersTab", "detailsTab", "settingsTab"] as const;
+/** The popup view showing now, by its trigger's `aria-current`. */
+function currentPopupView(): string | null {
+  return (
+    POPUP_VIEW_TRIGGERS.find(
+      (id) => document.getElementById(id)?.getAttribute("aria-current") === "true"
+    ) ?? null
+  );
+}
 /**
  * Run once, after the popup's first render: start keeping drafts for this
  * tab, and bring back the one kept for it. A draft for another site, for a
  * screen that's locked or no longer applies, or for an entry that's gone, is
- * removed and the popup opens as usual.
+ * removed and the popup opens as usual. If the user switched views or opened
+ * a Filters screen while the tab and the draft were being read, their move
+ * stands and nothing is restored.
  */
 export async function restoreFiltersDraft(
   settings: Settings,
-  tabUrl: string | undefined,
+  tabUrl: string | undefined | Promise<string | undefined>,
   proLocked: boolean
 ): Promise<void> {
   const area = sessionArea();
   if (!area) return;
-  activeKey = draftKey(tabUrl);
+  const startView = currentPopupView();
+  const startScreen = getFiltersScreen();
+  const moved = (): boolean =>
+    currentPopupView() !== startView || getFiltersScreen() !== startScreen;
+  activeKey = draftKey(await tabUrl);
   unsubscribe?.();
   unsubscribe = onFiltersScreenChange(() => {
     saveFiltersDraft();
@@ -263,6 +291,8 @@ export async function restoreFiltersDraft(
     clearFiltersDraft();
     return;
   }
+  // The user's own first move wins; the draft (or what that move saved) stays.
+  if (moved()) return;
 
   document.getElementById("filtersTab")?.click();
   const input = document.getElementById("scopeAddInput") as HTMLInputElement | null;
