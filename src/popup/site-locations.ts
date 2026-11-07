@@ -58,6 +58,7 @@ import {
   type EntryAddControl,
   type EntrySubmitResult,
 } from "./entry-add-control";
+import { saveFiltersDraft, type EditorDraft } from "./drafts";
 import { getChipDisplayText } from "./favorites";
 import {
   filtersActionAriaLabel,
@@ -814,6 +815,43 @@ export function openSiteLocationEditor(args: {
   openEditor({ entry, opener: args.opener, origin: args.origin, prefill: args.prefill });
 }
 
+/** The open editor's unsaved state, for the S7 draft; null when no editor is open. */
+export function readEditorDraft(): EditorDraft | null {
+  if (editor === null) return null;
+  return {
+    origin: editor.origin,
+    entryId: editor.entry?.id ?? null,
+    entries: [...editor.entries],
+    pending: el<HTMLInputElement>("siteLocationPatterns")?.value ?? "",
+    chosen: editor.chosen === null ? null : { ...editor.chosen },
+    search: el<HTMLInputElement>("siteLocationSearch")?.value ?? "",
+  };
+}
+
+/**
+ * Put a kept draft back into the editor that's open (drafts.ts opens it with
+ * {@link openSiteLocationEditor} first): its sites, the text still in the
+ * Sites input, the chosen place, and the search text, whose search runs again.
+ */
+export function applyEditorDraft(
+  draft: Pick<EditorDraft, "entries" | "pending" | "chosen" | "search">
+): void {
+  if (editor === null || saving) return;
+  editor.entries = mergeEntries([], draft.entries).slice(0, MAX_PATTERNS_PER_SITE_LOCATION);
+  editor.chosen = draft.chosen === null ? null : { ...draft.chosen };
+  const patternsInput = el<HTMLInputElement>("siteLocationPatterns");
+  if (patternsInput) patternsInput.value = draft.pending;
+  const search = el<HTMLInputElement>("siteLocationSearch");
+  const query = editor.chosen === null ? draft.search : "";
+  if (search) search.value = query;
+  renderEntryChips();
+  hideEditorError();
+  updateChosen();
+  updateEditorHints();
+  if (query.trim() !== "") onSearchInput(query.trim());
+  saveFiltersDraft();
+}
+
 /** The editor's title, and Remove for an existing entry. */
 function renderEditorChrome(): void {
   const title = el("siteLocationEditorTitle");
@@ -840,7 +878,10 @@ function closeEditor(restoreFocus: boolean): void {
     if (getReloadHintHost() === "editor") setReloadHintHost(hostForOrigin(state.origin));
   }
   syncReloadHints();
+  // Leaving the screen rewrites the S7 draft without the editor; otherwise
+  // (the Pro lock closed it elsewhere) drop the editor from it here.
   if (getFiltersScreen() === "editor") backFromFiltersScreen({ restoreFocus });
+  else saveFiltersDraft();
 }
 
 /**
@@ -1030,6 +1071,7 @@ function removeEntryChip(index: number): void {
   hideEditorError();
   updateChosen();
   updateEditorHints();
+  saveFiltersDraft();
   const buttons = el("siteLocationEntries")?.querySelectorAll<HTMLElement>(".entry-chip-remove");
   const next = buttons?.[Math.min(index, buttons.length - 1)] ?? null;
   const target = isFocusable(next) ? next : el("siteLocationPatterns");
@@ -1054,6 +1096,8 @@ function addEditorEntries(entries: string[]): Promise<EntrySubmitResult> {
   // changes nothing, so the summary and hints are already right.
   updateChosen();
   updateEditorHints();
+  // The control empties the input once this resolves.
+  saveFiltersDraft({ pending: "" });
   return Promise.resolve({ ok: true });
 }
 
@@ -1192,6 +1236,7 @@ function clearChosen(): void {
   editor.chosen = null;
   hideEditorError();
   updateChosen();
+  saveFiltersDraft();
   const search = el("siteLocationSearch");
   if (isFocusable(search)) search.focus();
 }
@@ -1242,6 +1287,7 @@ function choose(chosen: ChosenLocation): boolean {
   clearSearchResults();
   hideEditorError();
   updateChosen();
+  saveFiltersDraft();
   return true;
 }
 
@@ -1310,11 +1356,13 @@ function wireEditorOnce(): void {
     hideEditorError();
     updateChosen();
     updateEditorHints();
+    saveFiltersDraft();
   });
 
   el<HTMLInputElement>("siteLocationSearch")?.addEventListener("input", (e) => {
     onSearchInput((e.target as HTMLInputElement).value.trim());
     renderFavorites();
+    saveFiltersDraft();
   });
 
   el("siteLocationSave")?.addEventListener("click", () => {

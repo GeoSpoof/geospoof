@@ -23,6 +23,7 @@ import { t } from "./i18n";
 import { announce } from "./announce";
 import { isOwnExtensionPage } from "./active-tab";
 import { clearCardUndo } from "./card-undo";
+import { saveFiltersDraft } from "./drafts";
 import {
   createEntryAddControl,
   entryInvalidText,
@@ -372,6 +373,11 @@ function wireListScreenOnce(): void {
   addSite?.addEventListener("click", () => {
     void handleAddSite();
   });
+
+  // The typed text is kept with the open screen (S7).
+  el("scopeAddInput")?.addEventListener("input", () => {
+    saveFiltersDraft();
+  });
 }
 
 // ── The list screen ────────────────────────────────────────────────────────
@@ -590,6 +596,8 @@ async function handleAdd(entries: string[], kind: EntryInputKind): Promise<Entry
       announce(linkAddedText(pattern, result.siteGroup));
     }
     await loadSettings();
+    // The control empties the field once this resolves.
+    saveFiltersDraft({ listField: "" });
     return { ok: true };
   }
 

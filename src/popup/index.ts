@@ -17,6 +17,8 @@ import { initAccuracyControl } from "./accuracy";
 import { initPrecisionCadenceControl, initPrecisionControl } from "./precision";
 import { initLocaleControl } from "./locale";
 import { wireCoordinatePaste } from "./coord-paste";
+import { readActiveTabUrl } from "./active-tab";
+import { restoreFiltersDraft } from "./drafts";
 import { SUPPORTED_UI_LOCALES, resolveUiLocale } from "@/shared/i18n/locales";
 
 // --- Location setting ---
@@ -760,4 +762,8 @@ async function initPopupSettings(): Promise<void> {
   }
 
   await loadSettings(settings);
+
+  // Bring back an unfinished Filters screen or editor kept for this site (S7).
+  const proLocked = __SAFARI__ && settings.proFeaturesBlocked === true;
+  await restoreFiltersDraft(settings, await readActiveTabUrl(), proLocked);
 }
