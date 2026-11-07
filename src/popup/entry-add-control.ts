@@ -13,6 +13,11 @@
  *     `=` is an exact address, `*.` is subdomains only, anything else a site.
  *   - The last option, "Browse all site groups…", shows the "Popular" and "All
  *     site groups" sections; typing returns to the suggestions.
+ *   - Focus on the empty field shows "Add <this site>" (when the caller offers
+ *     one) and "Browse all site groups…", still with nothing highlighted, so
+ *     Enter on the empty field does nothing until an arrow key picks one.
+ *   - The placeholder names what can be added: "Site or site group, e.g.
+ *     twitch.tv", or "Site, e.g. twitch.tv" where site groups are unavailable.
  *   - Arrow keys, Home/End (while an option is active), Enter, Escape, Tab and
  *     click work. Escape closes the listbox only, so the per-site editor's own
  *     Escape doesn't also run.
@@ -67,6 +72,12 @@ export interface EntryAddControlOptions {
    */
   context: EntryAddContext;
   onSubmit(canonicalEntries: string[], kind: EntryInputKind): Promise<EntrySubmitResult>;
+  /**
+   * The suggestion the empty field offers first: "Add twitch.tv" for the
+   * current site, or null when the tab has no addable site or it's already
+   * on the list or the entry. Read each time the empty field renders.
+   */
+  emptySuggestion?(): EntrySuggestion | null;
   /** Render errors elsewhere (the per-site editor's shared alert). */
   showError?(message: string): void;
   hideError?(): void;
@@ -235,6 +246,12 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
   input.setAttribute("aria-autocomplete", "list");
   input.setAttribute("aria-expanded", "false");
   input.setAttribute("aria-controls", listbox.id);
+  // The markup names site groups; where there are none, so must the field.
+  // The key goes on the attribute too, so a language change re-translates it.
+  if (!siteGroupsAvailable()) {
+    input.setAttribute("data-i18n-placeholder", "filters_fieldSite");
+    input.placeholder = t("filters_fieldSite") || "Site, e.g. twitch.tv";
+  }
 
   function showError(message: string): void {
     input.setAttribute("aria-invalid", "true");
@@ -380,6 +397,13 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
 
   function renderSuggestions(): void {
     const groupsAvailable = siteGroupsAvailable();
+    if (input.value.trim() === "") {
+      // Load the index now, so "Browse all site groups…" opens with its groups.
+      if (groupsAvailable && index === null) void ensureIndex();
+      const own = options.emptySuggestion?.() ?? null;
+      appendSuggestions(own === null ? [] : [own], groupsAvailable);
+      return;
+    }
     if (groupsAvailable && index === null) void ensureIndex();
     const { items, browse } = entrySuggestions(input.value, { context, groupsAvailable, index });
     // A typed group name that matches nothing says so, as the picker did.
@@ -420,7 +444,8 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
     indexLoading ??= loadCatalogIndex().then((loaded) => {
       index = loaded;
       indexLoading = null;
-      if (!open) return;
+      // Browse picked before the index arrived renders now.
+      if (!open && !browsing) return;
       const active = activeIndex >= 0 ? optionKey(optionItems[activeIndex]) : null;
       render();
       if (active !== null) {
@@ -547,7 +572,7 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
   });
 
   input.addEventListener("focus", () => {
-    if (!busy && input.value.trim() !== "") render();
+    if (!busy) render();
   });
 
   input.addEventListener("blur", () => {
@@ -575,7 +600,8 @@ export function createEntryAddControl(options: EntryAddControlOptions): EntryAdd
       case "Enter":
         e.preventDefault();
         if (open && activeIndex >= 0) chooseOption(activeIndex);
-        else submit();
+        // The empty field's suggestions wait for an arrow key.
+        else if (input.value.trim() !== "") submit();
         break;
       case "Escape":
         // Closing the listbox is all Escape does here; the per-site editor's

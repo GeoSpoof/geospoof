@@ -553,6 +553,15 @@ function wireAddControls(mode: ScopeMode): void {
     },
     context: "filters",
     onSubmit: handleAdd,
+    emptySuggestion: () =>
+      siteStatus.kind === "add"
+        ? {
+            entry: siteStatus.site,
+            title: t("filters_addSite", [siteStatus.site]) || `Add ${siteStatus.site}`,
+            meta: t("filters_typeSite") || "Site and its subdomains",
+            kind: "site",
+          }
+        : null,
   });
   if (control !== addControl || listKey !== activeListKey) control?.reset();
   addControl = control;

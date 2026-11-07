@@ -145,7 +145,7 @@
         "example": "twitch.tv"
       }
     },
-    "description": "Green button on a list screen that adds the current tab's site, without www. The markup draws a ＋ before it. $SITE$ is the site."
+    "description": "Green button on a list screen that adds the current tab's site, without www. The markup draws a ＋ before it. Also the first suggestion when the add field (list screens, per-site editor Sites field) is focused while empty. $SITE$ is the site."
   },
   "filters_listed": {
     "message": "En la lista",
@@ -237,9 +237,13 @@
     "message": "Añadir",
     "description": "Button that adds the typed domain to the active list."
   },
-  "filters_addAnother": {
-    "message": "Añadir otro sitio",
-    "description": "Placeholder of the add field in Filters and of the Sites field in the per-site location editor. Typing there lists suggestions: the readings of the typed text and matching site groups."
+  "filters_fieldSiteOrGroup": {
+    "message": "Sitio o grupo de sitios, p. ej. twitch.tv",
+    "description": "Placeholder of the add field on the Allowlist and Denylist screens and of the Sites field in the per-site location editor, where site groups are available. Typing lists suggestions; focusing the empty field offers \"Add <site>\" and \"Browse all site groups…\". Keep twitch.tv untranslated. Use the same word for site group as siteGroups_browseAll."
+  },
+  "filters_fieldSite": {
+    "message": "Sitio, p. ej. twitch.tv",
+    "description": "The same placeholder where site groups aren't available (Safari): names sites only. Keep twitch.tv untranslated."
   },
   "filters_emptyList": {
     "message": "Aún no se han añadido sitios",

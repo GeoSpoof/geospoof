@@ -55,6 +55,8 @@ let onSubmit: ReturnType<
   typeof vi.fn<(entries: string[], kind: EntryInputKind) => Promise<EntrySubmitResult>>
 >;
 
+let own: { entry: string; title: string; meta: string; kind: "site" } | null = null;
+
 function create(context: "filters" | "siteLocation" = "filters"): EntryAddControl {
   const control = createEntryAddControl({
     ids: {
@@ -66,6 +68,7 @@ function create(context: "filters" | "siteLocation" = "filters"): EntryAddContro
     },
     context,
     onSubmit,
+    emptySuggestion: () => own,
   });
   if (!control) throw new Error("no control");
   return control;
@@ -122,6 +125,7 @@ function indexRequests(): number {
 
 beforeEach(() => {
   gate.available = true;
+  own = null;
   document.body.innerHTML = BODY;
   // Show the Filters list screen, as opening a list does.
   byId("mainView").style.display = "none";
@@ -139,26 +143,101 @@ beforeEach(() => {
 });
 
 describe("one field with suggestions", () => {
-  test("there is no type menu, and the field says 'Add another site'", () => {
+  test("there is no type menu, and the field names sites and site groups", () => {
     const doc = new DOMParser().parseFromString(HTML, "text/html");
     expect(doc.getElementById("scopeAddKind")).toBeNull();
     expect(doc.getElementById("siteLocationAddKind")).toBeNull();
     expect(doc.querySelector(".entry-kind-row")).toBeNull();
     for (const id of ["scopeAddInput", "siteLocationPatterns"]) {
       const field = doc.getElementById(id) as HTMLInputElement;
-      expect(field.placeholder).toBe("Add another site");
-      expect(field.getAttribute("data-i18n-placeholder")).toBe("filters_addAnother");
+      expect(field.placeholder).toBe("Site or site group, e.g. twitch.tv");
+      expect(field.getAttribute("data-i18n-placeholder")).toBe("filters_fieldSiteOrGroup");
     }
   });
 
-  test("the input is always an ARIA 1.2 combobox, closed until there's text", () => {
+  test("where site groups aren't available, the placeholder names sites only", () => {
+    gate.available = false;
+    create();
+    expect(input().placeholder).toBe("Site, e.g. twitch.tv");
+    // A language change re-translates it with the same key.
+    expect(input().getAttribute("data-i18n-placeholder")).toBe("filters_fieldSite");
+  });
+
+  test("the input is always an ARIA 1.2 combobox, closed until focused", () => {
     create();
     expect(input().getAttribute("role")).toBe("combobox");
     expect(input().getAttribute("aria-autocomplete")).toBe("list");
     expect(input().getAttribute("aria-controls")).toBe("scopeGroupListbox");
     expect(input().getAttribute("aria-expanded")).toBe("false");
+    expect(listbox().hidden).toBe(true);
+  });
+
+  test("focus on the empty field offers Add <site> and Browse, with nothing highlighted", () => {
+    own = {
+      entry: "twitch.tv",
+      title: "Add twitch.tv",
+      meta: "Site and its subdomains",
+      kind: "site",
+    };
+    create();
+    input().focus();
+    expect(input().getAttribute("aria-expanded")).toBe("true");
+    expect(rows()).toEqual(["Add twitch.tv · Site and its subdomains", "Browse all site groups…"]);
+    expect(listbox().querySelector(".active")).toBeNull();
+    expect(input().hasAttribute("aria-activedescendant")).toBe(false);
+    // Enter on the empty field does nothing, and shows no error.
+    const enter = key("Enter");
+    expect(enter.defaultPrevented).toBe(true);
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(errorShown()).toBe(false);
+    expect(listbox().hidden).toBe(false);
+    // Escape closes it.
+    key("Escape");
+    expect(listbox().hidden).toBe(true);
+    expect(input().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  test("an arrow key then Enter on the empty field's Add <site> adds the site", async () => {
+    own = {
+      entry: "twitch.tv",
+      title: "Add twitch.tv",
+      meta: "Site and its subdomains",
+      kind: "site",
+    };
+    create();
+    input().focus();
+    key("ArrowDown");
+    expect(input().getAttribute("aria-activedescendant")).toBe(optionByText("Add twitch.tv").id);
+    key("Enter");
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["twitch.tv"], "site");
+  });
+
+  test("without a site to add, the empty field offers only Browse, which adds a group", async () => {
+    create();
+    input().focus();
+    expect(rows()).toEqual(["Browse all site groups…"]);
+    optionByText("Browse all site groups…").click();
+    await indexLoaded();
+    optionByText("Twitch").click();
+    await flush();
+    expect(onSubmit).toHaveBeenCalledWith(["geosite:twitch"], "group");
+  });
+
+  test("where site groups aren't available, the empty field offers only Add <site>", () => {
+    gate.available = false;
+    create();
     input().focus();
     expect(listbox().hidden).toBe(true);
+    input().blur();
+    own = {
+      entry: "twitch.tv",
+      title: "Add twitch.tv",
+      meta: "Site and its subdomains",
+      kind: "site",
+    };
+    input().focus();
+    expect(rows()).toEqual(["Add twitch.tv · Site and its subdomains"]);
   });
 
   test("twitch.tv lists its readings, the Twitch group and Browse, with no row highlighted", async () => {

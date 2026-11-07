@@ -1345,6 +1345,19 @@ function wireEditorOnce(): void {
     },
     context: "siteLocation",
     onSubmit: (entries) => addEditorEntries(entries),
+    emptySuggestion: () => {
+      const site = currentSuggestion();
+      const entry = site === null ? null : parseSiteLocationPattern(site);
+      const key = entry === null ? null : siteLocationEntryKey(entry);
+      if (entry === null || key === null || editor === null) return null;
+      if (editor.entries.some((e) => (siteLocationEntryKey(e) ?? e) === key)) return null;
+      return {
+        entry,
+        title: t("filters_addSite", [entry]) || `Add ${entry}`,
+        meta: t("filters_typeSite") || "Site and its subdomains",
+        kind: "site",
+      };
+    },
     showError: (message) => {
       showEditorError(message);
     },

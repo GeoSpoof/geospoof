@@ -819,3 +819,52 @@ describe("the editor opened from the card", () => {
     );
   });
 });
+
+describe("the empty add field offers this site", () => {
+  /** The listbox's options as text, under `listboxId`. */
+  function optionTexts(listboxId: string): string[] {
+    return Array.from(byId(listboxId).querySelectorAll<HTMLElement>("[role='option']")).map(
+      (o) => o.textContent ?? ""
+    );
+  }
+
+  test("a list screen offers Add <site> only while the site isn't listed", () => {
+    showFiltersView();
+    renderAll(S, "https://www.twitch.tv/");
+    byId("scopeListRow").click();
+    byId("scopeAddInput").focus();
+    expect(byId("scopeAddInput").getAttribute("aria-expanded")).toBe("true");
+    expect(optionTexts("scopeGroupListbox")).toEqual([
+      "Add twitch.tvSite and its subdomains",
+      "Browse all site groups…",
+    ]);
+    byId("scopeAddInput").blur();
+
+    // example.com is listed: only Browse.
+    renderAll(S, "https://example.com/");
+    byId("scopeAddInput").focus();
+    expect(optionTexts("scopeGroupListbox")).toEqual(["Browse all site groups…"]);
+  });
+
+  test("the editor's Sites field offers Add <site> only when the entry lacks it", () => {
+    showFiltersView();
+    // A new entry for chatgpt.com starts with it as a chip: only Browse.
+    renderAll(S0, "https://chatgpt.com/");
+    row().click();
+    byId("siteLocationPatterns").focus();
+    expect(optionTexts("siteLocationGroupListbox")).toEqual(["Browse all site groups…"]);
+    byId("siteLocationPatterns").blur();
+    byId("siteLocationCancel").click();
+
+    // example.com's own entry (Paris), opened on twitch.tv's tab: twitch.tv is offered.
+    renderAll(S, "https://www.twitch.tv/");
+    byId("siteLocationsRow").click();
+    byId("siteLocationsList").querySelector<HTMLElement>(".site-row")?.click();
+    expect(isShown("siteLocationEditorScreen")).toBe(true);
+    byId("siteLocationPatterns").focus();
+    expect(optionTexts("siteLocationGroupListbox")).toEqual([
+      "Add twitch.tvSite and its subdomains",
+      "Browse all site groups…",
+    ]);
+  });
+});
