@@ -113,7 +113,7 @@ describe("Popup HTML Structure", () => {
     ).not.toBeNull();
   });
 
-  test("the root: the heading names the mode group, and the two rows share one card", () => {
+  test("the root: SITE RULES and one card with two rows; the Filters screen holds the mode", () => {
     const tabs = document.getElementById("scopeModeTabs")!;
     expect(tabs.getAttribute("role")).toBe("radiogroup");
     expect(tabs.getAttribute("aria-labelledby")).toBe("scopeModeHeading");
@@ -122,6 +122,19 @@ describe("Popup HTML Structure", () => {
     expect(document.getElementById("scopeModeHeading")?.textContent?.trim()).toBe("Filter mode");
     const card = document.getElementById("filtersRootRows")!;
     expect(card.classList.contains("site-card")).toBe(true);
+    // SITE RULES heads the card as a real heading; the mode lives on the Filters screen.
+    const rules = document.getElementById("siteRulesHeading")!;
+    expect(rules.tagName).toBe("H2");
+    expect(rules.classList).toContain("section-heading");
+    expect(rules.textContent?.trim()).toBe("Site rules");
+    expect(rules.nextElementSibling).toBe(card);
+    const root = document.getElementById("filtersRoot")!;
+    const screen = document.getElementById("scopeListScreen")!;
+    for (const id of ["scopeModeHeading", "scopeModeTabs", "scopeModeDesc", "scopeProNote"]) {
+      expect(root.contains(document.getElementById(id)), id).toBe(false);
+      expect(screen.contains(document.getElementById(id)), id).toBe(true);
+    }
+    expect(document.getElementById("scopeListRowTitle")?.textContent?.trim()).toBe("Filters");
     for (const id of ["scopeListRow", "siteLocationsRow"]) {
       const row = document.getElementById(id)!;
       // The This site card's row component: label, then the count and a ›.

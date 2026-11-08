@@ -63,8 +63,9 @@ export interface FiltersDraft {
   key: string;
   screen: Exclude<FiltersScreen, "root">;
   /**
-   * Set when `screen` is the list: the list it showed, so a mode changed
-   * elsewhere (the app, another window) never puts its text in the other list.
+   * Set when `screen` is the Filters screen in Allowlist or Denylist mode: the
+   * list it showed, so a mode changed elsewhere (the app, another window)
+   * never puts its text in the other list. Absent in All sites mode.
    */
   list?: "allowlist" | "denylist";
   /** The text in the list screen's add field. */
@@ -140,9 +141,10 @@ export function saveFiltersDraft(overrides: { listField?: string; pending?: stri
   }
   const draft: FiltersDraft = { v: 1, key: activeKey, screen };
   if (screen === "list") {
+    // The Filters screen in All sites mode has no list; the draft leaves
+    // `list` out.
     const list = getActiveListKey();
-    if (list === null) return;
-    draft.list = list;
+    if (list !== null) draft.list = list;
   }
   const listField =
     overrides.listField ??
@@ -213,8 +215,8 @@ function parseDraft(value: unknown): FiltersDraft | null {
   if (listField !== undefined && typeof listField !== "string") return null;
   const draft: FiltersDraft = { v: 1, key: value.key, screen };
   if (screen === "list") {
-    if (list !== "allowlist" && list !== "denylist") return null;
-    draft.list = list;
+    if (list !== undefined && list !== "allowlist" && list !== "denylist") return null;
+    if (list !== undefined) draft.list = list;
   }
   if (typeof listField === "string") draft.listField = listField;
   if (screen === "editor") {
@@ -228,7 +230,7 @@ function parseDraft(value: unknown): FiltersDraft | null {
 /** Whether the screen the draft was on can still open with these settings. */
 function canRestore(draft: FiltersDraft, settings: Settings, proLocked: boolean): boolean {
   if (proLocked) return false;
-  if (draft.screen === "list") return settings.scopeMode === draft.list;
+  if (draft.screen === "list") return (settings.scopeMode ?? "all") === (draft.list ?? "all");
   if (draft.screen === "editor") {
     const id = draft.editor?.entryId ?? null;
     const stored = Array.isArray(settings.siteLocations) ? settings.siteLocations : [];

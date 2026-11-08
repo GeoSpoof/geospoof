@@ -595,6 +595,76 @@
             </div>
           </section>
 
+          <!-- SITE RULES: one card, two site rows ("Filters   Allowlist · 2 ›",
+               "Per-site locations   1 ›"), the This site card's row component.
+               Both show in every mode. The value is aria-hidden; each row's
+               description says it in words ("Allowlist: 2 on the list.",
+               "1 location"). A real heading, so screen readers can jump to it. -->
+          <h2 class="section-heading" id="siteRulesHeading" data-i18n="filters_siteRules">
+            Site rules
+          </h2>
+          <div class="site-card site-row-group" id="filtersRootRows">
+            <div id="scopeListCard">
+              <div
+                class="site-row"
+                id="scopeListRow"
+                role="button"
+                tabindex="0"
+                aria-describedby="scopeListRowDesc"
+              >
+                <div class="site-row-line">
+                  <span class="site-row-host" id="scopeListRowTitle" data-i18n="filters_screenTitle"
+                    >Filters</span
+                  >
+                  <span class="site-row-trail"
+                    ><span
+                      class="site-row-value count"
+                      id="scopeListRowValue"
+                      aria-hidden="true"
+                    ></span
+                    >&nbsp;<span class="site-row-chev" aria-hidden="true">›</span></span
+                  >
+                </div>
+              </div>
+              <span class="visually-hidden" id="scopeListRowDesc"></span>
+            </div>
+            <div id="siteLocationsCard">
+              <div
+                class="site-row"
+                id="siteLocationsRow"
+                role="button"
+                tabindex="0"
+                aria-describedby="siteLocationsRowDesc"
+              >
+                <div class="site-row-line">
+                  <span class="site-row-host" data-i18n="siteLocation_sectionTitle"
+                    >Per-site locations</span
+                  >
+                  <span class="site-row-trail"
+                    ><span
+                      class="site-row-value count"
+                      id="siteLocationsRowValue"
+                      aria-hidden="true"
+                    ></span
+                    >&nbsp;<span class="site-row-chev" id="siteLocationsRowChev" aria-hidden="true"
+                      >›</span
+                    ></span
+                  >
+                </div>
+              </div>
+              <span class="visually-hidden" id="siteLocationsRowDesc"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filters: the mode, and in Allowlist or Denylist mode its list. -->
+        <div class="filters-screen" id="scopeListScreen" hidden>
+          <button type="button" class="back-row" id="scopeListBack">
+            <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Sites</span>
+          </button>
+          <h2 class="view-title" id="scopeListTitle" tabindex="-1" data-i18n="filters_screenTitle">
+            Filters
+          </h2>
           <div class="section-heading" id="scopeModeHeading" data-i18n="filters_where">
             Filter mode
           </div>
@@ -661,230 +731,176 @@
             ⚠️ Change not saved
           </div>
 
-          <!-- One card, two site rows ("Allowlist   2 ›", "Per-site locations
-               1 ›"), the This site card's row component. The list row hides in
-               All sites mode. The count is aria-hidden; each row's description
-               says it in words ("2 on the list", "1 location"). -->
-          <div class="site-card site-row-group" id="filtersRootRows">
-            <div id="scopeListCard" hidden>
-              <div
-                class="site-row"
-                id="scopeListRow"
-                role="button"
-                tabindex="0"
-                aria-describedby="scopeListRowDesc"
-              >
-                <div class="site-row-line">
-                  <span class="site-row-host" id="scopeListRowTitle">Allowlist</span>
-                  <span class="site-row-trail"
-                    ><span
-                      class="site-row-value count"
-                      id="scopeListRowValue"
-                      aria-hidden="true"
-                    ></span
-                    >&nbsp;<span class="site-row-chev" aria-hidden="true">›</span></span
-                  >
-                </div>
-              </div>
-              <span class="visually-hidden" id="scopeListRowDesc"></span>
-            </div>
-            <div id="siteLocationsCard">
-              <div
-                class="site-row"
-                id="siteLocationsRow"
-                role="button"
-                tabindex="0"
-                aria-describedby="siteLocationsRowDesc"
-              >
-                <div class="site-row-line">
-                  <span class="site-row-host" data-i18n="siteLocation_sectionTitle"
-                    >Per-site locations</span
-                  >
-                  <span class="site-row-trail"
-                    ><span
-                      class="site-row-value count"
-                      id="siteLocationsRowValue"
-                      aria-hidden="true"
-                    ></span
-                    >&nbsp;<span class="site-row-chev" id="siteLocationsRowChev" aria-hidden="true"
-                      >›</span
-                    ></span
-                  >
-                </div>
-              </div>
-              <span class="visually-hidden" id="siteLocationsRowDesc"></span>
-            </div>
-          </div>
-        </div>
+          <!-- The active list (Allowlist or Denylist mode only). -->
+          <div id="scopeListContent" hidden>
+            <span class="visually-hidden" id="scopeListName">Allowlist</span>
 
-        <!-- The Allowlist or the Denylist. -->
-        <div class="filters-screen" id="scopeListScreen" hidden>
-          <button type="button" class="back-row" id="scopeListBack">
-            <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Sites</span>
-          </button>
-          <h2 class="view-title" id="scopeListTitle" tabindex="-1">Allowlist</h2>
-          <div class="view-caption" id="scopeListCaption"></div>
+            <!-- This site (without www.), one tap away, or whether it's listed. -->
+            <button type="button" class="primary-add" id="scopeAddSiteButton" hidden>
+              <span class="primary-add-plus" aria-hidden="true">＋</span
+              ><span id="scopeAddSiteLabel"></span>
+            </button>
+            <div class="scope-site-status" id="scopeSiteStatus" tabindex="-1" hidden></div>
 
-          <!-- This site (without www.), one tap away, or whether it's listed. -->
-          <button type="button" class="primary-add" id="scopeAddSiteButton" hidden>
-            <span class="primary-add-plus" aria-hidden="true">＋</span
-            ><span id="scopeAddSiteLabel"></span>
-          </button>
-          <div class="scope-site-status" id="scopeSiteStatus" tabindex="-1" hidden></div>
-
-          <!-- One field with suggestions (K1): the input is an ARIA 1.2
+            <!-- One field with suggestions (K1): the input is an ARIA 1.2
                combobox over #scopeGroupListbox, which offers the readings of
                what's typed and matching site groups. The error sits right
                under the field and the suggestions hang below it, so both show
                (src/popup/entry-add-control.ts). -->
-          <div class="entry-add-field">
-            <div class="scope-add-row">
-              <div class="entry-input-wrap">
-                <input
-                  type="text"
-                  id="scopeAddInput"
-                  placeholder="Site or site group, e.g. twitch.tv"
-                  autocomplete="off"
-                  spellcheck="false"
-                  maxlength="2048"
-                  data-i18n-placeholder="filters_fieldSiteOrGroup"
-                />
+            <div class="entry-add-field">
+              <div class="scope-add-row">
+                <div class="entry-input-wrap">
+                  <input
+                    type="text"
+                    id="scopeAddInput"
+                    placeholder="Site or site group, e.g. twitch.tv"
+                    autocomplete="off"
+                    spellcheck="false"
+                    maxlength="2048"
+                    data-i18n-placeholder="filters_fieldSiteOrGroup"
+                  />
+                </div>
+                <button id="scopeAddButton" data-i18n="filters_addButton">Add</button>
               </div>
-              <button id="scopeAddButton" data-i18n="filters_addButton">Add</button>
-            </div>
-            <div
-              class="scope-inline-msg"
-              id="scopeAddError"
-              role="alert"
-              style="display: none"
-            ></div>
-            <div class="entry-picker">
               <div
-                class="entry-listbox"
-                id="scopeGroupListbox"
-                role="listbox"
-                aria-label="Site groups"
-                data-i18n-aria-label="siteGroups_listboxLabel"
-                hidden
+                class="scope-inline-msg"
+                id="scopeAddError"
+                role="alert"
+                style="display: none"
               ></div>
-              <div
-                class="entry-picker-attribution"
-                id="scopeGroupAttribution"
-                data-i18n="siteGroups_attribution"
-                hidden
-              >
-                Site groups come from the v2fly domain list (MIT license).
+              <div class="entry-picker">
+                <div
+                  class="entry-listbox"
+                  id="scopeGroupListbox"
+                  role="listbox"
+                  aria-label="Site groups"
+                  data-i18n-aria-label="siteGroups_listboxLabel"
+                  hidden
+                ></div>
+                <div
+                  class="entry-picker-attribution"
+                  id="scopeGroupAttribution"
+                  data-i18n="siteGroups_attribution"
+                  hidden
+                >
+                  Site groups come from the v2fly domain list (MIT license).
+                </div>
               </div>
             </div>
-          </div>
 
-          <!-- Shown only while a site group update runs, or after one failed,
+            <!-- Shown only while a site group update runs, or after one failed,
                when this list holds a site group or a list from a link. -->
-          <div class="site-groups-status" id="siteGroupsStatus" hidden>
-            <span id="siteGroupsStatusText" role="status" aria-live="polite"></span>
-            <button
-              type="button"
-              class="site-location-link"
-              id="siteGroupsUpdateNow"
-              data-i18n="siteGroups_updateNow"
-            >
-              Update now
-            </button>
-          </div>
-
-          <div
-            class="scope-empty"
-            id="scopeEmptyIndicator"
-            style="display: none"
-            data-i18n="filters_emptyList"
-          >
-            No sites added yet
-          </div>
-
-          <div class="scope-list" id="scopeList" role="list" aria-labelledby="scopeListTitle"></div>
-
-          <details class="scope-syntax" id="scopeSyntax">
-            <summary class="scope-syntax-summary">
-              <span class="scope-syntax-chevron" aria-hidden="true">▶</span>
-              <span data-i18n="filters_help">What can I add?</span>
-            </summary>
-            <div class="scope-syntax-body">
-              <dl class="scope-syntax-list">
-                <div class="scope-syntax-row">
-                  <dt><code>example.com</code></dt>
-                  <dd data-i18n="filters_syntaxDomain">The site and all its subdomains</dd>
-                </div>
-                <div class="scope-syntax-row">
-                  <dt><code>*.example.com</code></dt>
-                  <dd data-i18n="filters_syntaxSubdomains">
-                    Subdomains only, not example.com itself
-                  </dd>
-                </div>
-                <div class="scope-syntax-row">
-                  <dt><code>*.ru</code></dt>
-                  <dd data-i18n="filters_syntaxTld">Any site ending in .ru</dd>
-                </div>
-                <div class="scope-syntax-row">
-                  <dt><code>localhost:3000</code></dt>
-                  <dd data-i18n="filters_syntaxPort">A host on a specific port</dd>
-                </div>
-                <div class="scope-syntax-row">
-                  <dt><code>site.com/app/*</code></dt>
-                  <dd data-i18n="filters_syntaxPath">A path and everything under it</dd>
-                </div>
-                <div class="scope-syntax-row">
-                  <dt><code>münchen.de</code></dt>
-                  <dd data-i18n="filters_syntaxIdn">International domain names work too</dd>
-                </div>
-                <!-- data-site-groups-only rows hide where site groups are
-                     unavailable (Safari), as their suggestions do. -->
-                <div class="scope-syntax-row" data-site-groups-only>
-                  <dt><code>=mail.example.com</code></dt>
-                  <dd data-i18n="filters_syntaxExact">
-                    Only that exact address, not its subdomains
-                  </dd>
-                </div>
-                <div class="scope-syntax-row" data-site-groups-only>
-                  <dt><code>geosite:google</code></dt>
-                  <dd data-i18n="filters_syntaxGroup">A site group: all of Google's sites</dd>
-                </div>
-                <div class="scope-syntax-row" data-site-groups-only>
-                  <dt><code>geosite:google@cn</code></dt>
-                  <dd data-i18n="filters_syntaxGroupTag">Only the group's sites with that tag</dd>
-                </div>
-                <div class="scope-syntax-row" data-site-groups-only>
-                  <dt><code>https://…/list.txt</code></dt>
-                  <dd data-i18n="filters_syntaxLink">A list from a link, updated weekly</dd>
-                </div>
-              </dl>
-              <p class="scope-syntax-note" data-i18n="filters_syntaxNotes">
-                Only * is a wildcard — no regular expressions.
-              </p>
-              <a
-                class="scope-syntax-reference"
-                href="https://github.com/GeoSpoof/geospoof/blob/main/docs/SITE_FILTERS.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                data-i18n="filters_syntaxReference"
+            <div class="site-groups-status" id="siteGroupsStatus" hidden>
+              <span id="siteGroupsStatusText" role="status" aria-live="polite"></span>
+              <button
+                type="button"
+                class="site-location-link"
+                id="siteGroupsUpdateNow"
+                data-i18n="siteGroups_updateNow"
               >
-                See full reference →
-              </a>
-              <!-- S5: where site group data comes from, with Update now. The
+                Update now
+              </button>
+            </div>
+
+            <div
+              class="scope-empty"
+              id="scopeEmptyIndicator"
+              style="display: none"
+              data-i18n="filters_emptyList"
+            >
+              No sites added yet
+            </div>
+
+            <div
+              class="scope-list"
+              id="scopeList"
+              role="list"
+              aria-labelledby="scopeListName"
+            ></div>
+
+            <details class="scope-syntax" id="scopeSyntax">
+              <summary class="scope-syntax-summary">
+                <span class="scope-syntax-chevron" aria-hidden="true">▶</span>
+                <span data-i18n="filters_help">What can I add?</span>
+              </summary>
+              <div class="scope-syntax-body">
+                <dl class="scope-syntax-list">
+                  <div class="scope-syntax-row">
+                    <dt><code>example.com</code></dt>
+                    <dd data-i18n="filters_syntaxDomain">The site and all its subdomains</dd>
+                  </div>
+                  <div class="scope-syntax-row">
+                    <dt><code>*.example.com</code></dt>
+                    <dd data-i18n="filters_syntaxSubdomains">
+                      Subdomains only, not example.com itself
+                    </dd>
+                  </div>
+                  <div class="scope-syntax-row">
+                    <dt><code>*.ru</code></dt>
+                    <dd data-i18n="filters_syntaxTld">Any site ending in .ru</dd>
+                  </div>
+                  <div class="scope-syntax-row">
+                    <dt><code>localhost:3000</code></dt>
+                    <dd data-i18n="filters_syntaxPort">A host on a specific port</dd>
+                  </div>
+                  <div class="scope-syntax-row">
+                    <dt><code>site.com/app/*</code></dt>
+                    <dd data-i18n="filters_syntaxPath">A path and everything under it</dd>
+                  </div>
+                  <div class="scope-syntax-row">
+                    <dt><code>münchen.de</code></dt>
+                    <dd data-i18n="filters_syntaxIdn">International domain names work too</dd>
+                  </div>
+                  <!-- data-site-groups-only rows hide where site groups are
+                     unavailable (Safari), as their suggestions do. -->
+                  <div class="scope-syntax-row" data-site-groups-only>
+                    <dt><code>=mail.example.com</code></dt>
+                    <dd data-i18n="filters_syntaxExact">
+                      Only that exact address, not its subdomains
+                    </dd>
+                  </div>
+                  <div class="scope-syntax-row" data-site-groups-only>
+                    <dt><code>geosite:google</code></dt>
+                    <dd data-i18n="filters_syntaxGroup">A site group: all of Google's sites</dd>
+                  </div>
+                  <div class="scope-syntax-row" data-site-groups-only>
+                    <dt><code>geosite:google@cn</code></dt>
+                    <dd data-i18n="filters_syntaxGroupTag">Only the group's sites with that tag</dd>
+                  </div>
+                  <div class="scope-syntax-row" data-site-groups-only>
+                    <dt><code>https://…/list.txt</code></dt>
+                    <dd data-i18n="filters_syntaxLink">A list from a link, updated weekly</dd>
+                  </div>
+                </dl>
+                <p class="scope-syntax-note" data-i18n="filters_syntaxNotes">
+                  Only * is a wildcard — no regular expressions.
+                </p>
+                <a
+                  class="scope-syntax-reference"
+                  href="https://github.com/GeoSpoof/geospoof/blob/main/docs/SITE_FILTERS.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-i18n="filters_syntaxReference"
+                >
+                  See full reference →
+                </a>
+                <!-- S5: where site group data comes from, with Update now. The
                    list and Per-site locations screens show their own line only
                    while an update runs or after one failed. -->
-              <div class="site-groups-status" id="siteGroupsHelpStatus" hidden>
-                <span id="siteGroupsHelpStatusText" role="status" aria-live="polite"></span>
-                <button
-                  type="button"
-                  class="site-location-link"
-                  id="siteGroupsHelpUpdateNow"
-                  data-i18n="siteGroups_updateNow"
-                >
-                  Update now
-                </button>
+                <div class="site-groups-status" id="siteGroupsHelpStatus" hidden>
+                  <span id="siteGroupsHelpStatusText" role="status" aria-live="polite"></span>
+                  <button
+                    type="button"
+                    class="site-location-link"
+                    id="siteGroupsHelpUpdateNow"
+                    data-i18n="siteGroups_updateNow"
+                  >
+                    Update now
+                  </button>
+                </div>
               </div>
-            </div>
-          </details>
+            </details>
+          </div>
         </div>
 
         <!-- Per-site locations (#177). -->

@@ -79,6 +79,14 @@
     "message": "Filtermodus",
     "description": "Section heading above the three mode segments (All sites, Allowlist, Denylist) on the Sites tab. Shown uppercase by the style. Names the radiogroup for screen readers. Formerly \"Where GeoSpoof works\"."
   },
+  "filters_screenTitle": {
+    "message": "Filter",
+    "description": "Title of the Filters screen (the mode and its list) and label of its row on the Sites tab root. The tab was called this before it became Sites (tab_filters); use the same word the tab used."
+  },
+  "filters_siteRules": {
+    "message": "Website-Regeln",
+    "description": "Section heading on the Sites tab root above the card with the Filters and Per-site locations rows, styled like filters_thisSite (shown uppercase). A short, natural phrase for rules about sites; must fit one line at 350 px."
+  },
   "filters_modeAll": {
     "message": "Alle Websites",
     "description": "Scope mode segment: GeoSpoof works on every site."
@@ -128,14 +136,6 @@
   "filters_listEmptyAllow": {
     "message": "Leer · Auf jeder Website aus",
     "description": "The Allowlist row's value on the Filters root when the Allowlist is empty, after a ⚠ drawn by the markup. A status value with one detail after the '·'."
-  },
-  "filters_captionAllow": {
-    "message": "GeoSpoof ist nur auf diesen Websites aktiv.",
-    "description": "Caption under the Allowlist screen's title."
-  },
-  "filters_captionDeny": {
-    "message": "GeoSpoof ist auf jeder Website aktiv, außer auf diesen.",
-    "description": "Caption under the Denylist screen's title."
   },
   "filters_addSite": {
     "message": "$SITE$ hinzufügen",

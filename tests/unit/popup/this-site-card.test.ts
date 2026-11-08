@@ -729,7 +729,10 @@ describe("a mode change is announced (6.2, N25)", () => {
 
   test("a failed mode change announces nothing and leaves the card", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    showFiltersView();
     renderAll(S0, "https://www.twitch.tv/");
+    // The mode control lives on the Filters screen.
+    byId("scopeListRow").click();
     sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
     byId("scopeModeAllowlist").click();
     await flush();

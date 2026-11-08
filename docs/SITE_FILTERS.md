@@ -14,7 +14,7 @@ Each list (the Allowlist and the Denylist) has its own screen with one add field
 | **Allowlist** | Spoof **only** on sites that match a pattern in the list.              |
 | **Denylist**  | Spoof on every site **except** those that match a pattern in the list. |
 
-The popup shows the three modes under **Filter mode**, with a sentence that says what the chosen one does. The master **Location Protection** toggle is still the on/off switch. The mode only decides _which_ sites are spoofed _when_ protection is on.
+The popup shows the three modes on the **Filters** screen (Sites tab → **Site rules** → **Filters**), under **Filter mode**, with a sentence that says what the chosen one does. The master **Location Protection** toggle is still the on/off switch. The mode only decides _which_ sites are spoofed _when_ protection is on.
 
 ## Pattern quick reference
 

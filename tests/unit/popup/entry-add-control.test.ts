@@ -134,6 +134,7 @@ beforeEach(() => {
   byId("filtersView").style.display = "block";
   byId("filtersRoot").hidden = true;
   byId("scopeListScreen").hidden = false;
+  byId("scopeListContent").hidden = false;
   __resetPopupSiteGroupsForTest();
   sendMessage.mockReset();
   sendMessage.mockImplementation((message: unknown) =>

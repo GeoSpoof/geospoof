@@ -123,7 +123,8 @@ export function renderScopeLoadError(): void {
   wireFiltersNavOnce();
   lastPersistedMode = "all";
   reflectModeSelection("all");
-  setListCardVisible(false);
+  renderFiltersRow(null, []);
+  setListContentVisible(false);
   if (getFiltersScreen() === "list") backFromFiltersScreen({ restoreFocus: false });
 
   const loadError = el("scopeLoadError");
@@ -169,15 +170,16 @@ export function renderScope(settings: Settings, proLocked = false, tabUrl?: stri
   const listKey = listKeyForMode(mode);
   renderSiteGroupsStatus(settings, listKey, proLocked);
   if (listKey === null) {
-    // "all" mode: no list row, and its screen no longer applies (Req 13.8).
-    setListCardVisible(false);
+    // "all" mode: the Filters screen shows only the mode and its sentence.
+    renderFiltersRow(null, []);
+    setListContentVisible(false);
     siteStatus = { kind: "none" };
-    if (getFiltersScreen() === "list") backFromFiltersScreen({ restoreFocus: false });
     return;
   }
 
   const entries = settings[listKey] ?? [];
-  renderListRow(listKey, entries);
+  renderFiltersRow(listKey, entries);
+  setListContentVisible(true);
   renderListScreen(settings, listKey, entries, tabUrl);
 }
 
@@ -303,7 +305,7 @@ function announceModeChange(cardBefore: string | null): void {
   const sentence = el("scopeModeDesc")?.textContent?.trim() ?? "";
   if (sentence.length > 0) parts.push(sentence);
   const rowValue = el("scopeListRowValue");
-  if (el("scopeListCard")?.hidden === false && rowValue?.classList.contains("warn")) {
+  if (rowValue?.classList.contains("warn")) {
     parts.push(
       statusAnnouncement(
         listName("allowlist"),
@@ -325,34 +327,43 @@ function revertMode(previous: ScopeMode): void {
   showModeError();
 }
 
-// ── The root's list row ────────────────────────────────────────────────────
+// ── The root's Filters row ─────────────────────────────────────────────────
 
-function setListCardVisible(visible: boolean): void {
-  const card = el("scopeListCard");
-  if (card) card.hidden = !visible;
+/** The Filters screen's list part: shown in Allowlist or Denylist mode only. */
+function setListContentVisible(visible: boolean): void {
+  const content = el("scopeListContent");
+  if (content) content.hidden = !visible;
 }
 
 /**
- * "Allowlist   4 ›", described as "4 on the list". An empty Denylist reads
- * "0", described as "Empty"; an empty Allowlist "⚠ Empty · Off on every
+ * "Filters   All sites ›", "Filters   Allowlist · 4 ›", described as
+ * "Allowlist: 4 on the list.". An empty Denylist reads "Denylist · 0",
+ * described as "Denylist: Empty."; an empty Allowlist "⚠ Empty · Off on every
  * site", because nothing is spoofed then.
  */
-function renderListRow(listKey: ListKey, entries: readonly string[]): void {
-  setListCardVisible(true);
-  const title = el("scopeListRowTitle");
-  if (title) title.textContent = listName(listKey);
+function renderFiltersRow(listKey: ListKey | null, entries: readonly string[]): void {
   const value = el("scopeListRowValue");
+  const desc = el("scopeListRowDesc");
   if (!value) return;
   value.replaceChildren();
+  if (listKey === null) {
+    const all = t("filters_modeAll") || "All sites";
+    value.classList.remove("warn");
+    value.classList.add("count");
+    value.textContent = all;
+    if (desc) desc.textContent = all;
+    return;
+  }
+  const name = listName(listKey);
   const warn = entries.length === 0 && listKey === "allowlist";
   value.classList.toggle("warn", warn);
   value.classList.toggle("count", !warn);
-  // The count shows as a number; the description says it in words.
+  // The value shows the count as a number; the description says it in words.
   const count = formatCount(entries.length);
   let words: string;
   if (entries.length > 0) {
     words = t("filters_countOnList", [count]) || `${count} on the list`;
-    value.textContent = count;
+    value.textContent = `${name} · ${count}`;
   } else if (warn) {
     words = t("filters_listEmptyAllow") || "Empty · Off on every site";
     const sign = document.createElement("span");
@@ -361,19 +372,17 @@ function renderListRow(listKey: ListKey, entries: readonly string[]): void {
     value.append(sign, words);
   } else {
     words = t("filters_listEmpty") || "Empty";
-    value.textContent = count;
+    value.textContent = `${name} · ${count}`;
   }
-  const desc = el("scopeListRowDesc");
-  if (desc) desc.textContent = words;
+  if (desc) desc.textContent = statusAnnouncement(name, words);
 }
 
-/** The root's list row opens the list screen; leaving it, focus returns to the row. */
+/** The root's Filters row opens the Filters screen; leaving it, focus returns to the row. */
 function wireListScreenOnce(): void {
   const row = el("scopeListRow");
   if (!row || row.dataset.wired === "1") return;
   row.dataset.wired = "1";
   wireButtonRow(row, () => {
-    if (activeListKey === null) return;
     openFiltersScreen("list", { opener: row });
   });
   setFiltersScreenFallback("list", () => el("scopeListRow"));
@@ -397,15 +406,9 @@ function renderListScreen(
   entries: string[],
   tabUrl: string | undefined
 ): void {
-  const title = el("scopeListTitle");
-  if (title) title.textContent = listName(listKey);
-  const caption = el("scopeListCaption");
-  if (caption) {
-    caption.textContent =
-      listKey === "denylist"
-        ? t("filters_captionDeny") || "GeoSpoof works on every site except these."
-        : t("filters_captionAllow") || "GeoSpoof works only on these sites.";
-  }
+  // The list is named by its list ("Allowlist"); the screen's title is Filters.
+  const name = el("scopeListName");
+  if (name) name.textContent = listName(listKey);
 
   siteStatus = listScreenSiteStatus({
     settings,

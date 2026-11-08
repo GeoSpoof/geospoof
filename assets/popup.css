@@ -496,6 +496,11 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   margin-bottom: 8px;
 }
 
+/* The same look on a real heading (SITE RULES): no UA margins or size. */
+h2.section-heading {
+  margin: 0 0 8px;
+}
+
 .current-location {
   background: var(--surface);
   padding: 12px;

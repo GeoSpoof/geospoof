@@ -185,8 +185,8 @@ describe("rows", () => {
   test("an exact address, a group and a link are one row each, with a meta line", async () => {
     await render(ALLOW);
     expect(rows()).toHaveLength(4);
-    expect(byId("scopeListRowValue").textContent).toBe("4");
-    expect(byId("scopeListRowDesc").textContent).toBe("4 on the list");
+    expect(byId("scopeListRowValue").textContent).toBe("Allowlist · 4");
+    expect(byId("scopeListRowDesc").textContent).toBe("Allowlist: 4 on the list.");
 
     const meta = (title: string) => rowFor(title).querySelector(".scope-site-meta")?.textContent;
     expect(meta("mail.example.com")).toBe("Exact address only");
@@ -453,7 +453,7 @@ describe("the site group status (S5)", () => {
   test("a site location using a group counts too, in 'All sites' mode as well", async () => {
     const settings = makeSettings({ scopeMode: "all", siteLocations: PER_SITE_GROUP });
     await render(settings);
-    expect(byId("scopeListCard").hidden).toBe(true);
+    expect(byId("scopeListContent").hidden).toBe(true);
     expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus"]);
     expect(statusText()).toBe(`Site group lists from ${DATE}`);
   });

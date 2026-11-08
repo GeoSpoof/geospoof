@@ -82,15 +82,20 @@ describe("Popup Filters tab — scope mode selector (Req 13)", () => {
     expect(allow.classList.contains("active")).toBe(false);
   });
 
-  test("hides the list row in 'all' mode (Req 13.8)", () => {
+  test("in 'all' mode the Filters row reads All sites and the screen has no list (Req 13.8)", () => {
     renderScope(makeSettings({ scopeMode: "all" }));
-    expect(document.getElementById("scopeListCard")!.hidden).toBe(true);
+    expect(document.getElementById("scopeListCard")!.hidden).toBe(false);
+    expect(document.getElementById("scopeListRowValue")!.textContent).toBe("All sites");
+    expect(document.getElementById("scopeListRowDesc")!.textContent).toBe("All sites");
+    expect(document.getElementById("scopeListContent")!.hidden).toBe(true);
   });
 
   test("shows the active list's row in list modes (Req 13.6, 13.7)", () => {
     renderScope(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
     expect(document.getElementById("scopeListCard")!.hidden).toBe(false);
-    expect(document.getElementById("scopeListRowTitle")!.textContent).toBe("Allowlist");
+    expect(document.getElementById("scopeListRowTitle")!.textContent).toBe("Filters");
+    expect(document.getElementById("scopeListContent")!.hidden).toBe(false);
+    expect(document.getElementById("scopeListName")!.textContent).toBe("Allowlist");
   });
 
   // Property: in a list mode the row names the list and counts its entries,
@@ -109,19 +114,24 @@ describe("Popup Filters tab — scope mode selector (Req 13)", () => {
           const card = document.getElementById("scopeListCard")!;
           const value = document.getElementById("scopeListRowValue")!;
           const desc = document.getElementById("scopeListRowDesc")!;
-          expect(card.hidden).toBe(mode === "all");
-          if (mode === "all") return;
+          expect(card.hidden).toBe(false);
+          if (mode === "all") {
+            expect(value.textContent).toBe("All sites");
+            return;
+          }
+          const name = mode === "allowlist" ? "Allowlist" : "Denylist";
           const warn = mode === "allowlist" && list.length === 0;
           expect(value.textContent).toBe(
-            warn ? "⚠ Empty · Off on every site" : String(list.length)
+            warn ? "⚠ Empty · Off on every site" : `${name} · ${list.length}`
           );
-          expect(desc.textContent).toBe(
+          const words =
             list.length > 0
               ? `${list.length} on the list`
               : warn
-                ? "Empty · Off on every site"
-                : "Empty"
-          );
+                ? "Empty, Off on every site"
+                : "Empty";
+          // Spoken, so " · " reads as a comma (spokenValue).
+          expect(desc.textContent).toBe(`${name}: ${words}.`);
           expect(value.classList.contains("warn")).toBe(mode === "allowlist" && list.length === 0);
         }
       ),
@@ -136,7 +146,8 @@ describe("Popup Filters tab — scope mode selector (Req 13)", () => {
 
     expect(all.classList.contains("active")).toBe(true);
     expect(loadError.style.display).toBe("block");
-    expect(document.getElementById("scopeListCard")!.hidden).toBe(true);
+    expect(document.getElementById("scopeListRowValue")!.textContent).toBe("All sites");
+    expect(document.getElementById("scopeListContent")!.hidden).toBe(true);
   });
 
   test("mode change failure reverts the selection and shows 'not saved' (Req 13.5, 9.5)", async () => {
@@ -509,26 +520,34 @@ describe("Popup Filters tab — the root and the list screen (design H)", () => 
     expect(byId("scopeProNote").textContent?.replace(/\s+/g, " ").trim()).toBe(
       "🔒 Allowlist, Denylist and per-site locations are GeoSpoof Pro features. Upgrade in the GeoSpoof app."
     );
-    expect(byId("scopeListCard").hidden).toBe(true);
+    // The row still opens the Filters screen, which shows the lock and no list.
+    expect(byId("scopeListRowValue").textContent).toBe("All sites");
+    expect(byId("scopeListContent").hidden).toBe(true);
 
     renderScope(makeSettings({ scopeMode: "allowlist", allowlist: ["a.com"] }), false);
     expect(byId("scopeModeDesc").hidden).toBe(false);
     expect(byId("scopeProNote").hidden).toBe(true);
   });
 
-  test("the list's row opens its screen: title, caption, focus on the title; back returns", () => {
+  test("the Filters row opens its screen: title, mode, list, focus on the title; back returns", () => {
     renderScope(makeSettings({ scopeMode: "denylist", denylist: ["a.com", "*.ru"] }));
     const row = byId("scopeListRow");
-    expect(row.textContent?.replace(/\s+/g, " ").trim()).toBe("Denylist 2 ›");
-    expect(byId("scopeListRowDesc").textContent).toBe("2 on the list");
+    expect(row.textContent?.replace(/\s+/g, " ").trim()).toBe("Filters Denylist · 2 ›");
+    expect(byId("scopeListRowDesc").textContent).toBe("Denylist: 2 on the list.");
     row.focus();
     row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(byId("scopeListScreen").hidden).toBe(false);
     expect(byId("filtersRoot").hidden).toBe(true);
-    expect(byId("scopeListTitle").textContent).toBe("Denylist");
-    expect(byId("scopeListCaption").textContent).toBe("GeoSpoof works on every site except these.");
+    expect(byId("scopeListTitle").textContent?.trim()).toBe("Filters");
+    // The mode control is on this screen, before the list.
+    expect(byId("scopeListScreen").contains(byId("scopeModeTabs"))).toBe(true);
+    expect(byId("scopeModeTabs").compareDocumentPosition(byId("scopeListContent"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
     expect(document.activeElement).toBe(byId("scopeListTitle"));
-    expect(byId("scopeList").getAttribute("aria-labelledby")).toBe("scopeListTitle");
+    // The list keeps its name: the list's own.
+    expect(byId("scopeList").getAttribute("aria-labelledby")).toBe("scopeListName");
+    expect(byId("scopeListName").textContent).toBe("Denylist");
 
     byId("scopeListTitle").dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
@@ -537,9 +556,9 @@ describe("Popup Filters tab — the root and the list screen (design H)", () => 
     expect(document.activeElement).toBe(row);
   });
 
-  test("the Allowlist screen's caption", () => {
+  test("an empty Allowlist warns on the Filters row", () => {
     renderScope(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
-    expect(byId("scopeListCaption").textContent).toBe("GeoSpoof works only on these sites.");
+    expect(document.getElementById("scopeListCaption")).toBeNull();
     expect(byId("scopeListRowValue").textContent).toBe("⚠ Empty · Off on every site");
     expect(byId("scopeListRowValue").querySelector("[aria-hidden='true']")?.textContent).toBe("⚠ ");
   });
@@ -555,23 +574,25 @@ describe("Popup Filters tab — the root and the list screen (design H)", () => 
     expect(byId("scopeModeDesc").textContent).toBe(
       "GeoSpoof works only on sites in the Allowlist."
     );
-    expect(byId("scopeListCard").hidden).toBe(true);
+    expect(byId("scopeListContent").hidden).toBe(true);
 
     // The save fails: the selection and the sentence go back, the row never showed.
     reply({ error: "STORAGE_ERROR" });
     await flush();
     expect(byId("scopeModeAll").getAttribute("aria-checked")).toBe("true");
     expect(byId("scopeModeDesc").textContent).toBe("GeoSpoof works on every site.");
-    expect(byId("scopeListCard").hidden).toBe(true);
+    expect(byId("scopeListContent").hidden).toBe(true);
+    expect(byId("scopeListRowValue").textContent).toBe("All sites");
     expect(byId("scopeModeError").style.display).toBe("block");
   });
 
-  test("the list screen closes when its list no longer applies", () => {
+  test("switching to All sites keeps the Filters screen open and hides its list", () => {
     renderScope(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
     byId("scopeListRow").click();
     expect(byId("scopeListScreen").hidden).toBe(false);
     renderScope(makeSettings({ scopeMode: "all" }));
-    expect(byId("scopeListScreen").hidden).toBe(true);
-    expect(byId("filtersRoot").hidden).toBe(false);
+    expect(byId("scopeListScreen").hidden).toBe(false);
+    expect(byId("scopeListContent").hidden).toBe(true);
+    expect(byId("filtersRoot").hidden).toBe(true);
   });
 });
