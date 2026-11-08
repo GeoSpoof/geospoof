@@ -1,20 +1,34 @@
 # Chrome Web Store Listing — GeoSpoof
 
-Traditional Chinese (Taiwan) copy for the Chrome Web Store and AMO lives in
-[`listing-copy.zh-TW.md`](listing-copy.zh-TW.md).
+Translated Chrome Web Store and AMO copy, one file per UI language, sits next to
+this one as `listing-copy.<locale>.md`. [`README.md`](README.md) says which file
+goes under which dashboard language. When the English below changes, update every
+translation in the same commit.
 
 This file tracks the store listing copy. Where each field lives:
 
-| Field                                 | Source of truth                                      | Notes                                                                                                                  |
-| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **Title** (`name`)                    | `src/build/manifest.ts` (chromium override)          | Baked into the build. Max 75 chars.                                                                                    |
-| **Short description** (`description`) | `src/build/manifest.ts` (chromium override)          | Baked into the build. Max 132 chars; shown under the name and in search results.                                       |
-| **Detailed description**              | Chrome Web Store Developer Dashboard (paste by hand) | No manifest field exists for it. The copy below is the source of truth — paste it into the dashboard on each revision. |
+| Field                                 | Source of truth                                      | Notes                                                                                                                                    |
+| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Title** (`name`)                    | `src/build/manifest.ts` (chromium override)          | Baked into the build. Max 75 chars.                                                                                                      |
+| **Short description** (`description`) | `src/build/manifest.ts` (chromium override)          | Baked into the build. Max 132 chars; shown under the name and in search results.                                                         |
+| **Detailed description**              | Chrome Web Store Developer Dashboard (paste by hand) | No manifest field exists for it. Max 16,000 chars. The copy below is the source of truth — paste it into the dashboard on each revision. |
+
+`tests/unit/store-listings.unit.test.ts` checks that every UI locale has a listing
+file and that each Chrome Web Store detailed description stays under 16,000
+characters.
 
 ASO note: Chrome's [listing policy](https://developer.chrome.com/docs/webstore/program-policies/listing-requirements)
 bans keyword spam. The practical ceiling is ~5 repetitions per keyword. Counts
 below stay within that: `geolocation` = 5, `location changer/changers` = 3,
-`GPS` = 3. Do not push these higher when editing.
+`GPS` = 3. Do not push these higher when editing. The 2.3.0 additions (site
+groups, exact addresses, lists from a link, Randomize location, the Sites tab and
+Settings) use none of these words.
+
+Feature names follow `_locales/en/messages.json` ("Sites", "Filters", "Filter
+mode", "Allowlist", "Denylist", "Per-site locations", "Main location", "Randomize
+location", "Site group", "Exact address only", "List from a link"), so the listing
+and the popup use the same words. Each translation uses its own locale's
+`messages.json` the same way.
 
 ---
 
@@ -53,17 +67,19 @@ A basic location changer just moves the map pin. GeoSpoof goes further — it al
 
 Pick a city, type exact coordinates, or let GeoSpoof match your VPN automatically. Turn it off anytime and your real position returns untouched.
 
+🆕 New in 2.3.0: site groups, exact addresses and lists from a link, in both Filters and Per-site locations; Randomize location; and a redesigned Sites tab and Settings screen.
+
 ⭐ Why people choose GeoSpoof over a basic location changer
 
 1️⃣ Set a fake GPS location in one click — any city or exact coordinates.
 2️⃣ VPN Sync — detect your VPN's exit region and match your location to it.
 3️⃣ Auto background sync — switch VPN servers and your location follows automatically.
-4️⃣ Timezone too — clock and date match your location, so nothing gives you away.
+4️⃣ Timezone too — clock and date match your location, so the two don't contradict each other.
 5️⃣ Block WebRTC leaks — keep your real IP hidden, even behind a VPN.
 6️⃣ Engine-level spoofing — the browser engine applies your timezone, covering workers and cross-site frames, as early as Chrome allows.
-7️⃣ Anti-fingerprinting — every signal stays consistent, so your location holds up.
-8️⃣ Per-site control — allowlist or denylist which sites get spoofed, or give a site its own location.
-9️⃣ Save favorites — pin up to 50 places, switch in a tap.
+7️⃣ Anti-fingerprinting — every signal stays consistent and holds up to the checks real fingerprinting scripts run.
+8️⃣ Per-site locations — give a site its own location while every other site keeps your main location.
+9️⃣ Filters — choose All sites, an Allowlist or a Denylist to decide where GeoSpoof works.
 🔟 No account, no tracking, no analytics — everything stays on your device.
 
 📍 Set your fake location any way you like
@@ -71,7 +87,26 @@ Pick a city, type exact coordinates, or let GeoSpoof match your VPN automaticall
 ▸ Search by city or address and land on the exact spot.
 ▸ Enter precise latitude and longitude by hand for a clean GPS fix.
 ▸ Tune accuracy, from realistic to a custom meter value.
-▸ Save the places you use most and reuse them instantly.
+▸ Save up to 50 favorite places and switch between them in a tap.
+▸ Settings, under the ⚙ gear, now puts what sites see first, with Advanced and General options below.
+
+🎲 Randomize location
+
+Sites can get a random point near the location you chose instead of the exact spot: within 0.5 km, 2 km or 10 km. Keep the same point, or pick a new one each browser session, every hour or every day.
+
+The point is always drawn around the location you chose in GeoSpoof, never around your real one, and your timezone keeps following the location you chose. One trade-off to know: a changing point is harder to recognize across visits, but a site that collects several points can average them.
+
+🧭 Choose where it works, site by site
+
+The redesigned Sites tab shows the site you're on and the location it sees, with one button to add it to your list or take it off.
+
+▸ Filters — under Filter mode, choose All sites, Allowlist (only the sites you list) or Denylist (every site except the ones you list).
+▸ Per-site locations — Twitch can see Mexico City and ChatGPT can see Dublin while every other site sees Tokyo. When several entries match, the most specific one wins.
+▸ Site group — one entry covers every domain a service uses, such as Google, Netflix or OpenAI, or a region such as China sites. About 1,500 groups come from the v2fly domain list that proxy tools call geosite, and GeoSpoof refreshes them about once a week.
+▸ Exact address only — match mail.example.com and none of its subdomains.
+▸ List from a link — paste an https:// link to a domain list you already use for your proxy. GeoSpoof downloads it and refreshes it weekly.
+
+Site groups, exact addresses and lists from a link work in both Filters and Per-site locations.
 
 🌍 Spoof geolocation with or without a VPN
 
@@ -83,6 +118,8 @@ Run it solo, or pair it with your VPN so your IP, location, and timezone all tel
 
 🔹 Everything runs on your device — GeoSpoof never sends your real location to a server.
 🔹 No account, no tracking, no analytics. Settings live locally.
+🔹 Your Filters and Per-site locations never leave your device. Site group updates download the whole catalog, so no request reveals which groups you picked.
+🔹 A list from a link is downloaded straight from the site that hosts it, which sees your IP address, as with any download.
 🔹 Open source — review exactly what it does on GitHub.
 🔹 Turn protection off and your genuine coordinates return untouched.
 
@@ -116,10 +153,18 @@ Run it solo, or pair it with your VPN so your IP, location, and timezone all tel
 📌 Is my data safe?
 💡 Yes. GeoSpoof runs locally, collects nothing, and is open source. Nothing about your location leaves your device.
 
+📌 Does a per-site location change my IP or my account's region?
+💡 No. It changes what that site's pages read from your browser: the location, the timezone, and the language if you set it to follow your location. Your IP and account details stay the same, so pair it with a VPN exit in the same place for the most consistent result.
+
+📌 Can a site tell I'm using GeoSpoof?
+💡 It can't be ruled out. GeoSpoof defeats the checks real fingerprinting scripts run and keeps every signal consistent, but no extension can hide every trace: engine internals and timing side-channels stay out of reach. Check for yourself at geospoof.com/test.
+
 📌 Do I need to sign up?
 💡 No account and no setup. Install and start changing your location right away.
 
 📲 Now on iPhone, iPad & Mac too.
+
+Per-site locations, site groups and Randomize location are free in Chrome. In Safari, Filters, Per-site locations and Randomize location are part of GeoSpoof Pro, and site groups, exact addresses and lists from a link aren't available yet.
 
 Install GeoSpoof, set a fake location, and decide exactly what the web sees about where you are.
 
@@ -131,8 +176,8 @@ Links:
 
 # Firefox Add-on Listing (AMO) — GeoSpoof
 
-The Traditional Chinese (Taiwan) AMO description is in
-[`listing-copy.zh-TW.md`](listing-copy.zh-TW.md).
+Translated AMO descriptions are section (b) of each `listing-copy.<locale>.md`;
+[`README.md`](README.md) maps each file to its AMO locale.
 
 AMO field sources:
 
@@ -161,17 +206,19 @@ A basic location changer just moves the map pin. GeoSpoof goes further — it al
 
 Pick a city, type exact coordinates, or let GeoSpoof match your VPN automatically. Turn it off anytime and your real position returns untouched.
 
+**🆕 New in 2.3.0:** site groups, exact addresses and lists from a link, in both Filters and Per-site locations; Randomize location; and a redesigned Sites tab and Settings screen.
+
 **⭐ Why people choose GeoSpoof over a basic location changer**
 
 1. **Set a fake GPS location in one click** — any city or exact coordinates.
 2. **VPN Sync** — detect your VPN's exit region and match your location to it.
 3. **Auto background sync** — switch VPN servers and your location follows automatically.
-4. **Timezone too** — clock and date match your location, so nothing gives you away.
+4. **Timezone too** — clock and date match your location, so the two don't contradict each other.
 5. **Block WebRTC leaks** — keep your real IP hidden, even behind a VPN.
-6. **Worker-level timezone protection** — closes worker and cold-start leaks, with optional first-script coverage.
-7. **Anti-fingerprinting** — every signal stays consistent, so your location holds up.
-8. **Per-site control** — allowlist or denylist which sites get spoofed, or give a site its own location.
-9. **Save favorites** — pin up to 50 places, switch in a tap.
+6. **Worker-level timezone protection** — covers workers and page start-up, with optional Instant timezone protection from the page's first script.
+7. **Anti-fingerprinting** — every signal stays consistent and holds up to the checks real fingerprinting scripts run.
+8. **Per-site locations** — give a site its own location while every other site keeps your main location.
+9. **Filters** — choose All sites, an Allowlist or a Denylist to decide where GeoSpoof works.
 10. **No account, no tracking, no analytics** — everything stays on your device.
 
 **📍 Set your fake location any way you like**
@@ -179,7 +226,26 @@ Pick a city, type exact coordinates, or let GeoSpoof match your VPN automaticall
 - Search by city or address and land on the exact spot.
 - Enter precise latitude and longitude by hand for a clean GPS fix.
 - Tune accuracy, from realistic to a custom meter value.
-- Save the places you use most and reuse them instantly.
+- Save up to 50 favorite places and switch between them in a tap.
+- **Settings**, under the ⚙ gear, now puts what sites see first, with Advanced and General options below.
+
+**🎲 Randomize location**
+
+Sites can get a random point near the location you chose instead of the exact spot: within 0.5 km, 2 km or 10 km. Keep the same point, or pick a new one each browser session, every hour or every day.
+
+The point is always drawn around the location you chose in GeoSpoof, never around your real one, and your timezone keeps following the location you chose. One trade-off to know: a changing point is harder to recognize across visits, but a site that collects several points can average them.
+
+**🧭 Choose where it works, site by site**
+
+The redesigned **Sites** tab shows the site you're on and the location it sees, with one button to add it to your list or take it off.
+
+- **Filters** — under Filter mode, choose All sites, **Allowlist** (only the sites you list) or **Denylist** (every site except the ones you list).
+- **Per-site locations** — Twitch can see Mexico City and ChatGPT can see Dublin while every other site sees Tokyo. When several entries match, the most specific one wins.
+- **Site group** — one entry covers every domain a service uses, such as Google, Netflix or OpenAI, or a region such as China sites. About 1,500 groups come from the [v2fly domain list](https://github.com/v2fly/domain-list-community) that proxy tools call `geosite`, and GeoSpoof refreshes them about once a week.
+- **Exact address only** — match `mail.example.com` and none of its subdomains.
+- **List from a link** — paste an `https://` link to a domain list you already use for your proxy. GeoSpoof downloads it and refreshes it weekly.
+
+Site groups, exact addresses and lists from a link work in both Filters and Per-site locations.
 
 **🌍 Spoof geolocation with or without a VPN**
 
@@ -191,6 +257,8 @@ Run it solo, or pair it with your VPN so your IP, location, and timezone all tel
 
 - Everything runs on your device — GeoSpoof never sends your real location to a server.
 - No account, no tracking, no analytics. Settings live locally.
+- Your Filters and Per-site locations never leave your device. Site group updates download the whole catalog, so no request reveals which groups you picked.
+- A list from a link is downloaded straight from the site that hosts it, which sees your IP address, as with any download.
 - _Open source_ — review exactly what it does on [GitHub](https://github.com/GeoSpoof/geospoof).
 - Turn protection off and your genuine coordinates return untouched.
 
@@ -217,9 +285,15 @@ Run it solo, or pair it with your VPN so your IP, location, and timezone all tel
 
 📌 **Is my data safe?** Yes. GeoSpoof runs locally, collects nothing, and is open source. Nothing about your location leaves your device.
 
+📌 **Does a per-site location change my IP or my account's region?** No. It changes what that site's pages read from your browser: the location, the timezone, and the language if you set it to follow your location. Your IP and account details stay the same, so pair it with a VPN exit in the same place for the most consistent result.
+
+📌 **Can a site tell I'm using GeoSpoof?** It can't be ruled out. GeoSpoof defeats the checks real fingerprinting scripts run and keeps every signal consistent, but no extension can hide every trace: engine internals and timing side-channels stay out of reach. Check for yourself at [geospoof.com/test](https://geospoof.com/test).
+
 📌 **Do I need to sign up?** No account and no setup. Install and start changing your location right away.
 
 **📲 Now on iPhone, iPad & Mac too.**
+
+Per-site locations, site groups and Randomize location are free in Firefox. In Safari, Filters, Per-site locations and Randomize location are part of GeoSpoof Pro, and site groups, exact addresses and lists from a link aren't available yet.
 
 Install GeoSpoof, set a fake location, and decide exactly what the web sees about where you are.
 
