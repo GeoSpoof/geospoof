@@ -175,19 +175,21 @@ describe("the committed catalog (assets/site-groups/catalog.json)", () => {
   const raw = readFileSync(resolve(__dirname, "../../../assets/site-groups/catalog.json"), "utf8");
   const catalog = validateCatalog(JSON.parse(raw));
 
-  it("passes validateCatalog with the 20261104112839 release", () => {
+  it("passes validateCatalog with the 20261108011013 release", () => {
     expect(catalog).not.toBeNull();
-    expect(catalog!.release).toBe("20261104112839");
-    expect(catalog!.releasedAt).toBe("2026-11-04T11:28:50Z");
-    expect(catalog!.upstreamSha256).toBe(META.upstreamSha256);
+    expect(catalog!.release).toBe("20261108011013");
+    expect(catalog!.releasedAt).toBe("2026-11-08T01:10:25Z");
+    expect(catalog!.upstreamSha256).toBe(
+      "186e7764e0e0061814cfcd9156e9b70cc977eda75d1614625c8cfe102cb580f5"
+    );
     expect(catalog!.license).toBe("MIT");
   });
 
-  it("holds 1,555 lists, 113,175 rules and 375 skipped", () => {
+  it("holds 1,555 lists, 113,478 rules and 375 skipped", () => {
     const lists = Object.values(catalog!.lists);
     expect(lists).toHaveLength(1555);
     expect(lists.reduce((n, l) => n + (l.rules === "" ? 0 : l.rules.split("\n").length), 0)).toBe(
-      113_175
+      113_478
     );
     expect(lists.reduce((n, l) => n + l.skipped.length, 0)).toBe(375);
   });

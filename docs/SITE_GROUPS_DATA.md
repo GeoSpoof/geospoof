@@ -15,9 +15,9 @@ attribution. Each upstream release has a
 `dlc.dat_plain.yml` asset (every list with its `include:` rules already
 resolved) and a matching `.sha256sum` asset.
 
-The bundled copy is release `20261104112839` (published 2026-11-04T11:28:50Z,
-upstream sha256 `cd21da98…6c78cb`): 1,555 lists, 113,175 rule lines, 375 skipped
-rules, 1,921,467 bytes (about 540 KB gzipped).
+The bundled copy is release `20261108011013` (published 2026-11-08T01:10:25Z,
+upstream sha256 `186e7764…cb580f5`): 1,555 lists, 113,478 rule lines, 375 skipped
+rules, 1,927,425 bytes (about 540 KB gzipped).
 
 ## Catalog Format
 
