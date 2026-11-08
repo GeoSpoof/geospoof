@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { buildEntryMeta, buildSiteRow } from "@/popup/site-row";
+import { buildEntryMeta, buildSiteRow, siteRowNeedsStack } from "@/popup/site-row";
 
 describe("buildSiteRow", () => {
   test("the site breaks between labels: a <wbr> after each dot", () => {
@@ -143,5 +143,26 @@ describe("buildEntryMeta", () => {
     expect(buildEntryMeta("Site group · 964 sites", false, "entry-chip-meta").outerHTML).toBe(
       '<span class="entry-chip-meta">Site group · 964 sites</span>'
     );
+  });
+});
+
+describe("the stacked layout rule", () => {
+  test("stacks when the value leaves the site's line or either wraps", () => {
+    expect(siteRowNeedsStack({ top: 150, height: 20 }, { top: 150, height: 20 })).toBe(false);
+    // The value went to its own line: the reported bug.
+    expect(siteRowNeedsStack({ top: 150, height: 20 }, { top: 172, height: 20 })).toBe(true);
+    // A long site or a long place wraps.
+    expect(siteRowNeedsStack({ top: 150, height: 60 }, { top: 150, height: 20 })).toBe(true);
+    expect(siteRowNeedsStack({ top: 150, height: 20 }, { top: 150, height: 40 })).toBe(true);
+  });
+
+  test("every row has a body, and jsdom (no layout) keeps the side-by-side layout", () => {
+    const { row } = buildSiteRow({
+      host: "webbrowsertools.com",
+      value: "Tokyo, Japan",
+      idPrefix: "x",
+    });
+    expect(row.firstElementChild?.className).toBe("site-row-body");
+    expect(row.classList.contains("stacked")).toBe(false);
   });
 });

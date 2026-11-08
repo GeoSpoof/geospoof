@@ -39,7 +39,7 @@ import {
   wireButtonRow,
   wireFiltersNavOnce,
 } from "./filters-nav";
-import { buildEntryMeta, buildMonogram } from "./site-row";
+import { buildEntryMeta, buildMonogram, fitSiteRow, refitSiteRow } from "./site-row";
 import {
   describeEntry,
   formatCatalogDate,
@@ -352,6 +352,7 @@ function renderFiltersRow(listKey: ListKey | null, entries: readonly string[]): 
     value.classList.add("count");
     value.textContent = all;
     if (desc) desc.textContent = all;
+    refitRootRow("scopeListRow");
     return;
   }
   const name = listName(listKey);
@@ -375,6 +376,18 @@ function renderFiltersRow(listKey: ListKey | null, entries: readonly string[]): 
     value.textContent = `${name} · ${count}`;
   }
   if (desc) desc.textContent = statusAnnouncement(name, words);
+  refitRootRow("scopeListRow");
+}
+
+/** The root's static rows follow the site row's layout rule too. */
+function refitRootRow(id: string): void {
+  const row = el(id);
+  if (!row) return;
+  if (row.dataset.fitted !== "1") {
+    row.dataset.fitted = "1";
+    fitSiteRow(row);
+  }
+  refitSiteRow(row);
 }
 
 /** The root's Filters row opens the Filters screen; leaving it, focus returns to the row. */

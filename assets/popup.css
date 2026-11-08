@@ -2594,6 +2594,49 @@ h2.section-heading {
   flex: 1;
   min-width: 0;
 }
+
+/* Stacked (refitSiteRow, when the site and the value don't share a line):
+   the site on line 1; the value, then "· source" on line 2, or the source on
+   line 3 when it doesn't fit; the › centred at the right. 16 px of the body
+   keep the text clear of the ›; the row's padding is unchanged. */
+.site-row.stacked {
+  position: relative;
+}
+.site-row.stacked .site-row-body {
+  padding-right: 16px;
+}
+.site-row.stacked .site-row-line {
+  display: contents;
+}
+.site-row.stacked .site-row-host {
+  display: block;
+}
+.site-row.stacked .site-row-trail {
+  display: inline;
+  margin-left: 0;
+  text-align: left;
+}
+.site-row.stacked .site-row-chev {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0;
+}
+.site-row.stacked .site-row-sub {
+  display: inline-block;
+  margin-top: 0;
+}
+.site-row.stacked .site-row-sub::before {
+  content: "· ";
+}
+.site-row.stacked.sub-below .site-row-sub {
+  display: block;
+  margin-top: 2px;
+}
+.site-row.stacked.sub-below .site-row-sub::before {
+  content: none;
+}
 /* The 22 px badge would make a one-line 44 px row 46; it overhangs its 20 px
    line by 1 px each way instead. */
 .site-row.with-badge > .scope-site-icon {

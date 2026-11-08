@@ -84,7 +84,7 @@ import {
   __resetReloadHintForTest,
   type ReloadHintHost,
 } from "./reload-hint";
-import { buildEntryMeta, buildSiteRow } from "./site-row";
+import { buildEntryMeta, buildSiteRow, fitSiteRow, refitSiteRow } from "./site-row";
 import { isRestrictedUrl, loadSettings } from "./settings";
 import { t } from "./i18n";
 import {
@@ -580,6 +580,13 @@ function renderRootRow(count: number, proLocked: boolean): void {
   }
   const chev = el("siteLocationsRowChev");
   if (chev) chev.textContent = proLocked ? "🔒" : "›";
+  if (row) {
+    if (row.dataset.fitted !== "1") {
+      row.dataset.fitted = "1";
+      fitSiteRow(row);
+    }
+    refitSiteRow(row);
+  }
 }
 
 /** The mark check reads the active list only (siteLocationFiltersMark). */

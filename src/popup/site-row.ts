@@ -86,15 +86,15 @@ export function buildSiteRow(opts: SiteRowOptions): SiteRow {
     trail.appendChild(chev);
   }
   line.append(host, trail);
-  // With a badge, the text sits in a body beside it, so the badge never shrinks.
-  let body: HTMLElement = row;
+  // The text sits in a body (beside the badge, when there is one, so the
+  // badge never shrinks); the stacked layout rearranges what's inside it.
   if (opts.badge) {
     row.classList.add("with-badge");
     row.appendChild(buildMonogram(opts.badge));
-    body = document.createElement("div");
-    body.className = "site-row-body";
-    row.appendChild(body);
   }
+  const body = document.createElement("div");
+  body.className = "site-row-body";
+  row.appendChild(body);
   body.appendChild(line);
 
   if (opts.sub) {
@@ -110,6 +110,8 @@ export function buildSiteRow(opts: SiteRowOptions): SiteRow {
     body.appendChild(sub);
   }
 
+  fitSiteRow(row);
+
   let description: HTMLElement | null = null;
   if (opens) {
     row.setAttribute("role", "button");
@@ -124,6 +126,72 @@ export function buildSiteRow(opts: SiteRowOptions): SiteRow {
     if (opts.onActivate) wireButtonRow(row, opts.onActivate);
   }
   return { row, description };
+}
+
+/** One line of the row's text is 20 px; anything taller has wrapped. */
+const ONE_LINE_MAX = 22;
+
+interface Box {
+  top: number;
+  height: number;
+}
+
+/**
+ * Whether a row needs the stacked layout, from its side-by-side boxes: the
+ * value went to its own line (its top isn't the site's), or the site or the
+ * value wrapped. Measured, never guessed from the text's length.
+ */
+export function siteRowNeedsStack(host: Box, trail: Box): boolean {
+  return (
+    Math.abs(trail.top - host.top) > 1 || host.height > ONE_LINE_MAX || trail.height > ONE_LINE_MAX
+  );
+}
+
+/**
+ * Lay a site row out, by measuring: side by side ("twitch.tv   Off") when the
+ * site and the value share a line, or stacked when they don't: the site on
+ * line 1, then the value and, when it fits, "· source" on line 2 (otherwise
+ * the source on line 3), with the › centred at the right of the row.
+ */
+export function refitSiteRow(row: HTMLElement): void {
+  const host = row.querySelector<HTMLElement>(".site-row-host");
+  const trail = row.querySelector<HTMLElement>(".site-row-trail");
+  if (!host || !trail || row.getClientRects().length === 0) return;
+  row.classList.remove("stacked", "sub-below");
+  const h = host.getBoundingClientRect();
+  const t = trail.getBoundingClientRect();
+  if (!siteRowNeedsStack(h, t)) return;
+  row.classList.add("stacked");
+  const value = row.querySelector<HTMLElement>(".site-row-value");
+  const sub = row.querySelector<HTMLElement>(".site-row-sub");
+  if (!value || !sub) return;
+  // The source goes on line 3 when it doesn't fit after the value.
+  const v = value.getClientRects();
+  const lastValueTop = v.length > 0 ? v[v.length - 1].top : value.getBoundingClientRect().top;
+  if (sub.getBoundingClientRect().top - lastValueTop > 1) row.classList.add("sub-below");
+}
+
+const fitted = new WeakMap<HTMLElement, number>();
+let observer: ResizeObserver | null = null;
+
+/**
+ * Keep `row` laid out as its width changes, including when it first becomes
+ * visible. Content changes call refitSiteRow. A no-op without ResizeObserver
+ * (jsdom), where the side-by-side layout stays.
+ */
+export function fitSiteRow(row: HTMLElement): void {
+  if (typeof ResizeObserver === "undefined") return;
+  observer ??= new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const el = entry.target as HTMLElement;
+      const width = Math.round(entry.contentRect.width);
+      // Only a new width can change the fit; the layout's own height change can't.
+      if (width === 0 || fitted.get(el) === width) continue;
+      fitted.set(el, width);
+      refitSiteRow(el);
+    }
+  });
+  observer.observe(row);
 }
 
 /**
