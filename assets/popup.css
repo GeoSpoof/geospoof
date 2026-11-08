@@ -441,8 +441,20 @@ input {
   border-radius: 0;
   margin-bottom: 0;
 }
+/* An inset separator, as in iOS grouped lists: it starts at the label's
+   leading edge (the row's 12px padding) and runs to the card's trailing edge. */
 .toggle-group > * + * {
-  border-top: 1px solid var(--border-subtle);
+  position: relative;
+}
+.toggle-group > * + *::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
 }
 
 .toggle-label {
@@ -2653,8 +2665,20 @@ h3.section-heading {
 .site-card.site-row-group {
   margin-bottom: 0;
 }
+/* An inset separator, as in iOS grouped lists: it starts at the text's
+   leading edge (the row's 12px padding) and runs to the card's trailing edge. */
 .site-row-group > :not([hidden]) ~ :not([hidden]) {
-  border-top: 1px solid var(--border-subtle);
+  position: relative;
+}
+.site-row-group > :not([hidden]) ~ :not([hidden])::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
 }
 /* The site row (direction.md 4.2): the site at the left, the value and its ›
    at the right of the same line, the source or a mark under the site. 44 px
