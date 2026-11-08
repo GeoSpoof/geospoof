@@ -5,7 +5,7 @@
  * `loadPopupSiteGroups` asks the background (GET_SITE_GROUPS) for every stored
  * token's summary and framed strings. It asks only where site groups are
  * available and the settings reference a token, so a popup with no tokens
- * sends nothing extra. The reply drives the rows ("Google", "964 sites"), the
+ * sends nothing extra. The reply drives the rows ("Google", "Site group · 964 sites"), the
  * status line, and `popupSiteGroupLookup()`, which the popup's resolver calls
  * pass so they agree with the background.
  *
@@ -381,6 +381,11 @@ function skippedText(n: number): string {
   return t("siteGroups_skipped", [count]) || `${count} rules skipped`;
 }
 
+/** A site group's meta line: "Site group · 964 sites" (H-5). */
+function groupMetaText(count: number): string {
+  return `${t("filters_typeGroup") || "Site group"} · ${siteCountText(count)}`;
+}
+
 /** A picker option: "Google · 964 sites". */
 export function siteGroupOptionText(item: SiteGroupIndexItem): string {
   return `${item.label} · ${siteCountText(item.count)}`;
@@ -390,7 +395,7 @@ export function siteGroupOptionText(item: SiteGroupIndexItem): string {
 export interface EntryDisplay {
   /** The main text: the pattern, the address, the group's label, or the list's name. */
   title: string;
-  /** A muted second line ("964 sites"), or null for typed patterns. */
+  /** A muted second line ("Site group · 964 sites"), or null for typed patterns. */
   meta: string | null;
   /** Full text for the tooltip (the token, or the list's URL). */
   tooltip: string;
@@ -422,7 +427,8 @@ function hostnameOf(url: string): string {
  *   - typed: the pattern as stored, no meta;
  *   - exact: the address without `=`, meta "Exact address only";
  *   - group: the featured label or the name, plus " @attr" per attr, meta
- *     "964 sites" (no skipped count: built-in skips aren't actionable);
+ *     "Site group · 964 sites" (no skipped count: built-in skips aren't
+ *     actionable);
  *   - link: the list's derived name, meta "110,197 sites · from host" (plus
  *     skipped), or "Couldn't update this list" when its last refresh failed;
  *     the tooltip is the URL.
@@ -455,7 +461,7 @@ export function describeEntry(
     if (summary === undefined && unsaved) {
       // The index counts the whole list, so it's exact only without tags.
       const count = entry.attrs.length === 0 ? catalogIndexCount(entry.name) : null;
-      const meta = count === null ? null : siteCountText(count);
+      const meta = count === null ? null : groupMetaText(count);
       return { title, meta, tooltip: canonical, warning: false, kind: "group" };
     }
     if (summary === undefined) return unavailable(title, canonical, "group");
@@ -464,7 +470,7 @@ export function describeEntry(
     // from a link keeps its count, because the user picked that source.
     return {
       title,
-      meta: siteCountText(summary.count),
+      meta: groupMetaText(summary.count),
       tooltip: canonical,
       warning: false,
       kind: "group",

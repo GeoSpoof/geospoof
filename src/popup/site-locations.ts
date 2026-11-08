@@ -2,20 +2,25 @@
  * Popup Per-site locations
  *
  * Per-site locations are optional, so they stay out of the way until used.
- * Three surfaces onto `settings.siteLocations`:
+ * Surfaces onto `settings.siteLocations`:
  *   - the Main tab's one-line note (`#siteLocationLine`), rendered only when a
  *     site location applies to the active tab: "On twitch.tv: Mexico City",
  *     with Edit, and Use main location when a main location is set and
  *     removing this site's own rule leaves it there. Nothing renders anywhere
  *     else;
- *   - the Filters tab's collapsed "Per-site locations" disclosure at the
- *     bottom: every entry, with edit and remove (optimistic, reverted on failure
- *     like the scope list), and the one editor;
+ *   - the Filters root's "Per-site locations" row ("2 locations ›"), in a
+ *     group of its own, locked under the Safari Pro lock;
+ *   - the Per-site locations screen: one site row per entry, with the Filters
+ *     mark ("⚠ Not used · Off in Filters") when Filters keep it from being
+ *     used, and "＋ Set a location for <site>";
+ *   - the editor on its own screen, which returns to where it was opened from
+ *     (the Filters root, the Per-site locations screen or the Main tab), and
+ *     holds Remove;
  *   - the Details tab's readout, shown only when a site location applies.
  *
  * Hints are in context only: the Filters-conflict and VPN hints show inside the
  * editor (and the VPN hint under the Main line), and the reload hint only right
- * after a change made from this popup.
+ * after a change made from this popup, on the screen that change returns to.
  *
  * Filters and site locations are separate axes: Filters decide WHETHER
  * GeoSpoof is on for a site, a site location decides WHICH location it reports
@@ -30,8 +35,6 @@ import type {
   GeocodeResult,
   RemoveSiteLocationPayload,
   SaveSiteLocationPayload,
-  ScopeResponse,
-  ScopeSitePayload,
   SiteLocationResponse,
 } from "@/shared/types/messages";
 import { isSiteGroupToken } from "@/shared/site-groups/tokens";
@@ -42,24 +45,62 @@ import {
   resolveSiteSettings,
   siteLocationDisplayName,
   siteLocationEntryKey,
+  siteLocationFiltersMark,
   siteLocationPatternKey,
   suggestSiteLocationPattern,
+  type FilterListArgs,
 } from "@/shared/utils/site-locations";
+import { isOwnExtensionPage } from "./active-tab";
+import { siteGroupsAvailable } from "@/shared/site-groups/availability";
+import { announce, __resetAnnounceForTest } from "./announce";
+import { clearCardUndo, getCardUndo } from "./card-undo";
 import {
   createEntryAddControl,
   type EntryAddControl,
   type EntrySubmitResult,
 } from "./entry-add-control";
+import { saveFiltersDraft, type EditorDraft } from "./drafts";
 import { getChipDisplayText } from "./favorites";
-import { buildEntryMeta, buildMonogram } from "./scope";
+import {
+  filtersActionAriaLabel,
+  filtersActionLabel,
+  sendFiltersAction,
+  type FiltersAction,
+} from "./filters-action";
+import {
+  backFromFiltersScreen,
+  getFiltersScreen,
+  isFocusable,
+  openFiltersScreen,
+  setFiltersScreenBackHandler,
+  setFiltersScreenFallback,
+  wireButtonRow,
+  wireFiltersNavOnce,
+  type EditorOrigin,
+} from "./filters-nav";
+import {
+  getReloadHintHost,
+  setReloadHintHost,
+  __resetReloadHintForTest,
+  type ReloadHintHost,
+} from "./reload-hint";
+import { buildEntryMeta, buildSiteRow, fitSiteRow, refitSiteRow } from "./site-row";
 import { isRestrictedUrl, loadSettings } from "./settings";
 import { t } from "./i18n";
 import {
   describeEntry,
+  formatCount,
   isSiteGroupErrorCode,
   popupSiteGroupLookup,
   siteGroupErrorText,
 } from "./site-groups";
+import {
+  computeThisSiteCard,
+  listActionOf,
+  ownSiteLocationExists,
+  siteLocationMarkText,
+  type SiteLocationMarkText,
+} from "./this-site";
 import { clearChildren } from "./ui";
 
 /** Debounce (ms) for the editor's location search, matching the main search. */
@@ -95,15 +136,20 @@ interface EditorState {
   ownerId: string | null;
   /** Where focus returns when the editor closes. */
   opener: HTMLElement | null;
-  /** Filters keep GeoSpoof off on this tab for a site in the Sites field. */
-  conflict: { mode: "allowlist" | "denylist"; pattern: string } | null;
+  /** The screen the editor returns to, which its back row names. */
+  origin: EditorOrigin;
+  /**
+   * The Filters hint's button: the This site card's list change, offered
+   * while Filters keep GeoSpoof off on this tab for a site in the Sites field.
+   */
+  filtersAction: FiltersAction | null;
 }
 
 /** The last rendered inputs; the static controls' listeners read them. */
 let current: { settings: Settings; tabUrl: string | undefined; proLocked: boolean } | null = null;
 let lineState: SiteLocationLineState = { kind: "none" };
 let editor: EditorState | null = null;
-/** The editor's add control (type menu, Sites input, Add). */
+/** The editor's add control (the Sites input with suggestions, Add). */
 let editorControl: EntryAddControl | null = null;
 /**
  * A SAVE_SITE_LOCATION is in flight. Its payload is already built and the
@@ -111,21 +157,18 @@ let editorControl: EntryAddControl | null = null;
  */
 let saving = false;
 /**
- * The entry that save edits (null for a new one). Its row ✕ and "Use main
- * location" wait for the save too, so this popup can't remove what it's saving.
+ * The entry that save edits (null for a new one). "Use main location" waits
+ * for the save too, so this popup can't remove what it's saving.
  */
 let savingEntryId: string | null = null;
-/**
- * Where the reload hint shows after a change made from this popup (open pages
- * keep old values until reloaded): under the Main line after "Use main
- * location", or in the Filters disclosure after any change made there.
- */
-let reloadHintHost: "line" | "filters" | null = null;
-/** The disclosure's open state is set once per popup session, then left to the user. */
-let disclosureInitialized = false;
+/** The editor's Remove is in flight. */
+let removing = false;
+/** The site "＋ Set a location for <site>" fills in, or null for the generic button. */
+let addPrefill: string | null = null;
+/** Where the editor that's closing returns to, for its focus fallback. */
+let closingOrigin: EditorOrigin = "root";
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 let searchSeq = 0;
-let announceTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -190,19 +233,16 @@ export function parsePatternsField(raw: string): {
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 /**
- * Called from loadSettings() right after renderScope(). Reads the active tab's
- * top-level URL (as Filters' "Add current site" does) and renders all three
- * surfaces. Resolves true when a site location applies to the active tab, so
- * loadSettings can keep the no-main-location warning off that tab only.
+ * Called from loadSettings() right after renderScope(), with the active tab's
+ * top-level URL loadSettings read. Renders every surface. Returns true when a
+ * site location applies to the active tab, so loadSettings can keep the
+ * no-main-location warning off that tab only.
  */
-export async function renderSiteLocations(settings: Settings, proLocked = false): Promise<boolean> {
-  let tabUrl: string | undefined;
-  try {
-    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
-    tabUrl = tabs[0]?.url;
-  } catch (error: unknown) {
-    console.error("Failed to read the current tab:", error);
-  }
+export function renderSiteLocations(
+  settings: Settings,
+  proLocked = false,
+  tabUrl?: string
+): boolean {
   const applies = renderSiteLocationLine(settings, tabUrl, proLocked);
   renderSiteLocationsSection(settings, tabUrl, proLocked);
   renderSiteLocationDetails(settings, tabUrl, proLocked);
@@ -316,7 +356,7 @@ export function renderSiteLocationLine(
   lineState = computeSiteLocationLineState(settings, tabUrl, proLocked);
   const applied = lineState.kind === "applied";
   setHidden("siteLocationLineError", true);
-  setHidden("siteLocationLine", !applied && reloadHintHost !== "line");
+  setHidden("siteLocationLine", !applied && getReloadHintHost() !== "line");
   setHidden("siteLocationLineMain", !applied);
   setHidden("siteLocationLineUseMain", !(lineState.kind === "applied" && lineState.canUseMain));
 
@@ -339,7 +379,7 @@ export function renderSiteLocationLine(
 
   // VPN sync moves only the IP-derived main location; say so where one applies.
   setHidden("siteLocationLineVpnHint", !(applied && settings.vpnSyncEnabled === true));
-  setHidden("siteLocationLineReloadHint", reloadHintHost !== "line");
+  setHidden("siteLocationLineReloadHint", getReloadHintHost() !== "line");
   syncSavingEntryLocks();
   return applied;
 }
@@ -366,27 +406,14 @@ function wireLineOnce(): void {
 
 /**
  * "Edit" on the Main line: switch to the Filters tab (through its own tab
- * button, so index.ts stays the one place that switches views), expand the
- * disclosure, and open the applied entry in the editor.
+ * button, so index.ts stays the one place that switches views) and open the
+ * applied entry in the editor, whose back row reads "‹ Main".
  */
 function openEditorFromLine(): void {
   if (lineState.kind !== "applied" || current?.proLocked) return;
   const { entry } = lineState;
   el("filtersTab")?.click();
-  const disclosure = el<HTMLDetailsElement>("siteLocationsDisclosure");
-  if (disclosure) disclosure.open = true;
-
-  let opener: HTMLElement | null = null;
-  const listEl = el("siteLocationsList");
-  if (listEl) {
-    for (const row of Array.from(listEl.children)) {
-      if ((row as HTMLElement).dataset.siteLocationId === entry.id) {
-        opener = row.querySelector<HTMLElement>(".site-location-edit");
-        break;
-      }
-    }
-  }
-  openEditor({ entry, opener: opener ?? el("siteLocationsAddButton") });
+  openEditor({ entry, opener: el("siteLocationLineEdit"), origin: "main" });
 }
 
 /**
@@ -406,7 +433,8 @@ async function handleUseMain(): Promise<void> {
     })) as SiteLocationResponse;
     if (result && "success" in result && result.success) {
       if (editor?.entry?.id === entry.id) closeEditor(false);
-      reloadHintHost = "line";
+      clearCardUndo();
+      setReloadHintHost("line");
       await loadSettings();
       // The re-render hid this button along with the rest of the line.
       focusReloadHint("siteLocationLineReloadHint");
@@ -429,24 +457,48 @@ function focusReloadHint(id: string): void {
   if (isFocusable(hint)) hint.focus();
 }
 
-/** Long enough for screen readers to register the cleared region first. */
-const ANNOUNCE_DELAY_MS = 100;
+/** The reload hint a change returns to: on the screen the editor goes back to. */
+function hostForOrigin(origin: EditorOrigin): ReloadHintHost {
+  return origin === "perSite" ? "perSite" : origin === "main" ? "line" : "card";
+}
+
+/** The element of each reload hint host. */
+function reloadHintIdFor(origin: EditorOrigin): string {
+  return origin === "perSite"
+    ? "siteLocationsReloadHint"
+    : origin === "main"
+      ? "siteLocationLineReloadHint"
+      : "thisSiteReloadHint";
+}
+
+/** Show the reload hint where the last change from this popup put it, and nowhere else. */
+function syncReloadHints(): void {
+  const host = getReloadHintHost();
+  setHidden("siteLocationsReloadHint", host !== "perSite");
+  setHidden("siteLocationEditorReloadHint", host !== "editor");
+  setHidden("siteLocationLineReloadHint", host !== "line");
+  setHidden("siteLocationLine", lineState.kind !== "applied" && host !== "line");
+  // The This site card's hint, for an editor opened from the card that closes
+  // without a re-render. Its action area isn't rendered when it would be
+  // empty (this-site-card.ts applies the same rule).
+  setHidden("thisSiteReloadHint", host !== "card");
+  const cardActions = el("thisSiteActions");
+  if (cardActions) {
+    cardActions.hidden = Array.from(cardActions.children).every(
+      (child) => (child as HTMLElement).hidden
+    );
+  }
+}
 
 /**
- * Speak a confirmation through #siteLocationAnnouncer, the popup's one polite
- * live region for these changes. It sits outside every view, so it works from
- * either tab and with the disclosure closed. The region is cleared first and
- * the text set a moment later, so the same message repeated is spoken again; a
- * newer message replaces one still pending.
+ * Where focus goes on the Filters root when the card's opener is gone: the
+ * card's row when it opens something, else its reload hint.
  */
-function announce(text: string): void {
-  const region = el("siteLocationAnnouncer");
-  if (!region) return;
-  clearTimeout(announceTimer);
-  region.textContent = "";
-  announceTimer = setTimeout(() => {
-    region.textContent = text;
-  }, ANNOUNCE_DELAY_MS);
+function cardFocusTarget(): HTMLElement | null {
+  const row = el("thisSiteRow")?.querySelector<HTMLElement>(".site-row[role='button']") ?? null;
+  if (isFocusable(row)) return row;
+  const hint = el("thisSiteReloadHint");
+  return isFocusable(hint) ? hint : null;
 }
 
 /** The confirmation after a change: the same words as the visible reload hint. */
@@ -454,116 +506,199 @@ function announceReloadHint(): void {
   announce(t("siteLocation_reloadHint") || "Reload affected pages to apply the change.");
 }
 
-// ── Filters tab: the "Per-site locations" disclosure ────────────────────────
+// ── Filters: the root's row and the Per-site locations screen ───────────────
 
-/** Render the Filters-tab disclosure and its list of site locations. */
+/**
+ * Render the Filters root's "Per-site locations" row and the Per-site
+ * locations screen: one site row per entry, and "＋ Set a location for <site>".
+ */
 export function renderSiteLocationsSection(
   settings: Settings,
   tabUrl: string | undefined,
   proLocked: boolean
 ): void {
   current = { settings, tabUrl, proLocked };
+  wireFiltersNavOnce();
   wireSectionOnce();
   wireEditorOnce();
 
-  // A locked user can't edit; close an editor left open by an earlier render.
+  // A locked user can't edit; close an editor left open by an earlier render,
+  // and leave the screen that no longer applies.
   if (proLocked && editor !== null) closeEditor(false);
+  if (proLocked && getFiltersScreen() === "perSite") {
+    backFromFiltersScreen({ restoreFocus: false });
+  }
+
+  const entries = storedList(settings);
+  renderRootRow(entries.length, proLocked);
 
   const listEl = el("siteLocationsList");
   if (!listEl) return;
-
-  const entries = storedList(settings);
-
-  // Collapsed unless there's something in it. Only on the first render, so
-  // the re-render after each action doesn't undo the user's own toggle.
-  const disclosure = el<HTMLDetailsElement>("siteLocationsDisclosure");
-  if (disclosure && !disclosureInitialized) {
-    disclosure.open = !proLocked && entries.length > 0;
-    disclosureInitialized = true;
-  }
-
   clearChildren(listEl);
-  for (const entry of entries) {
-    listEl.appendChild(buildSiteLocationRow(entry, proLocked));
-  }
+  const args = filterArgs(settings);
+  entries.forEach((entry, index) => {
+    listEl.appendChild(buildSiteLocationRow(entry, index, args));
+  });
   syncSavingEntryLocks();
-  updateSectionCountFromDom();
 
   setHidden("siteLocationsError", true);
-  setHidden("siteLocationsProNote", !proLocked);
-  const addBtn = el<HTMLButtonElement>("siteLocationsAddButton");
-  if (addBtn) addBtn.disabled = proLocked;
-  setHidden("siteLocationsAddRow", editor !== null);
-  setHidden("siteLocationsReloadHint", reloadHintHost !== "filters");
-  if (editor !== null) updateEditorHints();
-}
-
-/** The count chip shows only when there's something to count. */
-function updateSectionCountFromDom(): void {
-  const listEl = el("siteLocationsList");
-  const count = listEl ? listEl.children.length : 0;
-  const countEl = el("siteLocationsCount");
-  if (countEl) {
-    countEl.textContent = String(count);
-    countEl.hidden = count === 0;
+  renderAddButton(entries, tabUrl, proLocked);
+  syncReloadHints();
+  if (editor !== null) {
+    renderEditorChrome();
+    updateEditorHints();
   }
 }
 
-function buildSiteLocationRow(entry: SiteLocation, proLocked: boolean): HTMLElement {
-  const name = siteLocationDisplayName(entry);
+/**
+ * "Per-site locations   2 ›" on the root, described as "2 locations".
+ * Locked, it stays a Tab stop, also described by the Pro note, but it's
+ * inert and shows 🔒 (H-8).
+ */
+function renderRootRow(count: number, proLocked: boolean): void {
+  const n = formatCount(count);
+  const value = el("siteLocationsRowValue");
+  if (value) value.textContent = n;
+  const desc = el("siteLocationsRowDesc");
+  if (desc) {
+    desc.textContent =
+      count === 0
+        ? t("siteLocation_noLocations") || "None"
+        : count === 1
+          ? t("siteLocation_countLocationsOne") || "1 location"
+          : t("siteLocation_countLocations", [n]) || `${n} locations`;
+  }
+  const row = el("siteLocationsRow");
+  if (row) {
+    if (proLocked) {
+      row.setAttribute("aria-disabled", "true");
+      row.setAttribute("aria-describedby", "siteLocationsRowDesc scopeProNote");
+    } else {
+      row.removeAttribute("aria-disabled");
+      row.setAttribute("aria-describedby", "siteLocationsRowDesc");
+    }
+  }
+  const chev = el("siteLocationsRowChev");
+  if (chev) chev.textContent = proLocked ? "🔒" : "›";
+  if (row) {
+    if (row.dataset.fitted !== "1") {
+      row.dataset.fitted = "1";
+      fitSiteRow(row);
+    }
+    refitSiteRow(row);
+  }
+}
+
+/** The mark check reads the active list only (siteLocationFiltersMark). */
+function filterArgs(settings: Settings): FilterListArgs {
+  return {
+    scopeMode: settings.scopeMode ?? "all",
+    allowlist: settings.allowlist ?? [],
+    denylist: settings.denylist ?? [],
+    siteGroups: popupSiteGroupLookup(),
+    proFeaturesBlocked: settings.proFeaturesBlocked,
+  };
+}
+
+/**
+ * Up to two sites by name; more reads "a.com, b.com and 3 more", so a mark
+ * stays one line.
+ */
+function formatHostList(hosts: readonly string[]): string {
+  if (hosts.length <= 2) return hosts.join(", ");
+  const first = hosts.slice(0, 2).join(", ");
+  const more = formatCount(hosts.length - 2);
+  return t("siteLocation_sitesAndMore", [first, more]) || `${first} and ${more} more`;
+}
+
+/**
+ * The mark under an entry's sites (M2, M13): the plain wording only when the
+ * entry has one site; otherwise it names the sites it's about.
+ */
+function markText(mark: SiteLocationMarkText): string | null {
+  if (mark === null) return null;
+  switch (mark.key) {
+    case "siteLocation_notUsed":
+      return t("siteLocation_notUsed") || "Not used · Off in Sites";
+    case "siteLocation_notUsedOn": {
+      const sites = formatHostList(mark.hosts);
+      return t("siteLocation_notUsedOn", [sites]) || `Not used on ${sites} · Off in Sites`;
+    }
+    case "siteLocation_somePages":
+      return t("siteLocation_somePages") || "Used on some pages only";
+    case "siteLocation_somePagesOn": {
+      const sites = formatHostList(mark.hosts);
+      return t("siteLocation_somePagesOn", [sites]) || `Used on some pages of ${sites} only`;
+    }
+  }
+}
+
+/** One entry as a site row: its sites, its place and ›, and any Filters mark. Opens the editor. */
+function buildSiteLocationRow(
+  entry: SiteLocation,
+  index: number,
+  args: FilterListArgs
+): HTMLElement {
+  const item = document.createElement("div");
+  item.setAttribute("role", "listitem");
+  item.dataset.siteLocationId = entry.id;
+
   const titles = entry.patterns.map((pattern) => describeEntry(pattern).title);
   const sites = titles.join(", ");
-
-  const row = document.createElement("div");
-  row.className = "scope-site-row";
-  row.setAttribute("role", "listitem");
-  row.dataset.siteLocationId = entry.id;
-
-  // Local monogram from the first site; never a favicon fetch.
-  row.appendChild(buildMonogram(titles[0] ?? name));
-
-  const text = document.createElement("span");
-  text.className = "site-location-text";
-  const nameEl = document.createElement("span");
-  nameEl.className = "site-location-name";
-  nameEl.textContent = name;
-  nameEl.title = name;
-  const sitesEl = document.createElement("span");
-  sitesEl.className = "site-location-patterns";
-  sitesEl.textContent = sites;
-  sitesEl.title = sites;
-  text.append(nameEl, sitesEl);
-  row.appendChild(text);
-
-  const editBtn = document.createElement("button");
-  editBtn.type = "button";
-  editBtn.className = "site-location-edit";
-  editBtn.textContent = t("siteLocation_edit") || "Edit";
-  editBtn.setAttribute(
-    "aria-label",
-    `${t("siteLocation_editAriaLabel") || "Edit location"} ${name}`
-  );
-  editBtn.disabled = proLocked;
-  editBtn.addEventListener("click", () => {
-    openEditor({ entry, opener: editBtn });
+  const mark = markText(siteLocationMarkText(siteLocationFiltersMark(entry.patterns, args)));
+  const { row, description } = buildSiteRow({
+    host: sites,
+    value: siteLocationDisplayName(entry),
+    sub: mark,
+    warn: mark !== null,
+    opens: true,
+    description: t("siteLocation_changeAria", [sites]) || `Change the location for ${sites}`,
+    idPrefix: `sl-${index}`,
+    // Local monogram from the first site; never a favicon fetch.
+    badge: titles[0] ?? siteLocationDisplayName(entry),
+    onActivate: () => {
+      openEditor({ entry, opener: row, origin: "perSite" });
+    },
   });
-  row.appendChild(editBtn);
+  item.appendChild(row);
+  if (description) item.appendChild(description);
+  return item;
+}
 
-  const removeBtn = document.createElement("button");
-  removeBtn.type = "button";
-  removeBtn.className = "scope-site-remove";
-  removeBtn.textContent = "✕";
-  removeBtn.setAttribute(
-    "aria-label",
-    `${t("siteLocation_removeAriaLabel") || "Remove location"} ${name}`
-  );
-  removeBtn.disabled = proLocked;
-  removeBtn.addEventListener("click", () => {
-    void handleRemoveEntry(entry, row);
-  });
-  row.appendChild(removeBtn);
+/** The site row of the entry with this id on the Per-site locations screen. */
+function siteRowFor(id: string): HTMLElement | null {
+  for (const item of Array.from(el("siteLocationsList")?.children ?? [])) {
+    if ((item as HTMLElement).dataset.siteLocationId === id) {
+      return item.querySelector<HTMLElement>(".site-row");
+    }
+  }
+  return null;
+}
 
-  return row;
+/**
+ * "＋ Set a location for twitch.tv" fills the site in, when it has no entry of
+ * its own; otherwise "＋ Set a location for a site" opens with no sites, so it
+ * can't run into the entry that already has it.
+ */
+function renderAddButton(
+  entries: readonly SiteLocation[],
+  tabUrl: string | undefined,
+  proLocked: boolean
+): void {
+  const site = currentSuggestion();
+  addPrefill =
+    site !== null && tabUrl !== undefined && !ownSiteLocationExists(entries, site, tabUrl)
+      ? site
+      : null;
+  const label = el("siteLocationsAddLabel");
+  if (label) {
+    label.textContent =
+      addPrefill !== null
+        ? t("siteLocation_setForSite", [addPrefill]) || `Set a location for ${addPrefill}`
+        : t("siteLocation_add") || "Set a location for a site";
+  }
+  const btn = el<HTMLButtonElement>("siteLocationsAddButton");
+  if (btn) btn.disabled = proLocked;
 }
 
 function wireSectionOnce(): void {
@@ -571,64 +706,17 @@ function wireSectionOnce(): void {
   if (!btn || btn.dataset.wired === "1") return;
   btn.dataset.wired = "1";
   btn.addEventListener("click", () => {
-    openEditor({ entry: null, opener: btn });
+    openEditor({ entry: null, opener: btn, origin: "perSite", prefill: addPrefill });
   });
-}
 
-/**
- * After a remove, the focused ✕ is gone. Focus the Edit button of the row that
- * took its place, else the row before it, else "Set a location for a site".
- * Edit rather than the next ✕, so a repeated keypress can't remove a second
- * entry.
- */
-function focusAfterRemove(index: number): void {
-  const rows = el("siteLocationsList")?.children;
-  for (const i of [index, index - 1]) {
-    const edit = rows?.[i]?.querySelector<HTMLElement>(".site-location-edit") ?? null;
-    if (isFocusable(edit)) {
-      edit.focus();
-      return;
-    }
+  const row = el("siteLocationsRow");
+  if (row) {
+    wireButtonRow(row, () => {
+      if (current?.proLocked) return;
+      openFiltersScreen("perSite", { opener: row });
+    });
   }
-  const addBtn = el("siteLocationsAddButton");
-  if (isFocusable(addBtn)) addBtn.focus();
-}
-
-/** Optimistic removal with revert on failure, like the scope list's handleRemove. */
-async function handleRemoveEntry(entry: SiteLocation, row: HTMLElement): Promise<void> {
-  if (current?.proLocked) return;
-  setHidden("siteLocationsError", true);
-
-  const parent = row.parentNode;
-  const nextSibling = row.nextSibling;
-  const index = parent ? Array.from(parent.children).indexOf(row) : 0;
-  row.remove();
-  updateSectionCountFromDom();
-
-  const payload: RemoveSiteLocationPayload = { id: entry.id };
-  try {
-    const result = (await browser.runtime.sendMessage({
-      type: "REMOVE_SITE_LOCATION",
-      payload,
-    })) as SiteLocationResponse;
-    if (result && "success" in result && result.success) {
-      if (editor?.entry?.id === entry.id) closeEditor(false);
-      reloadHintHost = "filters";
-      await loadSettings();
-      focusAfterRemove(index);
-      announceReloadHint();
-      return;
-    }
-  } catch (error: unknown) {
-    console.error("Failed to remove the site location:", error);
-  }
-
-  if (parent) parent.insertBefore(row, nextSibling);
-  updateSectionCountFromDom();
-  setHidden("siteLocationsError", false);
-  // The row is back; so is focus, on the ✕ that was pressed.
-  const removeBtn = row.querySelector<HTMLElement>(".scope-site-remove");
-  if (isFocusable(removeBtn)) removeBtn.focus();
+  setFiltersScreenFallback("perSite", () => el("siteLocationsRow"));
 }
 
 // ── Details tab ─────────────────────────────────────────────────────────────
@@ -668,16 +756,26 @@ export function renderSiteLocationDetails(
 
 // ── The shared editor ───────────────────────────────────────────────────────
 
-function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | null }): void {
+/**
+ * Open the editor on its own screen. A new entry starts with `prefill` as its
+ * site, else with none. Focus goes to what's left to do: Location when the
+ * site is filled in, Sites when it isn't, and the title for an existing entry.
+ */
+function openEditor(args: {
+  entry: SiteLocation | null;
+  opener: HTMLElement | null;
+  origin: EditorOrigin;
+  prefill?: string | null;
+}): void {
   if (current?.proLocked || saving) return;
   const editorEl = el("siteLocationEditor");
   if (!editorEl) return;
 
   const { entry } = args;
-  const suggestion = entry ? null : currentSuggestion();
+  const prefill = entry ? null : (args.prefill ?? null);
   editor = {
     entry,
-    entries: entry ? [...entry.patterns] : suggestion !== null ? [suggestion] : [],
+    entries: entry ? [...entry.patterns] : prefill !== null ? [prefill] : [],
     chosen: entry
       ? {
           latitude: entry.location.latitude,
@@ -687,7 +785,8 @@ function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | nu
       : null,
     ownerId: null,
     opener: args.opener,
-    conflict: null,
+    origin: args.origin,
+    filtersAction: null,
   };
 
   // The sites show as chips; the input starts empty for adding more.
@@ -700,96 +799,212 @@ function openEditor(args: { entry: SiteLocation | null; opener: HTMLElement | nu
   renderEntryChips();
   const searchInput = el<HTMLInputElement>("siteLocationSearch");
   if (searchInput) searchInput.value = "";
+  // "What can I add?" starts collapsed for each entry.
+  const syntax = el<HTMLDetailsElement>("siteLocationSyntax");
+  if (syntax) syntax.open = false;
   clearSearchResults();
-  fillFavorites(current ? (current.settings.favorites ?? []) : []);
   hideEditorError();
 
-  // The "Set a location for a site" row would only duplicate the open editor.
-  setHidden("siteLocationsAddRow", true);
-  editorEl.hidden = false;
+  renderEditorChrome();
   updateChosen();
   updateEditorHints();
-  patternsInput?.focus();
-}
-
-function closeEditor(restoreFocus: boolean): void {
-  const editorEl = el("siteLocationEditor");
-  if (editorEl) editorEl.hidden = true;
-  const opener = editor?.opener ?? null;
-  editor = null;
-  clearSearchResults();
-  hideEditorError();
-  setHidden("siteLocationsAddRow", false);
-  updateEditorHints();
-  if (restoreFocus) restoreFocusAfterEditor(opener);
+  // With the site already filled in, what's left to do is pick the place (S6).
+  const focus = entry !== null ? null : prefill !== null ? searchInput : patternsInput;
+  openFiltersScreen("editor", { opener: args.opener, editorOrigin: args.origin, focus });
 }
 
 /**
- * Focus the opener if it's still on screen. The list is rebuilt on every
- * loadSettings, so a row's Edit button is usually detached by then; fall back
- * to "Set a location for a site".
+ * Open the editor from outside this module (the This site card's row): on
+ * the stored entry with `entryId`, or a new entry with `prefill` as its site
+ * when `entryId` is null. Nothing opens for an id that's no longer stored.
  */
-function restoreFocusAfterEditor(opener: HTMLElement | null): void {
-  if (isFocusable(opener)) {
-    opener.focus();
-    return;
-  }
-  const addBtn = el("siteLocationsAddButton");
-  if (isFocusable(addBtn)) addBtn.focus();
+export function openSiteLocationEditor(args: {
+  entryId: string | null;
+  opener: HTMLElement | null;
+  origin: EditorOrigin;
+  prefill?: string | null;
+}): void {
+  const entry =
+    args.entryId === null
+      ? null
+      : (storedList(current?.settings).find((e) => e.id === args.entryId) ?? null);
+  if (args.entryId !== null && entry === null) return;
+  openEditor({ entry, opener: args.opener, origin: args.origin, prefill: args.prefill });
 }
 
-function isFocusable(node: HTMLElement | null): node is HTMLElement {
-  return node !== null && node.isConnected && node.closest("[hidden]") === null;
+/** The open editor's unsaved state, for the S7 draft; null when no editor is open. */
+export function readEditorDraft(): EditorDraft | null {
+  if (editor === null) return null;
+  return {
+    origin: editor.origin,
+    entryId: editor.entry?.id ?? null,
+    entries: [...editor.entries],
+    pending: el<HTMLInputElement>("siteLocationPatterns")?.value ?? "",
+    chosen: editor.chosen === null ? null : { ...editor.chosen },
+    search: el<HTMLInputElement>("siteLocationSearch")?.value ?? "",
+  };
+}
+
+/**
+ * Put a kept draft back into the editor that's open (drafts.ts opens it with
+ * {@link openSiteLocationEditor} first): its sites, the text still in the
+ * Sites input, the chosen place, and the search text, whose search runs again.
+ */
+export function applyEditorDraft(
+  draft: Pick<EditorDraft, "entries" | "pending" | "chosen" | "search">
+): void {
+  if (editor === null || saving) return;
+  editor.entries = mergeEntries([], draft.entries).slice(0, MAX_PATTERNS_PER_SITE_LOCATION);
+  editor.chosen = draft.chosen === null ? null : { ...draft.chosen };
+  const patternsInput = el<HTMLInputElement>("siteLocationPatterns");
+  if (patternsInput) patternsInput.value = draft.pending;
+  const search = el<HTMLInputElement>("siteLocationSearch");
+  const query = editor.chosen === null ? draft.search : "";
+  if (search) search.value = query;
+  renderEntryChips();
+  hideEditorError();
+  updateChosen();
+  updateEditorHints();
+  if (query.trim() !== "") onSearchInput(query.trim());
+  saveFiltersDraft();
+}
+
+/** The editor's title, and Remove for an existing entry. */
+function renderEditorChrome(): void {
+  const title = el("siteLocationEditorTitle");
+  if (title && editor) {
+    title.textContent = editor.entry
+      ? t("siteLocation_srcSite") || "Per-site location"
+      : t("siteLocation_newLocation") || "New per-site location";
+  }
+  setHidden("siteLocationRemove", editor?.entry == null);
+}
+
+/**
+ * Close the editor and go back to where it was opened from. A reload hint
+ * shown in the editor moves with it to that screen.
+ */
+function closeEditor(restoreFocus: boolean): void {
+  const state = editor;
+  editor = null;
+  clearSearchResults();
+  hideEditorError();
+  updateEditorHints();
+  if (state !== null) {
+    closingOrigin = state.origin;
+    if (getReloadHintHost() === "editor") setReloadHintHost(hostForOrigin(state.origin));
+  }
+  syncReloadHints();
+  // Leaving the screen rewrites the S7 draft without the editor; otherwise
+  // (the Pro lock closed it elsewhere) drop the editor from it here.
+  if (getFiltersScreen() === "editor") backFromFiltersScreen({ restoreFocus });
+  else saveFiltersDraft();
+}
+
+/**
+ * After a save, focus the opener if it's still on screen. The list and the
+ * card's row are rebuilt on every loadSettings, so a row that opened the
+ * editor is usually detached by then: focus the entry's new row (the card's
+ * row, from the root), else the reload hint of the screen the editor
+ * returned to.
+ */
+function focusAfterEditorChange(state: EditorState, entryId: string | null): void {
+  if (isFocusable(state.opener)) {
+    state.opener.focus();
+    return;
+  }
+  if (state.origin === "root") {
+    cardFocusTarget()?.focus();
+    return;
+  }
+  const row = state.origin === "perSite" && entryId !== null ? siteRowFor(entryId) : null;
+  if (isFocusable(row)) {
+    row.focus();
+    return;
+  }
+  focusReloadHint(reloadHintIdFor(state.origin));
+}
+
+/** Where focus goes when the editor closes and its opener is gone. */
+function editorFallback(): HTMLElement | null {
+  if (closingOrigin === "perSite") return el("siteLocationsAddButton");
+  if (closingOrigin === "main") return el("siteLocationLineEdit");
+  return cardFocusTarget();
 }
 
 /**
  * The editor's in-context hints. VPN: with Sync with VPN on, sites still see
  * the VPN's IP. Filters: when Filters keep GeoSpoof off on this tab and a site
- * in the Sites field covers it, the site location wouldn't apply here. The
- * "this site" copy is exact then. Allowlist mode offers a one-tap add;
- * denylist mode only explains, because the blocking entry may be a broad
- * wildcard or a path pattern that removing this host wouldn't lift.
+ * in the Sites field covers it, the location isn't used here: "Not used · Off
+ * in Filters" with one site, else "Not used on twitch.tv · Off in Filters",
+ * which names the tab's site (M13). Its button is the This site card's list
+ * change, by the card's rule, so it's offered only when that one change turns
+ * this site on, and not at all when a broad or path entry keeps it off.
  */
 function updateEditorHints(): void {
+  updateSaveEnabled();
   setHidden("siteLocationVpnHint", !(editor !== null && current?.settings.vpnSyncEnabled === true));
 
-  const conflict = editor !== null ? computeConflict() : null;
-  if (editor !== null) editor.conflict = conflict;
-  if (conflict === null) {
+  const button = el("siteLocationFiltersAction");
+  const conflict = editor !== null && current !== null && computeConflict();
+  if (!conflict || editor === null || current === null) {
+    if (editor !== null) editor.filtersAction = null;
     setHidden("siteLocationFiltersHint", true);
-    setHidden("siteLocationAddToAllowlist", true);
+    if (button) button.hidden = true;
     return;
   }
+  const { settings, tabUrl, proLocked } = current;
+  const card = computeThisSiteCard({
+    settings: { ...settings, enabled: true },
+    tabUrl,
+    proLocked,
+    isOptionsPage: tabUrl !== undefined && isOwnExtensionPage(tabUrl),
+    isRestricted: isRestrictedUrl,
+    siteGroups: popupSiteGroupLookup(),
+    undo: getCardUndo(),
+  });
+  const action = card.kind === "shown" ? listActionOf(card.button) : null;
+  editor.filtersAction = action;
+  const site = currentSuggestion() ?? (tabUrl ? hostOf(tabUrl) : null) ?? "";
+
   const text = el("siteLocationFiltersHintText");
   if (text) {
     text.textContent =
-      conflict.mode === "allowlist"
-        ? t("siteLocation_hintAllowlist") ||
-          "Filters don't spoof this site. Add it to the allowlist?"
-        : t("siteLocation_hintDenylist") ||
-          "Filters don't spoof this site because it's on your denylist.";
+      editorEntriesWithPending().entries.length === 1
+        ? t("siteLocation_notUsed") || "Not used · Off in Sites"
+        : t("siteLocation_notUsedOn", [site]) || `Not used on ${site} · Off in Sites`;
   }
-  setHidden("siteLocationAddToAllowlist", conflict.mode !== "allowlist");
+  if (button) {
+    if (action === null || card.kind !== "shown") {
+      button.hidden = true;
+      button.removeAttribute("aria-label");
+    } else {
+      const label = filtersActionLabel(action);
+      button.textContent = label;
+      button.setAttribute("aria-label", filtersActionAriaLabel(label, card.site));
+      button.hidden = false;
+    }
+  }
   setHidden("siteLocationFiltersHint", false);
 }
 
-function computeConflict(): EditorState["conflict"] {
-  if (!current) return null;
+/** Filters keep GeoSpoof off on this tab, and a site in the Sites field covers it. */
+function computeConflict(): boolean {
+  if (!current) return false;
   const { settings, tabUrl } = current;
-  if (!tabUrl || isRestrictedUrl(tabUrl)) return null;
+  if (!tabUrl || isRestrictedUrl(tabUrl)) return false;
   const mode = settings.scopeMode;
-  if (mode !== "allowlist" && mode !== "denylist") return null;
+  if (mode !== "allowlist" && mode !== "denylist") return false;
   const groups = popupSiteGroupLookup();
   if (
     resolveSiteSettings({ ...settings, enabled: true }, tabUrl, isRestrictedUrl, groups).enabled
   ) {
-    return null;
+    return false;
   }
   const host = hostOf(tabUrl);
-  const pattern = editorEntriesWithPending().entries.find((p) =>
+  return editorEntriesWithPending().entries.some((p) =>
     isSiteGroupToken(p) ? host !== null && groups.has(p, host) : matchesPattern(tabUrl, p)
   );
-  return pattern === undefined ? null : { mode, pattern };
 }
 
 /** Add `more` to `base`, skipping entries `base` already has by identity. */
@@ -826,6 +1041,7 @@ function renderEntryChips(): void {
   (editor?.entries ?? []).forEach((entry, index) => {
     list.appendChild(buildEntryChip(entry, index));
   });
+  updateSaveEnabled();
 }
 
 function buildEntryChip(entry: string, index: number): HTMLElement {
@@ -872,6 +1088,7 @@ function removeEntryChip(index: number): void {
   hideEditorError();
   updateChosen();
   updateEditorHints();
+  saveFiltersDraft();
   const buttons = el("siteLocationEntries")?.querySelectorAll<HTMLElement>(".entry-chip-remove");
   const next = buttons?.[Math.min(index, buttons.length - 1)] ?? null;
   const target = isFocusable(next) ? next : el("siteLocationPatterns");
@@ -896,6 +1113,8 @@ function addEditorEntries(entries: string[]): Promise<EntrySubmitResult> {
   // changes nothing, so the summary and hints are already right.
   updateChosen();
   updateEditorHints();
+  // The control empties the input once this resolves.
+  saveFiltersDraft({ pending: "" });
   return Promise.resolve({ ok: true });
 }
 
@@ -903,29 +1122,22 @@ function notSavedText(): string {
   return t("filters_notSaved") || "⚠ Change not saved";
 }
 
-async function handleAddToAllowlist(): Promise<void> {
-  const conflict = editor?.conflict ?? null;
-  if (conflict === null || conflict.mode !== "allowlist" || current?.proLocked) return;
+/** The Filters hint's button: the card's list change (ADD_SCOPE_SITE or REMOVE_SCOPE_SITE). */
+async function handleFiltersAction(): Promise<void> {
+  const action = editor?.filtersAction ?? null;
+  if (action === null || current?.proLocked) return;
   hideEditorError();
-  const payload: ScopeSitePayload = { list: "allowlist", pattern: conflict.pattern };
-  try {
-    const result = (await browser.runtime.sendMessage({
-      type: "ADD_SCOPE_SITE",
-      payload,
-    })) as ScopeResponse;
-    if (result && "success" in result && result.success) {
-      // The editor stays open; the re-render recomputes the hint and hides
-      // this button with it.
-      reloadHintHost = "filters";
-      await loadSettings();
-      focusReloadHint("siteLocationsReloadHint");
-      announceReloadHint();
-      return;
-    }
-  } catch (error: unknown) {
-    console.error("Failed to add the site to the allowlist:", error);
+  if (await sendFiltersAction(action)) {
+    clearCardUndo();
+    // The editor stays open; the re-render recomputes the hint and hides
+    // this button with it, and the reload hint shows in the editor.
+    setReloadHintHost("editor");
+    await loadSettings();
+    focusReloadHint("siteLocationEditorReloadHint");
+    announceReloadHint();
+    return;
   }
-  showEditorError(t("filters_notSaved") || "⚠ Change not saved");
+  showEditorError(notSavedText());
 }
 
 function clearSearchResults(): void {
@@ -935,30 +1147,130 @@ function clearSearchResults(): void {
   if (results) clearChildren(results);
 }
 
-function fillFavorites(favorites: Favorite[]): void {
-  const select = el<HTMLSelectElement>("siteLocationFavorite");
-  if (!select) return;
-  while (select.options.length > 1) select.remove(1);
+/**
+ * The favorites under the Location field, as suggestions (S6): those whose
+ * name, city or country contains the field's text. Shown only while no place
+ * is chosen, and not at all when none match.
+ */
+function renderFavorites(): void {
+  const wrap = el("siteLocationFavorites");
+  const list = el("siteLocationFavoritesList");
+  if (!wrap || !list) return;
+  clearChildren(list);
+  const query = (el<HTMLInputElement>("siteLocationSearch")?.value ?? "").trim().toLowerCase();
+  const favorites =
+    editor !== null && editor.chosen === null ? (current?.settings.favorites ?? []) : [];
   for (const favorite of favorites) {
-    const option = document.createElement("option");
-    option.value = favorite.id;
-    option.textContent = getChipDisplayText(favorite);
-    select.appendChild(option);
+    const name = getChipDisplayText(favorite);
+    const fields = [name, favorite.city, favorite.country];
+    if (query !== "" && !fields.some((field) => field.toLowerCase().includes(query))) continue;
+    list.appendChild(buildFavoriteSuggestion(favorite, name));
   }
-  select.value = "";
-  setHidden("siteLocationFavoriteField", favorites.length === 0);
+  wrap.hidden = list.childElementCount === 0;
 }
 
-/** Show the chosen place and the plain-language summary of what saving does. */
-function updateChosen(): void {
-  const chosenEl = el("siteLocationChosen");
-  const explainEl = el("siteLocationExplain");
-  const chosen = editor?.chosen ?? null;
-  if (chosenEl) {
-    chosenEl.textContent = chosen
-      ? chosen.name
-      : t("siteLocation_chosenNone") || "No location chosen yet";
+function buildFavoriteSuggestion(favorite: Favorite, name: string): HTMLElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "favorite-suggestion";
+  button.dataset.favoriteId = favorite.id;
+  button.disabled = saving;
+  const nameEl = document.createElement("span");
+  nameEl.className = "favorite-suggestion-name";
+  nameEl.textContent = name;
+  button.appendChild(nameEl);
+  if (favorite.country.length > 0) {
+    const sub = document.createElement("span");
+    sub.className = "favorite-suggestion-sub";
+    sub.textContent = favorite.country;
+    button.appendChild(sub);
   }
+  button.addEventListener("click", () => {
+    const picked = choose({
+      latitude: favorite.latitude,
+      longitude: favorite.longitude,
+      name,
+      locationName: {
+        city: favorite.city,
+        country: favorite.country,
+        displayName: favorite.displayName,
+      },
+      label: favorite.label,
+    });
+    if (picked) focusAfterChoose();
+  });
+  return button;
+}
+
+/**
+ * The chosen place as a token in the Location field, with a ✕ that clears it.
+ * Rebuilt only when the place changes, so the live region speaks once and a
+ * focused ✕ keeps focus.
+ */
+function renderChosenToken(chosen: ChosenLocation | null): void {
+  const host = el("siteLocationChosen");
+  if (!host) return;
+  const name = chosen?.name ?? null;
+  if ((host.dataset.name ?? null) === name) return;
+  clearChildren(host);
+  if (name === null) {
+    delete host.dataset.name;
+    return;
+  }
+  host.dataset.name = name;
+
+  const field = document.createElement("div");
+  field.className = "token-field";
+  field.setAttribute("role", "group");
+  field.setAttribute("aria-labelledby", "siteLocationSearchLabel");
+  const chip = document.createElement("span");
+  chip.className = "entry-chip";
+  const text = document.createElement("span");
+  text.className = "entry-chip-text";
+  const title = document.createElement("span");
+  title.className = "entry-chip-title";
+  title.textContent = name;
+  text.appendChild(title);
+  chip.appendChild(text);
+
+  const label = `${t("siteLocation_removeAriaLabel") || "Remove location"} ${name}`;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "entry-chip-remove";
+  remove.textContent = "✕";
+  remove.setAttribute("aria-label", label);
+  remove.title = label;
+  remove.disabled = saving;
+  remove.addEventListener("click", clearChosen);
+  chip.appendChild(remove);
+  field.appendChild(chip);
+  host.appendChild(field);
+}
+
+/** The token's ✕: forget the place and go back to the Location field. */
+function clearChosen(): void {
+  if (!editor || saving) return;
+  editor.chosen = null;
+  hideEditorError();
+  updateChosen();
+  saveFiltersDraft();
+  const search = el("siteLocationSearch");
+  if (isFocusable(search)) search.focus();
+}
+
+/**
+ * Show the chosen place (a token in place of the search field, results and
+ * favorites) and the plain-language summary of what saving does.
+ */
+function updateChosen(): void {
+  const chosen = editor?.chosen ?? null;
+  renderChosenToken(chosen);
+  setHidden("siteLocationSearch", chosen !== null);
+  setHidden("siteLocationResults", chosen !== null);
+  renderFavorites();
+  updateSaveEnabled();
+
+  const explainEl = el("siteLocationExplain");
   if (!explainEl) return;
   const { entries, error } = editorEntriesWithPending();
   if (!chosen || error !== null || entries.length === 0) {
@@ -970,11 +1282,41 @@ function updateChosen(): void {
     t("siteLocation_explain", [sites, chosen.name]) || `Pages on ${sites} will see ${chosen.name}.`;
 }
 
-function choose(chosen: ChosenLocation): void {
-  if (!editor || saving) return;
+/**
+ * Save works only once there's a site and a place (S6). Text in the Sites
+ * input that doesn't parse leaves the chips as the sites; Save then shows why.
+ */
+function updateSaveEnabled(): void {
+  const save = el<HTMLButtonElement>("siteLocationSave");
+  if (!save) return;
+  const ready =
+    editor !== null && editor.chosen !== null && editorEntriesWithPending().entries.length > 0;
+  save.disabled = saving || !ready;
+}
+
+/** Pick a place. False when nothing changed (no editor, or a save in flight). */
+function choose(chosen: ChosenLocation): boolean {
+  if (!editor || saving) return false;
   editor.chosen = chosen;
+  // The token takes the typed text's place in the field.
+  const search = el<HTMLInputElement>("siteLocationSearch");
+  if (search) search.value = "";
+  clearSearchResults();
   hideEditorError();
   updateChosen();
+  saveFiltersDraft();
+  return true;
+}
+
+/** The picker hid with the choice; continue at Save, else at the token's ✕. */
+function focusAfterChoose(): void {
+  const save = el<HTMLButtonElement>("siteLocationSave");
+  if (save && !save.disabled && isFocusable(save)) {
+    save.focus();
+    return;
+  }
+  const remove = el("siteLocationChosen")?.querySelector<HTMLElement>(".entry-chip-remove") ?? null;
+  if (isFocusable(remove)) remove.focus();
 }
 
 function showEditorError(text: string, ownerId: string | null = null): void {
@@ -1008,10 +1350,13 @@ function wireEditorOnce(): void {
   const editorEl = el("siteLocationEditor");
   if (!editorEl || editorEl.dataset.wired === "1") return;
   editorEl.dataset.wired = "1";
+  // The help's rows for the forms this build can't add, as the field can't.
+  editorEl.querySelectorAll<HTMLElement>("[data-site-groups-only]").forEach((row) => {
+    row.hidden = !siteGroupsAvailable();
+  });
 
   editorControl = createEntryAddControl({
     ids: {
-      kind: "siteLocationAddKind",
       input: "siteLocationPatterns",
       button: "siteLocationAddEntry",
       listbox: "siteLocationGroupListbox",
@@ -1020,6 +1365,19 @@ function wireEditorOnce(): void {
     },
     context: "siteLocation",
     onSubmit: (entries) => addEditorEntries(entries),
+    emptySuggestion: () => {
+      const site = currentSuggestion();
+      const entry = site === null ? null : parseSiteLocationPattern(site);
+      const key = entry === null ? null : siteLocationEntryKey(entry);
+      if (entry === null || key === null || editor === null) return null;
+      if (editor.entries.some((e) => (siteLocationEntryKey(e) ?? e) === key)) return null;
+      return {
+        entry,
+        title: t("filters_addSite", [entry]) || `Add ${entry}`,
+        meta: t("filters_typeSite") || "Site and its subdomains",
+        kind: "site",
+      };
+    },
     showError: (message) => {
       showEditorError(message);
     },
@@ -1032,27 +1390,13 @@ function wireEditorOnce(): void {
     hideEditorError();
     updateChosen();
     updateEditorHints();
+    saveFiltersDraft();
   });
 
   el<HTMLInputElement>("siteLocationSearch")?.addEventListener("input", (e) => {
     onSearchInput((e.target as HTMLInputElement).value.trim());
-  });
-
-  const select = el<HTMLSelectElement>("siteLocationFavorite");
-  select?.addEventListener("change", () => {
-    const favorite = (current?.settings.favorites ?? []).find((f) => f.id === select.value);
-    if (!favorite) return;
-    choose({
-      latitude: favorite.latitude,
-      longitude: favorite.longitude,
-      name: getChipDisplayText(favorite),
-      locationName: {
-        city: favorite.city,
-        country: favorite.country,
-        displayName: favorite.displayName,
-      },
-      label: favorite.label,
-    });
+    renderFavorites();
+    saveFiltersDraft();
   });
 
   el("siteLocationSave")?.addEventListener("click", () => {
@@ -1061,22 +1405,24 @@ function wireEditorOnce(): void {
   el("siteLocationCancel")?.addEventListener("click", () => {
     closeEditor(true);
   });
+  el("siteLocationRemove")?.addEventListener("click", () => {
+    void handleRemove();
+  });
   el("siteLocationEditOwner")?.addEventListener("click", () => {
     const ownerId = editor?.ownerId;
     const owner = storedList(current?.settings).find((e) => e.id === ownerId);
     if (!editor || !owner) return;
-    openEditor({ entry: owner, opener: editor.opener });
+    openEditor({ entry: owner, opener: editor.opener, origin: editor.origin });
   });
-  el("siteLocationAddToAllowlist")?.addEventListener("click", () => {
-    void handleAddToAllowlist();
+  el("siteLocationFiltersAction")?.addEventListener("click", () => {
+    void handleFiltersAction();
   });
-  editorEl.addEventListener("keydown", (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      // A save in flight can't be called back; the editor closes when it lands.
-      if (!saving) closeEditor(true);
-    }
+  // Escape and the back row go back like Cancel. A save in flight can't be
+  // called back; the editor closes when it lands.
+  setFiltersScreenBackHandler("editor", () => {
+    if (!saving) closeEditor(true);
   });
+  setFiltersScreenFallback("editor", editorFallback);
 }
 
 function onSearchInput(query: string): void {
@@ -1144,7 +1490,7 @@ export function renderSearchResults(results: GeocodeResult[] | null): void {
     button.append(nameEl, coordsEl);
 
     button.addEventListener("click", () => {
-      choose({
+      const picked = choose({
         latitude: result.latitude,
         longitude: result.longitude,
         name: result.name,
@@ -1152,7 +1498,7 @@ export function renderSearchResults(results: GeocodeResult[] | null): void {
         label: null,
       });
       clearSearchResults();
-      el("siteLocationSave")?.focus();
+      if (picked) focusAfterChoose();
     });
     container.appendChild(button);
   }
@@ -1208,7 +1554,7 @@ function saveErrorText(result: Extract<SiteLocationResponse, { error: unknown }>
 
 /** Validate inline, then send SAVE_SITE_LOCATION. Nothing is sent while the input is invalid. */
 async function handleSave(): Promise<void> {
-  if (!editor || current?.proLocked) return;
+  if (!editor || removing || current?.proLocked) return;
   const state = editor;
   hideEditorError();
 
@@ -1261,14 +1607,15 @@ async function handleSave(): Promise<void> {
   }
 
   if (result && "success" in result && result.success) {
-    reloadHintHost = "filters";
-    // Nothing in the frozen editor can close it, and the edited entry's ✕
-    // waits too, but the Pro lock still can. The list and the hint show the
-    // save anyway.
+    clearCardUndo();
+    // The reload hint shows on the screen the editor returns to.
+    setReloadHintHost(hostForOrigin(state.origin));
+    // Nothing in the frozen editor can close it, but the Pro lock still can.
+    // The list and the hint show the save anyway.
     const stillOpen = editor === state;
     if (stillOpen) closeEditor(false);
     await loadSettings();
-    if (stillOpen) restoreFocusAfterEditor(state.opener);
+    if (stillOpen) focusAfterEditorChange(state, result.id ?? state.entry?.id ?? null);
     announceReloadHint();
     return;
   }
@@ -1294,17 +1641,58 @@ async function handleSave(): Promise<void> {
   }
 }
 
+/**
+ * "Remove location": the entry goes, the editor returns to where it was
+ * opened from, and the reload hint shows there. A failure keeps the editor,
+ * and focus on Remove (aria-disabled, never disabled, while it's in flight).
+ */
+async function handleRemove(): Promise<void> {
+  const state = editor;
+  if (state === null || state.entry === null || saving || removing || current?.proLocked) return;
+  hideEditorError();
+  const button = el("siteLocationRemove");
+  removing = true;
+  button?.setAttribute("aria-disabled", "true");
+  const payload: RemoveSiteLocationPayload = { id: state.entry.id };
+  let removed = false;
+  try {
+    const result = (await browser.runtime.sendMessage({
+      type: "REMOVE_SITE_LOCATION",
+      payload,
+    })) as SiteLocationResponse;
+    removed = !!(result && "success" in result && result.success);
+  } catch (error: unknown) {
+    console.error("Failed to remove the site location:", error);
+  } finally {
+    removing = false;
+    button?.removeAttribute("aria-disabled");
+  }
+
+  if (removed) {
+    clearCardUndo();
+    setReloadHintHost(hostForOrigin(state.origin));
+    if (editor === state) closeEditor(false);
+    await loadSettings();
+    // The button that was pressed is gone; the confirmation took its place.
+    // From the card, its row is rebuilt for the new answer, so focus that.
+    if (state.origin === "root") cardFocusTarget()?.focus();
+    else focusReloadHint(reloadHintIdFor(state.origin));
+    announceReloadHint();
+    return;
+  }
+  if (editor === state) showEditorError(notSavedText());
+}
+
 /** The editor's controls, all disabled while a save is in flight. */
 const EDITOR_CONTROL_IDS = [
-  "siteLocationAddKind",
   "siteLocationPatterns",
   "siteLocationAddEntry",
   "siteLocationSearch",
-  "siteLocationFavorite",
-  "siteLocationAddToAllowlist",
+  "siteLocationFiltersAction",
   "siteLocationEditOwner",
   "siteLocationSave",
   "siteLocationCancel",
+  "siteLocationRemove",
 ] as const;
 
 /**
@@ -1321,29 +1709,26 @@ function setEditorSaving(on: boolean, entryId: string | null = null): void {
   if (on) editorEl?.setAttribute("aria-busy", "true");
   else editorEl?.removeAttribute("aria-busy");
   for (const id of EDITOR_CONTROL_IDS) {
-    const control = el<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>(id);
+    const control = el<HTMLInputElement | HTMLButtonElement>(id);
     if (control) control.disabled = on;
   }
-  el("siteLocationEntries")
-    ?.querySelectorAll<HTMLButtonElement>(".entry-chip-remove")
+  // The built buttons: each site's ✕, the place token's ✕, and the favorites.
+  editorEl
+    ?.querySelectorAll<HTMLButtonElement>(".entry-chip-remove, .favorite-suggestion")
     .forEach((button) => {
       button.disabled = on;
     });
   syncSavingEntryLocks();
+  if (!on) updateSaveEnabled();
 }
 
 /**
- * Disable the row ✕ and "Use main location" of the entry a save in flight
- * edits, and only those, so a remove from this popup can't overtake the save.
- * Every render calls this too, so a re-render during the save keeps them off.
+ * Disable "Use main location" while a save in flight edits its entry, so a
+ * remove from this popup can't overtake the save. (The editor's own Remove is
+ * frozen with the rest of the editor.) Every render calls this too, so a
+ * re-render during the save keeps it off.
  */
 function syncSavingEntryLocks(): void {
-  const proLocked = current?.proLocked === true;
-  for (const row of Array.from(el("siteLocationsList")?.children ?? [])) {
-    const remove = row.querySelector<HTMLButtonElement>(".scope-site-remove");
-    const id = (row as HTMLElement).dataset.siteLocationId;
-    if (remove) remove.disabled = proLocked || (id !== undefined && id === savingEntryId);
-  }
   const useMain = el<HTMLButtonElement>("siteLocationLineUseMain");
   if (useMain) {
     useMain.disabled = lineState.kind === "applied" && lineState.entry.id === savingEntryId;
@@ -1358,10 +1743,12 @@ export function __resetSiteLocationsForTest(): void {
   editorControl = null;
   saving = false;
   savingEntryId = null;
-  reloadHintHost = null;
-  disclosureInitialized = false;
+  removing = false;
+  addPrefill = null;
+  closingOrigin = "root";
   clearTimeout(searchTimer);
   searchSeq = 0;
-  clearTimeout(announceTimer);
-  announceTimer = undefined;
+  __resetReloadHintForTest();
+  __resetAnnounceForTest();
+  clearCardUndo();
 }

@@ -138,7 +138,7 @@ describe("Locale parity", () => {
  */
 describe("Advanced Filtering syntax keys are present in every locale", () => {
   const REQUIRED_KEYS = [
-    "filters_syntaxTitle",
+    "filters_help",
     "filters_syntaxDomain",
     "filters_syntaxSubdomains",
     "filters_syntaxTld",
@@ -166,17 +166,12 @@ describe("Per-site locations keys are present in every locale", () => {
   const REQUIRED_KEYS = [
     "siteLocation_statusSite",
     "siteLocation_useMain",
-    "siteLocation_hintAllowlist",
     "siteLocation_addToAllowlist",
-    "siteLocation_hintDenylist",
     "siteLocation_hintVpn",
     "siteLocation_reloadHint",
     "siteLocation_sitesLabel",
-    "siteLocation_sitesHint",
     "siteLocation_searchLabel",
-    "siteLocation_favoriteLabel",
-    "siteLocation_favoriteNone",
-    "siteLocation_chosenNone",
+    "siteLocation_favorites",
     "siteLocation_explain",
     "siteLocation_save",
     "siteLocation_cancel",
@@ -190,6 +185,21 @@ describe("Per-site locations keys are present in every locale", () => {
     "siteLocation_sectionTitle",
     "siteLocation_sectionDesc",
     "siteLocation_add",
+    "siteLocation_setForSite",
+    "siteLocation_newLocation",
+    "siteLocation_srcSite",
+    "siteLocation_srcMain",
+    "siteLocation_srcEntry",
+    "siteLocation_useHereAria",
+    "siteLocation_changeAria",
+    "siteLocation_countLocations",
+    "siteLocation_countLocationsOne",
+    "siteLocation_noLocations",
+    "siteLocation_notUsed",
+    "siteLocation_notUsedOn",
+    "siteLocation_somePages",
+    "siteLocation_somePagesOn",
+    "siteLocation_sitesAndMore",
     "siteLocation_edit",
     "siteLocation_editAriaLabel",
     "siteLocation_removeAriaLabel",
@@ -207,13 +217,15 @@ describe("Per-site locations keys are present in every locale", () => {
     });
   });
 
-  test("every data-i18n* key in the Per-site locations popup regions exists in en", () => {
+  test("every data-i18n* key in the Filters and Per-site locations popup regions exists in en", () => {
     const html = readFileSync(resolve(__dirname, "../../assets/popup.html"), "utf-8");
     const doc = new DOMParser().parseFromString(html, "text/html");
     const regions = [
       doc.getElementById("siteLocationLine"),
-      doc.getElementById("siteLocationsDisclosure"),
-      doc.getElementById("siteLocationEditor"),
+      doc.getElementById("filtersRoot"),
+      doc.getElementById("scopeListScreen"),
+      doc.getElementById("siteLocationsScreen"),
+      doc.getElementById("siteLocationEditorScreen"),
       doc.getElementById("detailSiteLocationSection"),
     ];
     const source = loadLocale(SOURCE_LOCALE);
@@ -244,23 +256,69 @@ describe("Per-site locations keys are present in every locale", () => {
   // Per-site strings use each locale's established words. Vietnamese says
   // "trang web" for a site, as Filters do ("trang" alone reads as "page"), and
   // both Chinese locales say 伪造/偽造 for spoofing, not 伪装/偽裝 ("disguise").
-  test("vi says 'trang web' for a site, as its Filters heading does", () => {
+  test("vi says 'trang web' for a site, as its Sites tab does", () => {
     const vi = loadLocale("vi");
-    expect(vi.filters_heading.message).toContain("trang web");
+    expect(vi.filters_heading.message.toLowerCase()).toContain("trang web");
     expect(vi.siteLocation_sectionTitle.message).toMatch(/trang web$/);
     expect(vi.details_siteLocation.message).toContain("trang web");
   });
 
-  test("zh_CN per-site strings say 伪造 for spoofing, as Filters do", () => {
+  test("zh_CN per-site strings say 伪造 for spoofing, as Details does", () => {
     const zh = loadLocale("zh_CN");
-    expect(zh.filters_modeAllDesc.message).toContain("伪造");
+    expect(zh.details_spoofedLocation.message).toContain("伪造");
     expect(REQUIRED_KEYS.filter((key) => zh[key].message.includes("伪装"))).toEqual([]);
   });
 
-  test("zh_TW per-site strings say 偽造 for spoofing, as Filters do", () => {
+  test("zh_TW per-site strings say 偽造 for spoofing, as Details does", () => {
     const zh = loadLocale("zh_TW");
-    expect(zh.filters_modeAllDesc.message).toContain("偽造");
+    expect(zh.details_spoofedLocation.message).toContain("偽造");
     expect(REQUIRED_KEYS.filter((key) => zh[key].message.includes("偽裝"))).toEqual([]);
+  });
+
+  // German "Zulassungsliste" can't break, so its segment would grow and the
+  // three come out unequal; a soft hyphen lets it break, in the segment only.
+  test("de breaks the Allowlist segment with a soft hyphen, and only there", () => {
+    const de = loadLocale("de");
+    expect(de.filters_modeAllowlist.message).toBe("Zulassungs\u00ADliste");
+    expect(de.filters_allowlistName.message).toBe("Zulassungsliste");
+    for (const locale of listLocales()) {
+      const file = loadLocale(locale);
+      const withSoftHyphen = Object.keys(file).filter((key) =>
+        file[key].message.includes("\u00AD")
+      );
+      expect(withSoftHyphen, locale).toEqual(locale === "de" ? ["filters_modeAllowlist"] : []);
+    }
+  });
+
+  // The segments keep their short labels; a list used as a noun takes the
+  // list's name. They differ in two locales, and match everywhere else.
+  test("a list used as a noun takes the list's name, which differs from the segment in nl and vi", () => {
+    const nouns: Record<string, [string, string]> = {
+      nl: ["Toegestane sites", "Blokkeerlijst"],
+      vi: ["Danh sách cho phép", "Danh sách chặn"],
+    };
+    for (const locale of listLocales()) {
+      const file = loadLocale(locale);
+      const allow = file.filters_allowlistName.message;
+      const deny = file.filters_denylistName.message;
+      if (locale in nouns) {
+        expect([allow, deny], locale).toEqual(nouns[locale]);
+        expect(allow).not.toBe(file.filters_modeAllowlist.message);
+        expect(deny).not.toBe(file.filters_modeDenylist.message);
+      } else {
+        expect(allow, locale).toBe(file.filters_modeAllowlist.message.replace("\u00AD", ""));
+        expect(deny, locale).toBe(file.filters_modeDenylist.message);
+      }
+    }
+  });
+
+  // The Per-site mark names the Sites tab (tab_filters) with the tab's own word.
+  test.each(listLocales())("%s marks name the Sites tab with its tab label", (locale) => {
+    const file = loadLocale(locale);
+    const tab = file.tab_filters.message.toLowerCase();
+    for (const key of ["siteLocation_notUsed", "siteLocation_notUsedOn"]) {
+      expect(file[key].message.toLowerCase(), `${locale} ${key}`).toContain(tab.slice(0, 5));
+    }
   });
 
   // Keys that lose their last use get removed, so translators aren't asked to

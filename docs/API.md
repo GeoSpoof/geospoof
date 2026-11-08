@@ -927,7 +927,7 @@ Persisted in `browser.storage.local` under the key `"settings"`.
 | Site group       | `geosite:<name>[@<attr>]...`, lowercase, `[a-z0-9!-]`, name ≤ 64, attrs ≤ 32, deduped and sorted; attrs are AND | `geosite:google@cn`                     |
 | List from a link | `list:` + `new URL(input).href` without the hash; https only, no credentials, ≤ 2048 chars                      | `list:https://example.com/list.txt`     |
 
-`parsePattern` and `parseSiteLocationPattern` reject the three new forms and are unchanged, so `tests/fixtures/pattern-vectors.json` and `site-location-vectors.json` still hold. The superset parsers are `parseFilterEntry` and `parseSiteLocationEntry` in `src/shared/utils/filter-entries.ts`; `tests/fixtures/site-group-vectors.json` pins their cases, the matcher, the list-format parser and precedence for other implementations. A bare `https://...` with no kind stays a typed pattern; only the popup's Type menu or auto-detect sends `list:`.
+`parsePattern` and `parseSiteLocationPattern` reject the three new forms and are unchanged, so `tests/fixtures/pattern-vectors.json` and `site-location-vectors.json` still hold. The superset parsers are `parseFilterEntry` and `parseSiteLocationEntry` in `src/shared/utils/filter-entries.ts`; `tests/fixtures/site-group-vectors.json` pins their cases, the matcher, the list-format parser and precedence for other implementations. A bare `https://...` with no kind stays a typed pattern; only the popup's add field sends `list:`, when what was typed starts with `list:` or is an `https://` link to a list file (`detectEntryKind`).
 
 **Matching.** A token matches when the top-level URL's `hostname` (ASCII) equals a `full` entry, or equals or ends in `.` + a `domain` entry. Filters take the union: in Allowlist mode a URL is on when any typed entry matches or any group contains its host; in Denylist mode it's off on the same condition. A token whose data is missing matches nothing on every surface (Filters, per-site locations, the Firefox bootstrap), so in Allowlist mode those sites aren't spoofed and in Denylist mode they are. Validation keeps every syntactically valid token. Every resolver (`computeEffectiveEnabled`, `resolveSiteSettings`, `matchSiteLocation`, `planBootstrapScripts`) takes an optional lookup defaulting to `NO_SITE_GROUPS`; every production caller passes `currentSiteGroups()` (`tests/unit/background/site-groups-wiring.test.ts` checks this).
 
@@ -1019,6 +1019,31 @@ Ties, which cross-entry uniqueness makes defensive only, go to the higher `updat
 - **Entry forms ride the existing strings.** `=host`, `geosite:` and `list:` entries cross inside the `allowlist`, `denylist` and `siteLocations` JSON strings (`region_*` / `pending_*`); there's no new key. The Swift parser must accept and round-trip all three verbatim, or an older app drops them on its next write. That's why `siteGroupsAvailable()` is false on Safari; flip it (one line) only after `geospoof-ios` `main` parses them and its resolver implements the tiers above, since app builds take this repo's `main` tip. The adoption path parses with the superset parsers, so a token an app sends is kept, and `repairSiteGroupDataSoon` builds its data afterwards.
 - **Swift must preserve unknown fields and kinds verbatim**, so an entry shape or `kind` added later survives an app round trip. The app mirrors `MAX_SITE_LOCATIONS` (50) and `MAX_PATTERNS_PER_SITE_LOCATION` (10), and validates patterns against `tests/fixtures/site-location-vectors.json`. A native conflict check has to compare patterns by the identity above (the literal host's A-label, UTS #46 ToASCII), not by stored string, or it accepts `münchen.de` next to `xn--mnchen-3ya.de` and the extension drops the later one on adoption. The fixture has no alias cases yet.
 - **Pro.** The app's UI gate is a convenience; `proFeaturesBlocked` is what enforces it, disabling the overlay for a non-Pro user while the stored list is kept.
+
+### Popup Filters drafts
+
+Unfinished work on the popup's Filters tab survives closing the popup. The popup alone reads and writes it, under one `storage.session` key, `popupFiltersDraft` (`FILTERS_DRAFT_STORAGE_KEY` in `src/popup/drafts.ts`):
+
+```typescript
+{
+  v: 1,
+  key: string,                          // the site the popup opened on ("twitch.tv"), or "options" in the Chromium options tab
+  screen: "list" | "perSite" | "editor",
+  list?: "allowlist" | "denylist",      // set for screen "list": the list it showed
+  listField?: string,                   // the text in the list screen's add field
+  editor?: {                            // set for screen "editor"
+    origin: "root" | "perSite" | "main",
+    entryId: string | null,             // null for a new entry
+    entries: string[], pending: string, // the Sites chips and the text still in the Sites input
+    chosen: { latitude, longitude, name, locationName?, label? } | null,
+    search: string
+  }
+}
+```
+
+**Lifetime.** Every change on a Filters screen writes it. Going back to the Filters root removes it, and so does closing the editor (Cancel, Save, Remove). The browser clears `storage.session` when it quits. A popup opened on another site, a restricted or host-less tab (where nothing is kept), a list draft whose list is no longer the active mode, an editor for an entry that's gone, and the Safari Pro lock each drop it. If the user switches views or opens a Filters screen before the restore's reads resolve, nothing is restored.
+
+**Never shared.** The draft isn't part of `Settings`, never travels in a runtime message, and never crosses the Safari app bridge.
 
 ### Location precision and cadence
 

@@ -56,8 +56,8 @@
     "description": "Tab label for the protection details view."
   },
   "tab_filters": {
-    "message": "Фильтры",
-    "description": "Tab label for the site-scoping filters view."
+    "message": "Сайты",
+    "description": "Tab label for the Sites view (formerly 'Filters'): where GeoSpoof works, this site, and per-site locations. Also the back rows' label (‹ Sites). Use the locale's plain word for websites as a tab name; it shares a word with siteLocation_sitesLabel. The key keeps its old name."
   },
   "tab_settings": {
     "message": "Настройки",
@@ -72,16 +72,24 @@
     "description": "Heading for the group of language/locale APIs listed under 'Key Overrides' in the Details tab. Shown only when a Reported Language is active."
   },
   "filters_heading": {
-    "message": "Фильтры сайтов",
-    "description": "Heading for the site-scoping filters panel."
+    "message": "Сайты",
+    "description": "Heading for the Sites view (tab_filters). Not shown in the popup today; kept equal to tab_filters."
   },
-  "filters_modeGroupAriaLabel": {
-    "message": "Режим области",
-    "description": "Accessible label for the scope-mode selector group."
+  "filters_where": {
+    "message": "Режим фильтра",
+    "description": "Section heading above the three mode segments (All sites, Allowlist, Denylist) on the Sites tab. Shown uppercase by the style. Names the radiogroup for screen readers. Formerly \"Where GeoSpoof works\"."
+  },
+  "filters_screenTitle": {
+    "message": "Фильтры",
+    "description": "Title of the Filters screen (the mode and its list) and label of its row on the Sites tab root. The tab was called this before it became Sites (tab_filters); use the same word the tab used."
+  },
+  "filters_siteRules": {
+    "message": "Правила для сайтов",
+    "description": "Section heading on the Sites tab root above the card with the Filters and Per-site locations rows, styled like filters_thisSite (shown uppercase). A short, natural phrase for rules about sites; must fit one line at 350 px."
   },
   "filters_modeAll": {
-    "message": "Все",
-    "description": "Scope mode option: spoof on every site."
+    "message": "Все сайты",
+    "description": "Scope mode segment: GeoSpoof works on every site."
   },
   "filters_modeAllowlist": {
     "message": "Белый список",
@@ -91,29 +99,151 @@
     "message": "Чёрный список",
     "description": "Scope mode option: spoof on every site except listed ones."
   },
-  "filters_modeAllDesc": {
-    "message": "Подмена применяется ко всем сайтам.",
-    "description": "Description shown under the selector when 'All' mode is active."
+  "filters_descAll": {
+    "message": "GeoSpoof работает на всех сайтах.",
+    "description": "Sentence under the scope-mode selector in All sites mode. Describes the setting, stated positively with 'works'; it doesn't change with the site."
   },
-  "filters_modeAllowlistDesc": {
-    "message": "Подмена применяется только к перечисленным сайтам.",
-    "description": "Description shown under the selector when 'Allowlist' mode is active."
+  "filters_descAllow": {
+    "message": "GeoSpoof работает только на сайтах из белого списка.",
+    "description": "Sentence under the scope-mode selector in Allowlist mode. 'Allowlist' is the list's name, as filters_allowlistName has it."
   },
-  "filters_modeDenylistDesc": {
-    "message": "Подмена применяется ко всем сайтам, кроме перечисленных.",
-    "description": "Description shown under the selector when 'Denylist' mode is active."
+  "filters_descDeny": {
+    "message": "GeoSpoof работает на всех сайтах, кроме сайтов из чёрного списка.",
+    "description": "Sentence under the scope-mode selector in Denylist mode. 'Denylist' is the list's name, as filters_denylistName has it."
   },
-  "filters_addPlaceholder": {
-    "message": "example.com, *.ru, site.com/app/*",
-    "description": "Placeholder text in the add-site input."
+  "filters_allowlistName": {
+    "message": "Белый список",
+    "description": "The Allowlist's name as a noun: the Filters root's row, the list screen's title, and inside sentences. The segment label is filters_modeAllowlist."
+  },
+  "filters_denylistName": {
+    "message": "Чёрный список",
+    "description": "The Denylist's name as a noun: the Filters root's row, the list screen's title, and inside sentences. The segment label is filters_modeDenylist."
+  },
+  "filters_countOnList": {
+    "message": "В списке: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "4"
+      }
+    },
+    "description": "The list row's value on the Filters root. $COUNT$ is a formatted number of entries; one entry can be a site group of many sites, so this doesn't say 'sites'."
+  },
+  "filters_listEmpty": {
+    "message": "Пусто",
+    "description": "The Denylist row's value on the Filters root when the Denylist is empty. A status value, not a sentence."
+  },
+  "filters_listEmptyAllow": {
+    "message": "Пусто · Отключено на всех сайтах",
+    "description": "The Allowlist row's value on the Filters root when the Allowlist is empty, after a ⚠ drawn by the markup. A status value with one detail after the '·'."
+  },
+  "filters_addSite": {
+    "message": "Добавить $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Green button on a list screen that adds the current tab's site, without www. The markup draws a ＋ before it. Also the first suggestion when the add field (list screens, per-site editor Sites field) is focused while empty. $SITE$ is the site."
+  },
+  "filters_listed": {
+    "message": "В списке",
+    "description": "On a list screen, after '✓ twitch.tv ·': the current tab's site is in this list. A status value."
+  },
+  "filters_coveredBy": {
+    "message": "Охвачено правилом $ENTRY$",
+    "placeholders": {
+      "entry": {
+        "content": "$1",
+        "example": "*.tv"
+      }
+    },
+    "description": "After '✓ twitch.tv ·' on a list screen, and as the This site card's reason: the list entry that covers the current tab's site. A phrase without a subject. $ENTRY$ is the entry as the list shows it, for example *.tv or Google."
+  },
+  "filters_somePages": {
+    "message": "Охвачено только на некоторых страницах",
+    "description": "The This site card's reason when no list entry covers the current page but an entry covers some pages of the site (for example twitch.tv/videos/*). A phrase without a subject."
+  },
+  "filters_thisSite": {
+    "message": "Этот сайт",
+    "description": "Heading above the This site card at the top of the Filters tab. Shown in capitals by the stylesheet."
+  },
+  "filters_valueOff": {
+    "message": "Выкл.",
+    "description": "The This site card's value when GeoSpoof is off on the current page (Location Protection off, or Filters keep it off). One word, like Safari's per-site values."
+  },
+  "filters_valueNotSet": {
+    "message": "Не задано",
+    "description": "The This site card's value when GeoSpoof is on for the current page but no location is set (no main location and no per-site location)."
+  },
+  "filters_openMainAria": {
+    "message": "Открывает вкладку «Главная»",
+    "description": "Screen-reader description of the This site card's \"Set Location\" button (filters_setLocation), which opens the Main tab. Names the Main tab as tab_main does."
+  },
+  "filters_turnOnProtection": {
+    "message": "Включить защиту геолокации",
+    "description": "The This site card's button when Location Protection is off. Turns Location Protection on in place, as the Main tab's toggle does. Names the toggle as toggle_locationProtection does. Title-style capitalization in English, like the card's other buttons."
+  },
+  "filters_setLocation": {
+    "message": "Задать местоположение",
+    "description": "The This site card's button when no location is set. Switches to the Main tab and focuses the city search; its screen-reader description is filters_openMainAria. Title-style capitalization in English, like the card's other buttons."
+  },
+  "filters_actionAria": {
+    "message": "$ACTION$: $SITE$",
+    "placeholders": {
+      "action": {
+        "content": "$1",
+        "example": "Add to Allowlist"
+      },
+      "site": {
+        "content": "$2",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Accessible name of the This site card's button and of the per-site editor's Filters button. $ACTION$ is the button's visible label, so the name starts with it; $SITE$ is the current site without www."
+  },
+  "filters_removeFromAllowlist": {
+    "message": "Удалить из белого списка",
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that removes the current site's own entry from the Allowlist. Uses filters_allowlistName's noun."
+  },
+  "filters_addToDenylist": {
+    "message": "Добавить в чёрный список",
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that adds the current site to the Denylist. Uses filters_denylistName's noun."
+  },
+  "filters_removeFromDenylist": {
+    "message": "Удалить из чёрного списка",
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that removes the current site's own entry from the Denylist. Uses filters_denylistName's noun."
+  },
+  "filters_statusAnnounce": {
+    "message": "$NAME$: $VALUE$.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "twitch.tv"
+      },
+      "value": {
+        "content": "$2",
+        "example": "Los Angeles"
+      }
+    },
+    "description": "Spoken by screen readers after a change on the Filters tab, never shown. $NAME$ is a site or a list name (twitch.tv, Allowlist); $VALUE$ its new value (Off, a place, or 'Empty, Off on every site')."
+  },
+  "filters_help": {
+    "message": "Что можно добавить?",
+    "description": "Collapsible help on a list screen: what can be added (sites, patterns, site groups, lists from a link). Replaces 'What patterns can I use?'."
   },
   "filters_addButton": {
     "message": "Добавить",
     "description": "Button that adds the typed domain to the active list."
   },
-  "filters_invalidDomain": {
-    "message": "Недопустимый шаблон",
-    "description": "Inline message shown when the typed pattern is invalid."
+  "filters_fieldSiteOrGroup": {
+    "message": "Сайт или группа сайтов, напр. twitch.tv",
+    "description": "Placeholder of the add field on the Allowlist and Denylist screens and of the Sites field in the per-site location editor, where site groups are available. Typing lists suggestions; focusing the empty field offers \"Add <site>\" and \"Browse all site groups…\". Keep twitch.tv untranslated. Use the same word for site group as siteGroups_browseAll."
+  },
+  "filters_fieldSite": {
+    "message": "Сайт, напр. twitch.tv",
+    "description": "The same placeholder where site groups aren't available (Safari): names sites only. Keep twitch.tv untranslated."
   },
   "filters_emptyList": {
     "message": "Сайты ещё не добавлены",
@@ -130,30 +260,6 @@
   "filters_removeAriaLabel": {
     "message": "Удалить сайт",
     "description": "Accessible label prefix on a site's remove button."
-  },
-  "filters_addCurrentButton": {
-    "message": "Добавить текущий сайт",
-    "description": "Button that adds the active tab's site to the active list."
-  },
-  "filters_currentPageRestricted": {
-    "message": "Эту страницу нельзя добавить",
-    "description": "Inline message shown when the current page is a restricted URL that cannot be added."
-  },
-  "filters_currentPageInvalid": {
-    "message": "Этот сайт нельзя добавить",
-    "description": "Inline message shown when the current tab's hostname cannot be added to a list."
-  },
-  "filters_allowedSites": {
-    "message": "Разрешённые сайты",
-    "description": "Header above the list of allowlisted sites."
-  },
-  "filters_blockedSites": {
-    "message": "Заблокированные сайты",
-    "description": "Header above the list of denylisted sites."
-  },
-  "filters_syntaxTitle": {
-    "message": "Какие шаблоны можно использовать?",
-    "description": "Summary label for the collapsible supported-pattern-syntax reference in the Filters tab."
   },
   "filters_syntaxDomain": {
     "message": "Сайт и все его поддомены",
@@ -182,6 +288,14 @@
   "filters_syntaxNotes": {
     "message": "Подстановочный знак только * — регулярные выражения не поддерживаются.",
     "description": "The short capability note at the bottom of the syntax reference."
+  },
+  "siteLocation_syntaxSeveral": {
+    "message": "Несколько сайтов сразу",
+    "description": "Per-site location editor, \"What can I add?\": explains typing several sites separated by commas (e.g. chatgpt.com, openai.com) in the Sites field."
+  },
+  "siteLocation_syntaxNotes": {
+    "message": "Только сайты целиком, без пути вроде /app. Подстановочный знак — только *.",
+    "description": "Per-site location editor, \"What can I add?\": the note under the rows. A per-site location applies to whole sites, so the Sites field rejects paths (site.com/app/*) and a bare *. Keep /app and * as is."
   },
   "filters_syntaxReference": {
     "message": "Полный справочник →",
@@ -214,10 +328,6 @@
   "heading_protection": {
     "message": "Защита",
     "description": "Section heading above the protection toggles in the Main tab."
-  },
-  "heading_mode": {
-    "message": "Режим",
-    "description": "Section heading above the scope-mode selector in the Filters tab."
   },
   "location_none": {
     "message": "Местоположение не задано",
@@ -753,17 +863,9 @@
     "message": "Использовать основное местоположение",
     "description": "Text button on the Main-tab site location line that stops using the site location for the current site, so it uses the main (global) location again. 'Main location' is the glossary term for the global location."
   },
-  "siteLocation_hintAllowlist": {
-    "message": "Фильтры не подменяют данные на этом сайте. Добавить его в белый список?",
-    "description": "Hint in the site location editor in allowlist mode when the current site isn't on the allowlist, so the site location wouldn't apply there."
-  },
   "siteLocation_addToAllowlist": {
     "message": "Добавить в белый список",
-    "description": "One-tap button in the site location editor that adds the current site to the Filters allowlist."
-  },
-  "siteLocation_hintDenylist": {
-    "message": "Фильтры не подменяют данные на этом сайте, потому что он в вашем чёрном списке.",
-    "description": "Hint in the site location editor in denylist mode when the current site is blocked by the denylist, so the site location wouldn't apply there."
+    "description": "Button on the This site card (and in the per-site editor's Filters hint) that adds the current site to the Allowlist. Uses filters_allowlistName's noun."
   },
   "siteLocation_hintVpn": {
     "message": "Сайты по-прежнему видят IP-адрес вашего VPN. Другое местоположение здесь может выглядеть несогласованным.",
@@ -777,25 +879,13 @@
     "message": "Сайты",
     "description": "Label of the site location editor's text field listing the sites the location applies to."
   },
-  "siteLocation_sitesHint": {
-    "message": "Разделяйте сайты запятыми, например chatgpt.com, openai.com",
-    "description": "Help text under the Sites field. Keep the example domains unchanged."
-  },
   "siteLocation_searchLabel": {
     "message": "Местоположение",
     "description": "Label of the site location editor's location search field."
   },
-  "siteLocation_favoriteLabel": {
-    "message": "Или выберите из избранного",
-    "description": "Label of the site location editor's favorites dropdown."
-  },
-  "siteLocation_favoriteNone": {
-    "message": "Выберите из избранного",
-    "description": "Placeholder option in the site location editor's favorites dropdown."
-  },
-  "siteLocation_chosenNone": {
-    "message": "Местоположение ещё не выбрано",
-    "description": "Shown in the site location editor before a location has been picked."
+  "siteLocation_favorites": {
+    "message": "Избранное",
+    "description": "Heading above the user's saved favorites, listed as suggestions under the Location field of the per-site location editor."
   },
   "siteLocation_explain": {
     "message": "Страницы на $SITES$ будут видеть $PLACE$.",
@@ -871,15 +961,127 @@
   },
   "siteLocation_sectionTitle": {
     "message": "Местоположения для сайтов",
-    "description": "Label of the collapsed Per-site locations disclosure at the bottom of the Filters tab. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
+    "description": "The Filters root's row and the title of the Per-site locations screen. 'Per-site locations' is the feature's glossary name: each site can have its own location. Keep it short, with no 'optional'."
   },
   "siteLocation_sectionDesc": {
     "message": "Используйте другое местоположение на отдельных сайтах.",
-    "description": "One short line under the Per-site locations disclosure label on the Filters tab."
+    "description": "Caption under the Per-site locations screen's title on the Filters tab."
   },
   "siteLocation_add": {
     "message": "Задать местоположение для сайта",
-    "description": "Button inside the Per-site locations disclosure on the Filters tab that opens the editor for a new entry. Worded so it can't be read as adding a filter."
+    "description": "Green button on the Per-site locations screen that opens the editor for a new entry with no site filled in (when the current tab's site already has one, or there's no site). The markup draws a ＋ before it. Worded so it can't be read as adding a filter."
+  },
+  "siteLocation_setForSite": {
+    "message": "Задать местоположение для $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "Green button on the Per-site locations screen when the current tab's site has no entry of its own; opens the editor with the site filled in. The markup draws a ＋ before it. $SITE$ is the site without www."
+  },
+  "siteLocation_newLocation": {
+    "message": "Новое местоположение для сайта",
+    "description": "Title of the per-site editor screen for a new entry."
+  },
+  "siteLocation_srcSite": {
+    "message": "Местоположение для сайта",
+    "description": "Title of the per-site editor screen for an existing entry; also names where a site's place comes from. Glossary term, paired with 'Main location'."
+  },
+  "siteLocation_srcMain": {
+    "message": "Основное местоположение",
+    "description": "Under the site on the This site card: the place shown comes from the main location. Glossary term, paired with 'Per-site location'."
+  },
+  "siteLocation_srcEntry": {
+    "message": "Местоположение для сайта · $ENTRY$",
+    "placeholders": {
+      "entry": {
+        "content": "$1",
+        "example": "Google"
+      }
+    },
+    "description": "Under the site on the This site card: the place comes from a per-site location through an entry that isn't the site's own. $ENTRY$ is that entry as its list row shows it, for example Google or *.google.com."
+  },
+  "siteLocation_useHereAria": {
+    "message": "Использовать другое местоположение на $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "chatgpt.com"
+      }
+    },
+    "description": "Screen-reader description of the This site card's row when the main location applies; opening it starts a new per-site location for $SITE$, the current site without www."
+  },
+  "siteLocation_changeAria": {
+    "message": "Изменить местоположение для $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1",
+        "example": "example.com"
+      }
+    },
+    "description": "Screen-reader description of a row on the Per-site locations screen, which opens the editor. $SITE$ is the row's site or sites."
+  },
+  "siteLocation_countLocations": {
+    "message": "Местоположений: $COUNT$",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "2"
+      }
+    },
+    "description": "The Per-site locations row's value on the Filters root, for 2 or more entries. $COUNT$ is a formatted number."
+  },
+  "siteLocation_countLocationsOne": {
+    "message": "1 местоположение",
+    "description": "The Per-site locations row's value with exactly one entry (WebExtension i18n has no plural forms)."
+  },
+  "siteLocation_noLocations": {
+    "message": "Нет",
+    "description": "The Per-site locations row's value on the Filters root with no entries. A status value."
+  },
+  "siteLocation_notUsed": {
+    "message": "Не используется · «Сайты»: выкл.",
+    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: the Sites tab's settings keep GeoSpoof off there, so its location isn't used. 'Sites' is the tab's name (tab_filters), inflected as the grammar needs and written the way the locale writes a UI element's name."
+  },
+  "siteLocation_notUsedOn": {
+    "message": "Не используется на $SITES$ · «Сайты»: выкл.",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "As siteLocation_notUsed, for an entry with several sites, naming the ones Filters keep off. $SITES$ is up to two sites, or two and 'and N more' (siteLocation_sitesAndMore)."
+  },
+  "siteLocation_somePages": {
+    "message": "Используется только на некоторых страницах",
+    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: Filters cover only some pages of the site."
+  },
+  "siteLocation_somePagesOn": {
+    "message": "Используется только на некоторых страницах $SITES$",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv"
+      }
+    },
+    "description": "As siteLocation_somePages, for an entry with several sites. $SITES$ names the sites as in siteLocation_notUsedOn."
+  },
+  "siteLocation_sitesAndMore": {
+    "message": "$SITES$ и ещё $COUNT$",
+    "placeholders": {
+      "sites": {
+        "content": "$1",
+        "example": "twitch.tv, kick.com"
+      },
+      "count": {
+        "content": "$2",
+        "example": "3"
+      }
+    },
+    "description": "Names more than two sites in a mark: the first two, then how many more. $SITES$ is the first two joined by ', ', $COUNT$ a formatted number."
   },
   "siteLocation_edit": {
     "message": "Изменить",
@@ -898,8 +1100,8 @@
     "description": "Accessible label of the Per-site locations list on the Filters tab. Same text as siteLocation_sectionTitle."
   },
   "siteLocation_proNote": {
-    "message": "🔒 «Местоположения для сайтов» — функция GeoSpoof Pro. Оформите Pro в приложении GeoSpoof, чтобы задавать сайтам собственное местоположение.",
-    "description": "Shown inside the Per-site locations disclosure on the Filters tab for non-Pro users, whose controls there are disabled, explaining that it is a Pro feature."
+    "message": "🔒 Белый список, чёрный список и местоположения для сайтов — функции GeoSpoof Pro. Оформите Pro в приложении GeoSpoof.",
+    "description": "Shown on the Filters tab in place of the mode sentence for non-Pro iOS users, whose Allowlist, Denylist and per-site location controls are locked; the locked Per-site locations row is described by it. Must contain siteLocation_sectionTitle's words."
   },
   "details_siteLocation": {
     "message": "На этом сайте",
@@ -919,49 +1121,37 @@
     },
     "description": "Toolbar button tooltip when a site location applies to the current tab. $PLACE$ is the site location's name, $SITE$ the host name."
   },
-  "filters_typeLabel": {
-    "message": "Тип",
-    "description": "Accessible name of the menu next to the Filters add box (and the per-site location Sites field) that picks what the typed text is: a site, an exact address, subdomains, a site group, or a list from a link."
-  },
   "filters_typeSite": {
     "message": "Сайт и его поддомены",
-    "description": "Type menu option (default): the typed text is a site pattern such as example.com, which covers the site and all its subdomains."
+    "description": "Second line of an add-field suggestion: the typed text as a site pattern such as example.com, which covers the site and all its subdomains."
   },
   "filters_typeExact": {
     "message": "Только точный адрес",
-    "description": "Type menu option: the typed host matches only itself, not its subdomains. Also shown under an exact-address entry in the list."
+    "description": "Second line of an add-field suggestion: the typed host matches only itself, not its subdomains. Also shown under an exact-address entry in the list."
   },
   "filters_typeSubdomains": {
     "message": "Только поддомены",
-    "description": "Type menu option: the typed site's subdomains, not the site itself (stored as *.example.com)."
+    "description": "Second line of an add-field suggestion: the typed site's subdomains, not the site itself (stored as *.example.com)."
   },
   "filters_typeGroup": {
     "message": "Группа сайтов",
-    "description": "Type menu option: pick a site group, a named list of a service's sites (for example all of Google's sites). Glossary term shared with the GeoSpoof app."
+    "description": "Second line of an add-field suggestion for a site group, a named list of a service's sites (for example all of Google's sites), before its size. Glossary term shared with the GeoSpoof app."
   },
   "filters_typeLink": {
     "message": "Список по ссылке",
-    "description": "Type menu option: download a list of sites from an https link (a .txt, .list, .conf or .yaml file). Glossary term shared with the GeoSpoof app."
-  },
-  "filters_placeholderExact": {
-    "message": "mail.example.com",
-    "description": "Placeholder in the add box when the type is 'Exact address only'. An example host; keep it as is."
-  },
-  "filters_placeholderSubdomains": {
-    "message": "example.com",
-    "description": "Placeholder in the add box when the type is 'Subdomains only'. An example host; keep it as is."
-  },
-  "filters_placeholderGroup": {
-    "message": "Поиск групп сайтов, например Google",
-    "description": "Placeholder in the add box when the type is 'Site group'; typing searches the site groups. 'Google' is a brand name."
-  },
-  "filters_placeholderLink": {
-    "message": "https://example.com/list.txt",
-    "description": "Placeholder in the add box when the type is 'List from a link'. An example URL; keep it as is."
+    "description": "Second line of the add-field suggestion for a pasted link: download a list of sites from an https link (a .txt, .list, .conf or .yaml file). Glossary term shared with the GeoSpoof app."
   },
   "filters_errorExact": {
     "message": "Укажите один адрес, например mail.example.com, без *",
     "description": "Inline error when the text typed as an exact address isn't a single host (for example it contains a * wildcard)."
+  },
+  "filters_errorSiteOrGroup": {
+    "message": "Укажите сайт вида example.com или выберите группу сайтов ниже.",
+    "description": "Error under the Filters add field when the typed text isn't a site (for example 'google'). The matching site groups stay listed below it to pick. Keep example.com unchanged."
+  },
+  "filters_errorSite": {
+    "message": "Укажите сайт вида example.com.",
+    "description": "Error under the Filters add field when the typed text isn't a site, where site groups aren't available (Safari). Keep example.com unchanged."
   },
   "filters_syntaxExact": {
     "message": "Только этот точный адрес, без поддоменов",
@@ -986,6 +1176,10 @@
   "siteGroups_allGroups": {
     "message": "Все группы сайтов",
     "description": "Heading of the second section in the site group picker: every other site group."
+  },
+  "siteGroups_browseAll": {
+    "message": "Показать все группы сайтов…",
+    "description": "Last row of the add field's suggestions. Opens the full list of site groups (Popular, then All site groups); the ellipsis says it shows more choices."
   },
   "siteGroups_noMatch": {
     "message": "Нет групп сайтов, подходящих под $QUERY$",

@@ -16,6 +16,7 @@
 import type {
   Location,
   LocationName,
+  ScopeMode,
   Settings,
   SiteLocation,
   Timezone,
@@ -365,6 +366,339 @@ export function siteLocationDisplayName(entry: SiteLocation): string {
     }
   }
   return `${entry.location.latitude.toFixed(4)}, ${entry.location.longitude.toFixed(4)}`;
+}
+
+/**
+ * How a Filters entry relates to a site: every URL the site matches, the entry
+ * matches too (`covers`); some URLs match both (`intersects`); none do
+ * (`disjoint`).
+ */
+export type FilterRelation = "covers" | "intersects" | "disjoint";
+
+/**
+ * The hosts a canonical typed pattern's host matches, as the compiler reads
+ * it (`patternToInit`): `*` any host; `*.L` strict subdomains of L; an IPv4
+ * literal or an exact address's host exactly itself; any other L itself and
+ * its subdomains. L is held as its A-label; null when it has none, since such
+ * a pattern compiles to nothing.
+ */
+type HostSet =
+  | { kind: "any" }
+  | { kind: "exactly"; host: string }
+  | { kind: "itselfAndSubdomains"; host: string }
+  | { kind: "subdomains"; host: string };
+
+function hostSetOf(host: string, exact: boolean): HostSet | null {
+  if (host === "*") {
+    return exact ? null : { kind: "any" };
+  }
+  if (host.startsWith("*.")) {
+    if (exact) {
+      return null;
+    }
+    const ascii = hostToASCII(host.slice(2));
+    return ascii === null ? null : { kind: "subdomains", host: ascii };
+  }
+  if (isValidIpv4(host)) {
+    return { kind: "exactly", host };
+  }
+  const ascii = hostToASCII(host);
+  if (ascii === null) {
+    return null;
+  }
+  return exact ? { kind: "exactly", host: ascii } : { kind: "itselfAndSubdomains", host: ascii };
+}
+
+/** Dot-suffix containment only, so `witch.tv` never contains `twitch.tv`. */
+function isStrictlyWithin(host: string, domain: string): boolean {
+  return host.endsWith(`.${domain}`);
+}
+
+function isWithin(host: string, domain: string): boolean {
+  return host === domain || isStrictlyWithin(host, domain);
+}
+
+/** Site hosts ⊆ entry hosts. */
+function hostCovers(e: HostSet, p: HostSet): boolean {
+  if (e.kind === "any") {
+    return true;
+  }
+  if (p.kind === "any") {
+    return false;
+  }
+  if (e.kind === "exactly") {
+    return p.kind === "exactly" && p.host === e.host;
+  }
+  if (e.kind === "subdomains" && p.kind !== "subdomains") {
+    return isStrictlyWithin(p.host, e.host);
+  }
+  return isWithin(p.host, e.host);
+}
+
+function hostsMeet(e: HostSet, p: HostSet): boolean {
+  if (e.kind === "any" || p.kind === "any") {
+    return true;
+  }
+  if (e.kind === "exactly" && p.kind === "exactly") {
+    return e.host === p.host;
+  }
+  if (e.kind === "exactly") {
+    return p.kind === "subdomains" ? isStrictlyWithin(e.host, p.host) : isWithin(e.host, p.host);
+  }
+  if (p.kind === "exactly") {
+    return e.kind === "subdomains" ? isStrictlyWithin(p.host, e.host) : isWithin(p.host, e.host);
+  }
+  return isWithin(e.host, p.host) || isWithin(p.host, e.host);
+}
+
+/** The schemes a canonical scheme matches; unset is http and https. `*` is handled by callers. */
+function schemesOf(scheme: string): readonly string[] {
+  return scheme === "" ? ["http", "https"] : [scheme];
+}
+
+/** A canonical typed entry split into its parts, with an exact address's `=` removed. */
+function typedParts(pattern: string): {
+  exact: boolean;
+  scheme: string;
+  host: string;
+  port: string;
+  path: string;
+} {
+  const exact = pattern.startsWith(EXACT_PREFIX);
+  return { exact, ...decomposePattern(exact ? pattern.slice(EXACT_PREFIX.length) : pattern) };
+}
+
+/**
+ * The relation of one canonical Filters entry to one canonical site-location
+ * entry (`site` has no path). A port of the app's
+ * `SiteLocationFiltersCheck.relation`, plus exact addresses (an exact host
+ * set). Hosts compare as A-labels; a side with no A-label form is disjoint.
+ * Site group and link tokens are disjoint: their data answers for them, so
+ * callers probe a URL instead.
+ */
+export function filterEntryRelation(entry: string, site: string): FilterRelation {
+  if (isSiteGroupToken(entry) || isSiteGroupToken(site)) {
+    return "disjoint";
+  }
+  const e = typedParts(entry);
+  const p = typedParts(site);
+  const eHost = hostSetOf(e.host, e.exact);
+  const pHost = hostSetOf(p.host, p.exact);
+  if (eHost === null || pHost === null) {
+    return "disjoint";
+  }
+  const eSchemes = schemesOf(e.scheme);
+  const pSchemes = schemesOf(p.scheme);
+  const schemesCover =
+    e.scheme === "*" || (p.scheme !== "*" && pSchemes.every((s) => eSchemes.includes(s)));
+  const schemesMeet =
+    e.scheme === "*" || p.scheme === "*" || pSchemes.some((s) => eSchemes.includes(s));
+  const portsCover = e.port === "" || (p.port !== "" && p.port === e.port);
+  const portsMeet = e.port === "" || p.port === "" || p.port === e.port;
+  const everyPath = e.path === "" || e.path === "/*";
+  if (schemesCover && portsCover && everyPath && hostCovers(eHost, pHost)) {
+    return "covers";
+  }
+  if (schemesMeet && portsMeet && hostsMeet(eHost, pHost)) {
+    return "intersects";
+  }
+  return "disjoint";
+}
+
+/**
+ * A URL standing for a site-location pattern, for asking Filters about it:
+ * the pattern's scheme when it's `http` or `https` (else `https`), its host as
+ * an A-label, its port, and path `/`. Null for tokens, a wildcard host, and a
+ * host without an A-label form.
+ */
+export function filterProbeUrl(pattern: string): string | null {
+  if (isSiteGroupToken(pattern)) {
+    return null;
+  }
+  const { scheme, host, port } = typedParts(pattern);
+  if (host === "*" || host.startsWith("*.")) {
+    return null;
+  }
+  const ascii = isValidIpv4(host) ? host : hostToASCII(host);
+  if (ascii === null) {
+    return null;
+  }
+  const probeScheme = scheme === "http" || scheme === "https" ? scheme : "https";
+  return `${probeScheme}://${ascii}${port === "" ? "" : `:${port}`}/`;
+}
+
+/** The Filters state a per-site location check reads. Only the active list counts. */
+export interface FilterListArgs {
+  scopeMode: ScopeMode;
+  allowlist: readonly string[];
+  denylist: readonly string[];
+  siteGroups: SiteGroupLookup;
+  proFeaturesBlocked?: boolean;
+}
+
+/**
+ * What Filters do to one site-location pattern: on everywhere it reaches
+ * (`on`), off there (`off`), on only some pages of it (`somePages`), or not
+ * checked (`skipped`: tokens, wildcard hosts, hosts without an A-label form,
+ * All sites mode, and the Safari Pro lock).
+ */
+export type SiteFilterOutcome = "on" | "off" | "somePages" | "skipped";
+
+/**
+ * Check one site-location pattern against the active Filters list, in the
+ * order the design record fixes (direction.md section 7, M2). Typed entries
+ * answer through `filterEntryRelation`; when none does, a probe URL for the
+ * pattern goes through `computeEffectiveEnabled` with the master switch
+ * forced on, so tokens are answered too and Location Protection being off
+ * never marks anything.
+ *   - Allowlist: a covering entry → on; else an intersecting one → somePages;
+ *     else the probe decides.
+ *   - Denylist: a covering entry or a probe that's off → off; else an
+ *     intersecting entry → somePages; else on.
+ */
+export function siteFilterOutcome(pattern: string, args: FilterListArgs): SiteFilterOutcome {
+  const { scopeMode } = args;
+  if (scopeMode === "all" || (__SAFARI__ && args.proFeaturesBlocked === true)) {
+    return "skipped";
+  }
+  const probe = filterProbeUrl(pattern);
+  if (probe === null) {
+    return "skipped";
+  }
+  const list = scopeMode === "allowlist" ? args.allowlist : args.denylist;
+  const relations = list.map((entry) => filterEntryRelation(entry, pattern));
+  const covered = relations.includes("covers");
+  const intersects = relations.includes("intersects");
+  const probeOn = (): boolean =>
+    computeEffectiveEnabled({
+      masterEnabled: true,
+      scopeMode,
+      allowlist: [...args.allowlist],
+      denylist: [...args.denylist],
+      topLevelUrl: probe,
+      isRestricted: () => false,
+      siteGroups: args.siteGroups,
+      proFeaturesBlocked: args.proFeaturesBlocked,
+    });
+  if (scopeMode === "allowlist") {
+    if (covered) {
+      return "on";
+    }
+    if (intersects) {
+      return "somePages";
+    }
+    return probeOn() ? "on" : "off";
+  }
+  if (covered || !probeOn()) {
+    return "off";
+  }
+  return intersects ? "somePages" : "on";
+}
+
+/**
+ * The mark a per-site location's row carries: none, "Not used" (`off`), or
+ * "some pages" (`somePages`). `hosts` are the display hosts of the patterns
+ * with that outcome (no `=`, scheme or port), de-duplicated, in pattern order.
+ * `single` is true only when the entry has exactly one pattern, so the mark
+ * needn't name it (direction review M13).
+ */
+export type SiteLocationFiltersMark =
+  | { kind: "none" }
+  | { kind: "off"; hosts: string[]; single: boolean }
+  | { kind: "somePages"; hosts: string[]; single: boolean };
+
+/** The Filters mark for an entry's patterns. `off` wins over `somePages`. */
+export function siteLocationFiltersMark(
+  patterns: readonly string[],
+  args: FilterListArgs
+): SiteLocationFiltersMark {
+  const off: string[] = [];
+  const somePages: string[] = [];
+  for (const pattern of patterns) {
+    const outcome = siteFilterOutcome(pattern, args);
+    const target = outcome === "off" ? off : outcome === "somePages" ? somePages : null;
+    if (target === null) {
+      continue;
+    }
+    const { host } = typedParts(pattern);
+    if (!target.includes(host)) {
+      target.push(host);
+    }
+  }
+  const single = patterns.length === 1;
+  if (off.length > 0) {
+    return { kind: "off", hosts: off, single };
+  }
+  if (somePages.length > 0) {
+    return { kind: "somePages", hosts: somePages, single };
+  }
+  return { kind: "none" };
+}
+
+/**
+ * The entry of the active Filters list that decides `topLevelUrl`
+ * (evaluation.md 8.5.3): among the entries that match the page (a typed entry
+ * by `matchesPattern`, a token by `siteGroups.has` on the hostname, the test
+ * `computeEffectiveEnabled` runs), typed entries before tokens; typed entries
+ * by label count, then host kind (exact, wildcard, plain), both descending,
+ * then entries with a path or a port first; tokens by the smallest group; list
+ * order last. Null in All sites mode, under the Safari Pro lock, for a URL
+ * without a hostname, and when nothing in the active list matches.
+ */
+export function findDecidingFilterEntry(args: {
+  scopeMode: ScopeMode;
+  allowlist: readonly string[];
+  denylist: readonly string[];
+  topLevelUrl: string;
+  siteGroups: SiteGroupLookup;
+  proFeaturesBlocked?: boolean;
+}): string | null {
+  const { scopeMode, topLevelUrl, siteGroups } = args;
+  if (scopeMode === "all" || (__SAFARI__ && args.proFeaturesBlocked === true)) {
+    return null;
+  }
+  let host: string;
+  try {
+    host = new URL(topLevelUrl).hostname;
+  } catch {
+    return null;
+  }
+  if (host.length === 0) {
+    return null;
+  }
+  const list = scopeMode === "allowlist" ? args.allowlist : args.denylist;
+  let best: { entry: string; rank: readonly number[] } | null = null;
+  for (const entry of list) {
+    let rank: readonly number[];
+    if (isSiteGroupToken(entry)) {
+      if (!siteGroups.has(entry, host)) {
+        continue;
+      }
+      rank = [0, -(siteGroups.size(entry) ?? Number.MAX_SAFE_INTEGER)];
+    } else {
+      if (!matchesPattern(topLevelUrl, entry)) {
+        continue;
+      }
+      const [labels, hostKind] = siteLocationSpecificity(entry);
+      const { port, path } = typedParts(entry);
+      rank = [1, labels, hostKind, path !== "" || port !== "" ? 1 : 0];
+    }
+    // Strictly greater, so a tie keeps the earlier entry.
+    if (best === null || compareRank(rank, best.rank) > 0) {
+      best = { entry, rank };
+    }
+  }
+  return best === null ? null : best.entry;
+}
+
+/** Lexicographic comparison of two ranks; positive when `a` is higher. Ties keep the earlier entry. */
+function compareRank(a: readonly number[], b: readonly number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) {
+      return a[i] - b[i];
+    }
+  }
+  return 0;
 }
 
 // ─────────────────────────────── Validation ───────────────────────────────

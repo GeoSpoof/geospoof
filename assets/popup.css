@@ -496,6 +496,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   margin-bottom: 8px;
 }
 
+/* The same look on a real heading (SITE RULES): no UA margins or size. */
+h2.section-heading,
+h3.section-heading {
+  margin: 0 0 8px;
+}
+
 .current-location {
   background: var(--surface);
   padding: 12px;
@@ -2082,6 +2088,26 @@ input[type="checkbox"]:checked + .toggle-slider:before {
     max-width: 28px !important;
     padding: 0 3px !important;
   }
+
+  /* 44 px targets (HIG). Every site row is already 44 px with one line and
+     64 px with two. */
+  .scope-mode-btn,
+  .back-row,
+  .site-card-btn {
+    min-height: 44px;
+  }
+
+  /* A list row's ✕ keeps its glyph box (about 26 × 18 px), and a
+     pseudo-element gives it a 44 × 44 hit area. */
+  .scope-site-remove {
+    position: relative;
+  }
+
+  .scope-site-remove::before {
+    content: "";
+    position: absolute;
+    inset: -13px -9px;
+  }
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -2121,7 +2147,8 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .scope-mode-desc {
   font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 12px;
+  /* 16 px between sections: the mode, then the list. */
+  margin-bottom: 16px;
   line-height: 1.4;
 }
 
@@ -2149,30 +2176,16 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   color: var(--text-muted);
 }
 
-.scope-list-manager {
-  margin-top: 4px;
-}
-
-/* Slim list header: uppercase purpose label (mirrors .detail-label) + a
-   count chip using the status-badge surface. */
+/* The list's section heading and its count (main's look). */
 .scope-list-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 0;
   margin-bottom: 8px;
 }
-
-/* Section-heading tier — brand green, peer of .section-heading ("LOCATION").
-   Heads the list section in the Filters tab. */
-.scope-list-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--brand);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.scope-list-header .section-heading {
+  margin: 0;
 }
-
 .scope-list-count {
   font-size: 11px;
   font-weight: 600;
@@ -2193,7 +2206,8 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .scope-add-row input {
   flex: 1;
   min-width: 0;
-  padding: 10px;
+  height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--border-input);
   border-radius: 8px;
   font-size: 14px;
@@ -2206,7 +2220,8 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 
 .scope-add-row button {
   flex-shrink: 0;
-  padding: 10px 14px;
+  height: 36px;
+  padding: 0 14px;
   background: var(--brand);
   border: 1px solid transparent;
   border-radius: 8px;
@@ -2221,36 +2236,14 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--brand-hover);
 }
 
-.scope-add-current-row {
-  margin-bottom: 8px;
-}
-
-.scope-add-current {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 100%;
-  padding: 10px 14px;
+/* The field's Add is secondary (K1); the green action adds this site. */
+#scopeAddButton {
+  min-width: 64px;
   background: var(--btn-secondary);
-  border: none;
-  border-radius: 8px;
   color: var(--btn-secondary-text);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.3s;
 }
 
-/* Leading "+" affordance so the secondary action reads as "add". */
-.scope-add-current::before {
-  content: "+";
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.scope-add-current:hover {
+#scopeAddButton:hover:not(:disabled) {
   background: var(--btn-secondary-hover);
 }
 
@@ -2389,11 +2382,13 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   display: none;
 }
 
+/* 43 px, the height the rows had with their letter badge (H-5). */
 .scope-site-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 44px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-subtle);
   transition: background 0.15s;
@@ -2407,6 +2402,8 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--surface-hover);
 }
 
+/* The decorative letter badge (main's look): first letter on a colour from
+   the site's name. */
 .scope-site-icon {
   flex-shrink: 0;
   width: 22px;
@@ -2456,15 +2453,451 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .scope-mode-btn:focus-visible,
 .scope-add-row input:focus-visible,
 .scope-add-row button:focus-visible,
-.scope-add-current:focus-visible,
 .scope-site-remove:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
-   Per-site locations: the Main-tab line (only when one applies), the Filters-tab
-   disclosure, the shared editor, and its search results. Optional and
+   Filters screens (design H): the root's rows, each screen's back row,
+   title and caption, the green "＋ Add <site>" action, and the site row the
+   Per-site locations screen (and the This site card) use.
+   ────────────────────────────────────────────────────────────────────── */
+
+/* Several of these set `display`, which would beat the UA's `[hidden]`. */
+.filters-screen[hidden],
+.filters-screen [hidden] {
+  display: none !important;
+}
+
+/* "‹ Filters": names the screen it returns to. */
+.back-row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--brand);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Keeps the space after "‹", which a flex item would otherwise trim. */
+.back-row > [aria-hidden="true"] {
+  white-space: pre;
+}
+
+.back-row:hover {
+  color: var(--brand-hover);
+}
+
+/* Takes focus from script when its screen opens, to be read out. */
+/* A sub-screen's nav bar (HIG): the back row at the leading edge and the
+   title centred over the screen. Two equal side columns keep it centred. When
+   the back label doesn't fit beside the title it collapses to its ‹, as iOS
+   shortens a long back title (fitNavBar); its accessible name stays whole.
+   44 px tall, 12 px above the content. */
+.nav-bar {
+  display: grid;
+  grid-template-columns: minmax(44px, 1fr) auto minmax(44px, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 44px;
+  margin-bottom: 12px;
+}
+.nav-bar .back-row {
+  justify-self: start;
+  max-width: 100%;
+  min-width: 0;
+  height: 44px;
+  white-space: nowrap;
+}
+.nav-bar .back-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Collapsed: the label is read, not shown (as .visually-hidden). */
+.nav-bar .back-row.compact > span:last-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nav-bar .view-title {
+  grid-column: 2;
+  height: auto;
+  margin: 0;
+  text-align: center;
+}
+
+.view-title {
+  height: 24px;
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 24px;
+  color: var(--text-strong);
+}
+
+.view-title:focus {
+  outline: none;
+}
+
+/* The one-line description under a screen's title. */
+.view-caption {
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-muted);
+}
+
+/* "＋ Add twitch.tv" / "＋ Set a location for a site": the screen's one green action. */
+.primary-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 36px;
+  margin-bottom: 8px;
+  padding: 0 14px;
+  background: var(--brand);
+  border: none;
+  border-radius: 8px;
+  color: var(--text-on-brand);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.primary-add > :not(.primary-add-plus) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.primary-add:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+.primary-add:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.primary-add-plus {
+  flex: none;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* "✓ twitch.tv · Listed", in place of "＋ Add <site>". */
+.scope-site-status {
+  height: 20px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-site-status:focus {
+  outline: none;
+}
+
+/* The help follows the list. */
+.scope-list + .scope-syntax {
+  margin-top: 8px;
+}
+
+/* In the editor the help sits right under the Sites field, inside the card. */
+.site-location-syntax {
+  margin: 4px 0 8px;
+}
+.site-location-syntax .scope-syntax-summary {
+  padding: 6px 0;
+}
+
+/* The root's two rows that open a screen, in one card: site rows (below)
+   divided by a thin line. A hidden list row (All sites) leaves no line. */
+.site-card.site-row-group {
+  margin-bottom: 0;
+}
+.site-row-group > :not([hidden]) ~ :not([hidden]) {
+  border-top: 1px solid var(--border-subtle);
+}
+/* The site row (direction.md 4.2): the site at the left, the value and its ›
+   at the right of the same line, the source or a mark under the site. 44 px
+   with one line, 64 px with two. */
+.site-row {
+  display: block;
+  padding: 12px;
+}
+
+.site-row[role="button"] {
+  cursor: pointer;
+}
+
+/* A site row with a letter badge: the badge, then the text beside it. */
+.site-row.with-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.site-row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Stacked (refitSiteRow, when the site and the value don't share a line):
+   the site on line 1; the value, then "· source" on line 2, or the source on
+   line 3 when it doesn't fit; the › centred at the right. 16 px of the body
+   keep the text clear of the ›; the row's padding is unchanged. */
+.site-row.stacked {
+  position: relative;
+}
+.site-row.stacked .site-row-body {
+  padding-right: 16px;
+}
+.site-row.stacked .site-row-line {
+  display: contents;
+}
+.site-row.stacked .site-row-host {
+  display: block;
+}
+.site-row.stacked .site-row-trail {
+  display: inline;
+  margin-left: 0;
+  text-align: left;
+}
+.site-row.stacked .site-row-chev {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 0;
+}
+.site-row.stacked .site-row-sub {
+  display: inline-block;
+  margin-top: 0;
+}
+.site-row.stacked .site-row-sub::before {
+  content: "· ";
+}
+.site-row.stacked.sub-below .site-row-sub {
+  display: block;
+  margin-top: 2px;
+}
+.site-row.stacked.sub-below .site-row-sub::before {
+  content: none;
+}
+/* The 22 px badge would make a one-line 44 px row 46; it overhangs its 20 px
+   line by 1 px each way instead. */
+.site-row.with-badge > .scope-site-icon {
+  margin-block: -1px;
+}
+
+.site-row[role="button"]:hover {
+  background: var(--surface-hover);
+}
+
+/* Site and value side by side when both fit. Otherwise the value takes the
+   next line, still at the trailing edge, and its › goes with it. */
+.site-row-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 12px;
+  row-gap: 2px;
+}
+
+.site-row-host {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+
+/* A value too long for one line wraps right-aligned, and the no-break space
+   keeps the › after its last word. */
+.site-row-trail {
+  margin-left: auto;
+  text-align: right;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* line-height: 1 keeps the 18 px glyph inside the 20 px line. */
+.site-row-chev {
+  margin-left: 4px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.site-row-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-muted);
+}
+
+/* A mark ("⚠ Not used · Off in Filters"): .scope-site-meta.warning's colour
+   and weight, not the .warning banner. */
+/* The root rows' count ("2"): muted, as a value that isn't a place. */
+.site-row-value.count {
+  color: var(--text-muted);
+}
+/* An empty Allowlist: "⚠ Empty · Off on every site", the marks' colour. */
+.site-row-value.warn {
+  color: var(--warn-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+/* Locked (Safari without Pro): still a Tab stop, described by the Pro note,
+   but inert, with 🔒 in place of the ›. */
+.site-row[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+.site-row[aria-disabled="true"]:hover {
+  background: none;
+}
+.site-row[aria-disabled="true"] .site-row-host,
+.site-row[aria-disabled="true"] .site-row-value {
+  color: var(--text-faint);
+}
+.site-row[aria-disabled="true"] .site-row-chev {
+  font-size: 13px;
+}
+.site-row-sub.warn {
+  color: var(--warn-text);
+  font-weight: 500;
+}
+
+/* The Per-site locations list: .scope-list's box, rows divided by a line. */
+.site-row-list > [role="listitem"] + [role="listitem"] {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.site-row-list ~ .scope-inline-msg,
+.site-row-list ~ .site-location-hint {
+  margin-top: 8px;
+}
+
+/* The This site card (direction.md 4.2 design B): one site row in a box.
+   The row and the action area carry their own padding, so a hovered row
+   fills the card. */
+.site-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+/* At most one reason, then at most one button, then the reload hint or the
+   error. Not rendered when empty. */
+.site-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.site-card-actions[hidden] {
+  display: none;
+}
+
+.site-card-reason {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-muted);
+}
+
+.site-card-actions .site-location-hint,
+.site-card-actions .scope-inline-msg {
+  margin: 0;
+}
+
+/* Filters' full-width secondary button: a filter action, grey because it
+   also turns into its own undo ("Remove from Allowlist"). 36 px from its
+   padding and line height; no min-height here, so the touch block's 44 px
+   (earlier in this file) isn't overridden. */
+.site-card-btn {
+  width: 100%;
+  padding: 8px 14px;
+  background: var(--btn-secondary);
+  border: none;
+  border-radius: 8px;
+  color: var(--btn-secondary-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.site-card-btn:hover {
+  background: var(--btn-secondary-hover);
+}
+
+.site-card-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.back-row:focus-visible,
+.primary-add:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Inset, so the card's and the list's clipping doesn't cut it off. */
+.site-row:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* The This site card's row, in every state: a box 12 px inside the card,
+   the button's column (.site-card-actions' 12 px sides) and radius (8 px),
+   with 12 px around its text. Hover, press and the focus ring fill that box;
+   a plain row (Off, Not set) has the same box and no highlight. */
+#thisSiteRow > .site-row {
+  margin: 12px 12px 0;
+  padding: 12px;
+  border-radius: 8px;
+}
+#thisSiteRow > .site-row[role="button"]:active {
+  background: var(--surface-hover);
+}
+/* 12 px between the row and the button: the card's padding above the row. */
+#thisSiteRow + .site-card-actions {
+  padding-top: 12px;
+}
+/* With no action area, the card ends 12 px below the row. */
+#thisSiteRow:has(+ .site-card-actions[hidden]) > .site-row {
+  margin-bottom: 12px;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Per-site locations: the Main-tab line (only when one applies), the
+   Per-site locations screen, the editor screen, and its search results. Optional and
    secondary, so low emphasis throughout. State is always spelled out in text,
    never colour alone.
    ────────────────────────────────────────────────────────────────────── */
@@ -2473,7 +2906,6 @@ input[type="checkbox"]:checked + .toggle-slider:before {
    otherwise beat the UA's `[hidden] { display: none }`. */
 .site-location-line[hidden],
 .site-location-line [hidden],
-.site-locations-disclosure [hidden],
 .site-location-editor[hidden],
 .site-location-editor [hidden] {
   display: none !important;
@@ -2515,87 +2947,9 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   margin: 2px 0 0;
 }
 
-/* Filters tab: a collapsed, secondary disclosure at the bottom. Mirrors the
-   .scope-syntax summary, not the Filters list heading. The divider above it
-   ends the Filters group; its bottom margin spaces the bar. */
-.site-locations-divider {
-  margin-top: 16px;
-}
-
-.site-locations-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--surface);
-  border-radius: 8px;
-  color: var(--text-muted);
-  cursor: pointer;
-  /* Remove the native disclosure triangle (Firefox); we render our own chevron. */
-  list-style: none;
-  transition: color 0.2s;
-}
-
-/* Remove the native disclosure triangle (WebKit/Blink). */
-.site-locations-summary::-webkit-details-marker {
-  display: none;
-}
-
-.site-locations-summary:hover {
-  color: var(--text);
-}
-
-.site-locations-chevron {
-  display: inline-block;
-  font-size: 10px;
-  transition: transform 0.2s;
-}
-
-.site-locations-disclosure[open] .site-locations-chevron {
-  transform: rotate(90deg);
-}
-
-/* Light mode only, in effect (dark --badge-bg is already this grey): #666 on
-   #e8e8e8 is 4.69:1, where --badge-bg #e0e0e0 would be 4.35:1. */
-.site-locations-summary .scope-list-count {
-  background: var(--btn-secondary);
-}
-
-.site-locations-summary-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.site-locations-summary-title {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.site-locations-summary-desc {
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.4;
-}
-
-.site-locations-body {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
-}
-
-/* The body's gap spaces these; their own margins would double it. */
-.site-locations-body .pro-lock-note,
-.site-locations-body .scope-inline-msg {
-  margin: 0;
-}
-
-.site-location-action,
 .site-location-cancel {
-  padding: 7px 12px;
+  height: 36px;
+  padding: 0 12px;
   background: var(--btn-secondary);
   border: none;
   border-radius: 8px;
@@ -2606,16 +2960,18 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   transition: background 0.3s;
 }
 
-.site-location-action:hover:not(:disabled),
 .site-location-cancel:hover {
   background: var(--btn-secondary-hover);
 }
 
-.site-location-action:disabled,
-.site-location-save:disabled,
-.site-locations-disclosure button:disabled {
+.site-location-editor button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* Save is off until the editor has a site and a place (S6, H-7). */
+.site-location-editor .site-location-save:disabled {
+  opacity: 0.4;
 }
 
 /* Short in-context hints (Filters, VPN, reload): plain muted text, no box. */
@@ -2656,55 +3012,7 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   cursor: pointer;
 }
 
-/* Compact and left-aligned, unlike Filters' full-width "Add current site",
-   so it can't be mistaken for a filter action. */
-.site-locations-add-row {
-  display: flex;
-}
-
-.site-location-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.site-location-name,
-.site-location-patterns {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.site-location-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.site-location-patterns {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.site-location-edit {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.site-location-edit:hover:not(:disabled) {
-  color: var(--text);
-  background: var(--surface-hover);
-}
-
-/* The editor card, inside the disclosure body (whose gap spaces it). */
+/* The editor card, on its own screen under the title. */
 .site-location-editor {
   margin-top: 0;
   padding: 12px;
@@ -2727,12 +3035,12 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   margin-top: 0;
 }
 
-.site-location-editor input[type="text"],
-.site-location-editor select {
+.site-location-editor input[type="text"] {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  padding: 8px 10px;
+  height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--border-input);
   border-radius: 8px;
   background: var(--surface);
@@ -2742,20 +3050,6 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 
 .site-location-editor input[type="text"][aria-invalid="true"] {
   border-color: var(--danger);
-}
-
-.site-location-favorite-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-/* --text-muted, not --text-subtle: this hint is the field's description
-   (aria-describedby), and #999 on the light editor is under 3:1. */
-.site-location-field-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.4;
 }
 
 /* Inline (not floating) results list; each result is a real button. */
@@ -2803,11 +3097,89 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   padding: 8px;
 }
 
-.site-location-chosen {
-  margin-top: 6px;
-  font-size: 13px;
-  font-weight: 500;
+/* Favorites as suggestions under the Location field (S6). The heading and
+   the list keep the editor's 4 px gap between them. */
+.favorite-suggestions-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.favorite-suggestions-head {
+  height: 20px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.favorite-suggestions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.favorite-suggestion {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--surface);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.favorite-suggestion:last-child {
+  border-bottom: none;
+}
+
+.favorite-suggestion:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.favorite-suggestion-name {
+  font-size: 13px;
+  line-height: 15px;
+  font-weight: 500;
+}
+
+.favorite-suggestion-sub {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-muted);
+}
+
+/* The chosen place: a token inside a field-shaped box, where the search field was. */
+.token-field {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+/* With no place chosen, the token's live region is empty and the summary has
+   nothing to say. Neither may add an editor gap (H-7). The live region stays
+   rendered, out of the flex flow, so it still speaks when a token arrives. */
+.site-location-chosen:empty {
+  position: absolute;
+}
+
+.site-location-explain:empty {
+  display: none;
 }
 
 .site-location-explain {
@@ -2828,9 +3200,33 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   margin-top: 8px;
 }
 
+/* "Remove location", on its own line under Save and Cancel. */
+.site-location-remove {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  color: var(--danger);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.site-location-remove:hover:not([aria-disabled="true"]) {
+  text-decoration: underline;
+}
+
+.site-location-remove[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .site-location-save {
   flex: 1;
-  padding: 8px 12px;
+  height: 36px;
+  padding: 0 12px;
   background: var(--brand);
   border: 1px solid transparent;
   border-radius: 8px;
@@ -2844,23 +3240,26 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--brand-hover);
 }
 
-.site-locations-summary:focus-visible,
-.site-location-action:focus-visible,
 .site-location-link:focus-visible,
-.site-location-edit:focus-visible,
 .site-location-result:focus-visible,
 .site-location-save:focus-visible,
 .site-location-cancel:focus-visible,
-.site-location-editor input:focus-visible,
-.site-location-editor select:focus-visible {
+.site-location-remove:focus-visible,
+.site-location-editor input:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
 
+/* Inside the clipped favorites box, so the ring is drawn inside the row. */
+.favorite-suggestion:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
 /* ───────────────────────────────────────────────────────────────────────────
    Site groups and the shared add control (Filters and the per-site editor):
-   the type menu, the site group picker, entry meta lines, chips, and the
-   status line. A problem is spelled out in text with a ⚠ sign, never colour
+   the field's suggestions and site group picker, entry meta lines, chips, and
+   the status line. A problem is spelled out in text with a ⚠ sign, never colour
    alone.
    ────────────────────────────────────────────────────────────────────── */
 
@@ -2871,36 +3270,28 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   display: none !important;
 }
 
-.entry-kind-row {
-  margin-bottom: 8px;
-}
-
-.entry-kind-row select {
-  width: 100%;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border-input);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 13px;
-}
-
-/* The editor's own gap spaces it there. */
-.site-location-editor .entry-kind-row {
-  margin-bottom: 0;
-}
-
-.entry-kind-row select:disabled,
 .scope-add-row input:disabled,
 .scope-add-row button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
-/* The input, with the picker hung under it. */
-.entry-input-wrap {
+/* The suggestions hang under the whole row, input and Add (A-2). In Filters
+   the row and its error share a box, so they hang below the error too. */
+.entry-add-field {
   position: relative;
+  margin-bottom: 8px;
+}
+
+.entry-add-field > .scope-add-row {
+  margin-bottom: 0;
+}
+
+.entry-add-field > .scope-inline-msg {
+  margin: 6px 0 0;
+}
+
+.entry-input-wrap {
   flex: 1;
   min-width: 0;
 }
@@ -2917,14 +3308,20 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   z-index: 20;
 }
 
+/* Seven 40 px rows (three readings, three groups, Browse) fit unscrolled. */
 .entry-listbox {
-  max-height: 240px;
+  max-height: 282px;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+}
+
+/* With the v2fly credit showing, the two read as one box. */
+.entry-picker:has(> .entry-picker-attribution:not([hidden])) > .entry-listbox {
   border-bottom: none;
   border-radius: 8px 8px 0 0;
-  box-shadow: var(--shadow-pop);
 }
 
 .entry-listbox-heading {
@@ -2958,6 +3355,43 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 .entry-option.active {
   background: var(--surface-hover);
   border-left-color: var(--brand);
+}
+
+/* A suggestion (K1): a title over a muted line saying what it covers. */
+.entry-option.entry-suggestion {
+  justify-content: center;
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.entry-suggestion-title,
+.entry-suggestion-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-suggestion-title {
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--text);
+}
+
+.entry-suggestion-meta {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-muted);
+}
+
+/* "Browse all site groups…": a muted footer row under a divider. */
+.entry-option.entry-suggestion-browse {
+  justify-content: center;
+  min-height: 40px;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
 }
 
 .entry-option-label,
@@ -3087,14 +3521,18 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--surface-hover);
 }
 
+/* The editor's suggestions hang from this row (.entry-picker is absolute),
+   so it must be their containing block, as .entry-add-field is in Filters. */
 .entry-add-row {
+  position: relative;
   display: flex;
   gap: 8px;
 }
 
 .entry-add-button {
   flex-shrink: 0;
-  padding: 8px 12px;
+  height: 36px;
+  padding: 0 12px;
   background: var(--btn-secondary);
   border: none;
   border-radius: 8px;
@@ -3129,7 +3567,6 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   cursor: not-allowed;
 }
 
-.entry-kind-row select:focus-visible,
 .entry-chip-remove:focus-visible,
 .entry-add-button:focus-visible {
   outline: 2px solid var(--brand);

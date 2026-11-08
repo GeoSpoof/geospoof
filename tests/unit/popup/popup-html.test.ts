@@ -90,6 +90,137 @@ describe("Popup HTML Structure", () => {
     expect(warningMessage!.style.display).toBe("none");
   });
 
+  test("the Filters tab is a root and three screens, only the root shown", () => {
+    const screens = Array.from(document.querySelectorAll("#filtersView > .filters-screen"));
+    expect(screens.map((screen) => screen.id)).toEqual([
+      "filtersRoot",
+      "scopeListScreen",
+      "siteLocationsScreen",
+      "siteLocationEditorScreen",
+    ]);
+    expect(screens.filter((screen) => !screen.hasAttribute("hidden")).map((s) => s.id)).toEqual([
+      "filtersRoot",
+    ]);
+    // Each screen below the root opens with a nav bar: the back row, then a
+    // script-focusable title, on one row.
+    for (const screen of screens.slice(1)) {
+      const bar = screen.firstElementChild;
+      expect(bar?.classList.contains("nav-bar"), screen.id).toBe(true);
+      expect(bar?.firstElementChild?.matches("button.back-row"), screen.id).toBe(true);
+      expect(bar?.lastElementChild?.matches("h2.view-title"), screen.id).toBe(true);
+      const title = screen.querySelector(".view-title");
+      expect(title?.getAttribute("tabindex"), screen.id).toBe("-1");
+      expect(screen.querySelector(".back-row [aria-hidden='true']")?.textContent).toBe("‹ ");
+    }
+    expect(
+      document.getElementById("siteLocationEditor")?.closest("#siteLocationEditorScreen")
+    ).not.toBeNull();
+  });
+
+  test("the root: SITE RULES and one card with two rows; the Filters screen holds the mode", () => {
+    const tabs = document.getElementById("scopeModeTabs")!;
+    expect(tabs.getAttribute("role")).toBe("radiogroup");
+    expect(tabs.getAttribute("aria-labelledby")).toBe("scopeModeHeading");
+    expect(tabs.getAttribute("aria-describedby")).toBe("scopeModeDesc");
+    expect(tabs.hasAttribute("aria-label")).toBe(false);
+    expect(document.getElementById("scopeModeHeading")?.textContent?.trim()).toBe("Filter mode");
+    const card = document.getElementById("filtersRootRows")!;
+    expect(card.classList.contains("site-card")).toBe(true);
+    // SITE RULES heads the card as a real heading; the mode lives on the Filters screen.
+    const rules = document.getElementById("siteRulesHeading")!;
+    expect(rules.tagName).toBe("H2");
+    expect(rules.classList).toContain("section-heading");
+    expect(rules.textContent?.trim()).toBe("Site rules");
+    expect(rules.nextElementSibling).toBe(card);
+    // THIS SITE then SITE RULES, both h2 under the page's h1: no skipped level.
+    expect(document.querySelector("h1")?.textContent?.trim()).toBe("GeoSpoof");
+    const headings = Array.from(
+      document.getElementById("filtersRoot")!.querySelectorAll("h1, h2, h3, h4, h5, h6")
+    ).filter(
+      (h) => !h.closest("#scopeListScreen, #siteLocationsScreen, #siteLocationEditorScreen")
+    );
+    expect(headings.map((h) => [h.tagName, h.textContent?.trim()])).toEqual([
+      ["H2", "This site"],
+      ["H2", "Site rules"],
+    ]);
+    expect(document.getElementById("thisSiteHeading")?.className).toBe(rules.className);
+    const root = document.getElementById("filtersRoot")!;
+    const screen = document.getElementById("scopeListScreen")!;
+    for (const id of ["scopeModeHeading", "scopeModeTabs", "scopeModeDesc", "scopeProNote"]) {
+      expect(root.contains(document.getElementById(id)), id).toBe(false);
+      expect(screen.contains(document.getElementById(id)), id).toBe(true);
+    }
+    expect(document.getElementById("scopeListRowTitle")?.textContent?.trim()).toBe("Filters");
+    for (const id of ["scopeListRow", "siteLocationsRow"]) {
+      const row = document.getElementById(id)!;
+      // The This site card's row component: label, then the count and a ›.
+      expect(row.classList.contains("site-row")).toBe(true);
+      expect(row.closest("#filtersRootRows")).toBe(card);
+      expect(row.querySelector(".site-row-line .site-row-host")).not.toBeNull();
+      expect(
+        row.querySelector(".site-row-trail .site-row-value.count")?.getAttribute("aria-hidden")
+      ).toBe("true");
+      expect(row.querySelector(".site-row-trail .site-row-chev")?.getAttribute("aria-hidden")).toBe(
+        "true"
+      );
+      expect(row.getAttribute("role")).toBe("button");
+      expect(row.getAttribute("tabindex")).toBe("0");
+      expect(row.getAttribute("aria-describedby")).toBe(`${id}Desc`);
+      expect(document.getElementById(`${id}Desc`)?.classList).toContain("visually-hidden");
+    }
+    expect(document.querySelector(".drill-row, .drill-card")).toBeNull();
+  });
+
+  test("the root starts with the This site card, whose button, hint and error are static", () => {
+    const root = document.getElementById("filtersRoot")!;
+    const section = document.getElementById("thisSiteSection")!;
+    expect(section.parentElement).toBe(root);
+    expect(section.previousElementSibling?.id).toBe("scopeLoadError");
+    expect(section.hasAttribute("hidden")).toBe(true);
+    expect(section.querySelector(".section-heading")?.getAttribute("data-i18n")).toBe(
+      "filters_thisSite"
+    );
+    const actions = document.getElementById("thisSiteActions")!;
+    expect(actions.closest("#thisSiteCard.site-card")).not.toBeNull();
+    expect(Array.from(actions.children).map((child) => child.id)).toEqual([
+      "thisSiteReason",
+      "thisSiteButton",
+      "thisSiteReloadHint",
+      "thisSiteError",
+    ]);
+    expect(document.querySelector<HTMLButtonElement>("#thisSiteButton")!.type).toBe("button");
+    expect(document.getElementById("thisSiteReloadHint")!.getAttribute("tabindex")).toBe("-1");
+    expect(document.getElementById("thisSiteError")!.getAttribute("role")).toBe("alert");
+    expect(document.getElementById("siteLocationAddToAllowlist")).toBeNull();
+    expect(document.getElementById("siteLocationFiltersAction")?.tagName).toBe("BUTTON");
+  });
+
+  test("one Pro note, localized, for Filters and per-site locations together", () => {
+    const notes = document.querySelectorAll(".pro-lock-note[data-i18n='siteLocation_proNote']");
+    expect(notes).toHaveLength(1);
+    expect(notes[0].id).toBe("scopeProNote");
+    expect(document.getElementById("siteLocationsProNote")).toBeNull();
+  });
+
+  test("no menus and none of the old list chrome in the Filters tab", () => {
+    const filters = document.getElementById("filtersView")!;
+    expect(filters.querySelector("select")).toBeNull();
+    for (const id of [
+      "scopeListManager",
+      "scopeListHeader",
+      "scopeAddCurrentButton",
+      "scopeCurrentMsg",
+      "siteLocationsDisclosure",
+      "siteLocationsAddRow",
+    ]) {
+      expect(document.getElementById(id), id).toBeNull();
+    }
+    expect(filters.querySelector("hr, details.site-locations-disclosure")).toBeNull();
+    // main's list heading and count are back, inside the Filters screen's list.
+    expect(document.getElementById("scopeListCount")?.closest("#scopeListContent")).not.toBeNull();
+    expect(document.getElementById("scopeListName")?.tagName).toBe("H3");
+  });
+
   test("should link popup.css and popup.js", () => {
     const cssLink = document.querySelector('link[href="popup.css"]');
     expect(cssLink).toBeTruthy();

@@ -13,6 +13,8 @@ import { t } from "./i18n";
 import { renderFavorites } from "./favorites";
 import { renderScope, renderScopeLoadError } from "./scope";
 import { renderSiteLocations } from "./site-locations";
+import { renderThisSiteCard } from "./this-site-card";
+import { readActiveTabUrl } from "./active-tab";
 import { loadPopupSiteGroups } from "./site-groups";
 import { reflectEarlyProtectionState } from "./early-protection";
 import { reflectDebuggerModeState } from "./debugger-mode";
@@ -108,8 +110,11 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
     const siteGroupsLoading = loadPopupSiteGroups(settings);
     if (siteGroupsLoading) await siteGroupsLoading;
 
-    renderScope(settings, proLocked);
-    const siteLocationApplies = await renderSiteLocations(settings, proLocked);
+    // One read of the active tab for every Filters and per-site surface.
+    const tabUrl = await readActiveTabUrl();
+    renderScope(settings, proLocked, tabUrl);
+    const siteLocationApplies = renderSiteLocations(settings, proLocked, tabUrl);
+    renderThisSiteCard(settings, tabUrl, proLocked);
 
     // Preserve-location-prompts is Pro-gated on iOS Safari (parity with custom
     // accuracy / per-site filtering). For a non-Pro user the background already

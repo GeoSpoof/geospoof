@@ -1,20 +1,20 @@
 # Site Filters
 
-Site Filters let you control **which sites GeoSpoof spoofs on**. Instead of spoofing everywhere, you can limit spoofing to a list of sites (or spoof everywhere _except_ a list). Filters live in the **Filters** tab of the popup.
+Site Filters let you control **which sites GeoSpoof spoofs on**. Instead of spoofing everywhere, you can limit spoofing to a list of sites (or spoof everywhere _except_ a list). They live in the popup's **Sites** tab (called **Filters** before this version), under **Filter mode**.
 
-This page is the complete reference for what you can add to a filter list: typed patterns, exact addresses, site groups, and lists from a link. The popup shows a short "What patterns can I use?" summary; this page covers every form, the exact matching rules, and the limitations.
+This page is the complete reference for what you can add to a filter list: typed patterns, exact addresses, site groups, and lists from a link. The popup shows a short "What can I add?" summary at the bottom of each list screen; this page covers every form, the exact matching rules, and the limitations.
 
-The **Type** menu next to the add field picks what you're adding: **Site and its subdomains** (the default), **Exact address only**, **Subdomains only**, **Site group**, or **List from a link**. You can also just type: `=` at the start means an exact address, `*.` means subdomains only, `geosite:` means a site group, and `list:` (or an `https://` link to a `.txt`, `.list`, `.conf`, `.yaml` or `.yml` file) means a list from a link. A kind you pick in the menu is never changed by what you type.
+Each list (the Allowlist and the Denylist) has its own screen with one add field. Type an entry and press Enter, and it's added as you wrote it: `=` at the start means an exact address, `*.` means subdomains only, `geosite:` means a site group, and `list:` (or an `https://` link to a `.txt`, `.list`, `.conf`, `.yaml` or `.yml` file) means a list from a link. Anything else is a typed pattern. While you type a plain site name, suggestions under the field offer its other readings, **Site and its subdomains**, **Exact address only** and **Subdomains only**, followed by matching site groups. Nothing is picked until you choose one with the arrow keys or a click. **＋ Add example.com** above the field adds the site you're on, without `www.`.
 
 ## The three modes
 
 | Mode          | What it does                                                           |
 | ------------- | ---------------------------------------------------------------------- |
-| **All**       | Spoof on every site (the default). Filter lists are ignored.           |
+| **All sites** | Spoof on every site (the default). Filter lists are ignored.           |
 | **Allowlist** | Spoof **only** on sites that match a pattern in the list.              |
 | **Denylist**  | Spoof on every site **except** those that match a pattern in the list. |
 
-The master **Location Protection** toggle is still the on/off switch. Mode only decides _which_ sites are spoofed _when_ protection is on.
+The popup shows the three modes on the **Filters** screen (Sites tab → **Site rules** → **Filters**), under **Filter mode**, with a sentence that says what the chosen one does. The master **Location Protection** toggle is still the on/off switch. The mode only decides _which_ sites are spoofed _when_ protection is on.
 
 ## Pattern quick reference
 
@@ -65,7 +65,7 @@ Handy for scoping traffic to whole country-code TLDs (`*.ru`, `*.cn`, `*.ir`, �
 
 ### Any host
 
-- `*` matches every host. In an allowlist it means "spoof everywhere" (same as All mode); in a denylist it means "spoof nowhere." Most useful combined with a path, e.g. `*/checkout/*`.
+- `*` matches every host. In an allowlist it means "spoof everywhere" (same as **All sites**); in a denylist it means "spoof nowhere." Most useful combined with a path, e.g. `*/checkout/*`.
 
 ### localhost and IP addresses
 
@@ -124,7 +124,7 @@ Anything invalid is rejected inline when you add it, so a bad pattern is never s
 
 ## Exact addresses
 
-Pick **Exact address only**, or start the entry with `=`, to match one host and nothing beneath it:
+Start the entry with `=`, or pick **Exact address only** among the suggestions, to match one host and nothing beneath it:
 
 - `=mail.example.com` matches `mail.example.com`, but **not** `example.com` or `a.mail.example.com`.
 - `=localhost` matches `localhost` on any port.
@@ -136,9 +136,9 @@ The host can't contain `*`, because a wildcard isn't an exact address. An IP add
 
 A site group is a ready-made list of the domains one service or category uses, such as every domain Google, Netflix or OpenAI serves from. Adding one entry covers all of them, and the list is kept up to date for you. The groups come from the [v2fly domain list](https://github.com/v2fly/domain-list-community) (MIT license), the same lists proxy tools such as v2ray, Xray and mihomo call `geosite`.
 
-**Adding a group.** Pick **Site group** in the Type menu and start typing. The picker shows **Popular** groups first (Google, YouTube, Netflix, OpenAI, Anthropic, AI services, GitHub, and others, plus **China sites** and **Sites outside China**), then **All site groups**, about 1,500 in total. Each one shows how many sites it covers. Arrow keys, Enter and Escape work as in any search list.
+**Adding a group.** Start typing a group's name (`netflix`) or a site it covers (`twitch.tv`), and matching groups show among the suggestions, each with how many sites it covers. **Browse all site groups…**, the last suggestion, lists **Popular** groups first (Google, YouTube, Netflix, OpenAI, Anthropic, AI services, GitHub, and others, plus **China sites** and **Sites outside China**), then **All site groups**, about 1,500 in total. Arrow keys, Enter and Escape work as in any search list.
 
-**Typing it yourself.** `geosite:netflix` adds the Netflix group without opening the picker. Names use the v2fly spelling: lowercase letters, digits, `-` and `!` (`geosite:geolocation-!cn`).
+**Typing it yourself.** `geosite:netflix` and Enter add the Netflix group without picking it from the list. Names use the v2fly spelling: lowercase letters, digits, `-` and `!` (`geosite:geolocation-!cn`).
 
 **Tags.** Some sites in a group carry tags, such as `@cn` for a service's China domains or `@ads` for its ad domains. `geosite:google@cn` keeps only the Google sites tagged `cn`. Several tags must all be present: `geosite:apple@ads@cn` keeps only sites tagged both `ads` and `cn`. A tag that leaves nothing is rejected when you add it.
 
@@ -150,7 +150,7 @@ A site group is a ready-made list of the domains one service or category uses, s
 
 ## Lists from a link
 
-Pick **List from a link** and paste an `https://` link to a domain list you already use, such as a Loyalsoldier `direct-list.txt` or a Clash rule provider. GeoSpoof downloads it when you add it and again every week. The row shows the file's name and how many sites it covers, for example "direct-list · 110,197 sites · from raw.githubusercontent.com". Hover over it for the full link.
+Paste an `https://` link to a domain list you already use, such as a Loyalsoldier `direct-list.txt` or a Clash rule provider. GeoSpoof downloads it when you add it and again every week. The row shows the file's name and how many sites it covers, for example "direct-list · 110,197 sites · from raw.githubusercontent.com". Hover over it for the full link.
 
 **Accepted formats**, one rule per line, `#` comments allowed:
 
@@ -183,11 +183,11 @@ Pick **List from a link** and paste an `https://` link to a domain list you alre
 
 ## Per-site locations
 
-The **Per-site locations** list at the bottom of the Filters tab gives specific sites their own location. It's a second, separate setting, not a kind of filter:
+The **Per-site locations** screen, opened from the bottom of the Sites tab, gives specific sites their own location. It's a second, separate setting, not a kind of filter:
 
 | Setting                | Decides                                               |
 | ---------------------- | ----------------------------------------------------- |
-| **Filters** (mode)     | **Whether** GeoSpoof is on for a site                 |
+| **Filter mode**        | **Whether** GeoSpoof is on for a site                 |
 | **Per-site locations** | **Which** location it reports on a site where it's on |
 
 Filters are checked first. If they keep GeoSpoof off for a site, its own location doesn't apply. Otherwise the matching location replaces the main location and time zone (and, with Reported Language on **Match my location**, the language); every other site keeps your main location, if you've set one. Neither setting changes your IP address. See [Per-site locations in the User Guide](USER_GUIDE.md#per-site-locations) for what that means in practice.
@@ -197,7 +197,7 @@ Filters are checked first. If they keep GeoSpoof off for a site, its own locatio
 - **No paths.** `example.com/app/*` is rejected: a page's location can't change with its path, and every frame in a tab already follows the top-level page.
 - **No bare `*`.** `*`, `*://*`, and `*:8080` are rejected: per-site locations name specific sites, and your main location already covers "everything else".
 
-Everything else works the same: `example.com` covers the site and its subdomains, `*.example.com` subdomains only, `*.ru` a whole TLD, `=mail.example.com` that exact address, plus ports (`localhost:3000`), schemes (`https://example.com`), internationalized domains, [site groups](#site-groups) and [lists from a link](#lists-from-a-link). Every entry accepted here is also a valid filter entry. The editor shows a location's sites as chips with the same Type menu as Filters. One location can list up to 10 entries, and a site group or a list from a link counts as one of them; you can have up to 50 locations. An entry can belong to only one of them, and the Unicode and `xn--` spellings of a domain (`münchen.de`, `xn--mnchen-3ya.de`) count as the same entry.
+Everything else works the same: `example.com` covers the site and its subdomains, `*.example.com` subdomains only, `*.ru` a whole TLD, `=mail.example.com` that exact address, plus ports (`localhost:3000`), schemes (`https://example.com`), internationalized domains, [site groups](#site-groups) and [lists from a link](#lists-from-a-link). Every entry accepted here is also a valid filter entry. The editor shows a location's sites as chips, and its add field has the same suggestions as the list screens. One location can list up to 10 entries, and a site group or a list from a link counts as one of them; you can have up to 50 locations. An entry can belong to only one of them, and the Unicode and `xn--` spellings of a domain (`münchen.de`, `xn--mnchen-3ya.de`) count as the same entry.
 
 **The most specific entry wins**, whatever the order of the list, a bit like CSS specificity. Anything you typed beats any group, and a narrower group beats a broader one:
 
@@ -222,9 +222,9 @@ Site groups add network requests, so here is exactly what they send:
 
 ## Availability
 
-Site Filters work on Firefox, Chrome, and Safari and require no extra permissions. On iOS/macOS, per-site filtering is a **GeoSpoof Pro** feature — without Pro, spoofing applies everywhere (All mode). The core one-click spoofing path is always free.
+Site Filters work on Firefox, Chrome, and Safari and require no extra permissions. On iOS/macOS, per-site filtering is a **GeoSpoof Pro** feature — without Pro, spoofing applies everywhere (**All sites**). The core one-click spoofing path is always free.
 
-Exact addresses, site groups and lists from a link are free on Firefox and Chrome. They're **not in Safari yet**: the Type menu there offers only typed patterns until the GeoSpoof app supports the new entries. When they arrive in Safari, they'll be part of GeoSpoof Pro, like the rest of Site Filters there.
+Exact addresses, site groups and lists from a link are free on Firefox and Chrome. They're **not in Safari yet**: the suggestions there offer only **Site and its subdomains** and **Subdomains only** until the GeoSpoof app supports the new entries. When they arrive in Safari, they'll be part of GeoSpoof Pro, like the rest of Site Filters there.
 
 ## Examples
 

@@ -1,7 +1,9 @@
 /**
  * Filters tab with site groups (GeoSpoof/geospoof#206): exact, group and link
  * rows, adding through the shared control with the background's error codes,
- * removing a group row, and the site group status line with "Update now".
+ * removing a group row, and the site group status (S5): the date in "What can
+ * I add?", and a line on the list and Per-site locations screens while an
+ * update runs or after one failed, each with "Update now".
  */
 
 import { describe, test, expect, beforeEach, vi } from "vitest";
@@ -131,8 +133,21 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
+/** The date line in "What can I add?". */
 function statusText(): string {
+  return (byId("siteGroupsHelpStatusText").textContent ?? "").trim();
+}
+
+/** The list screen's line, shown only while updating or after a failure. */
+function listStatusText(): string {
   return (byId("siteGroupsStatusText").textContent ?? "").trim();
+}
+
+/** Which of the three status lines show: help, list screen, Per-site locations screen. */
+function shownStatusLines(): string[] {
+  return ["siteGroupsHelpStatus", "siteGroupsStatus", "siteLocationsGroupsStatus"].filter(
+    (id) => !byId(id).hidden
+  );
 }
 
 beforeEach(() => {
@@ -148,7 +163,7 @@ beforeEach(() => {
 });
 
 describe("rows", () => {
-  test("typed rows render exactly as before", async () => {
+  test("typed rows are a letter badge, the entry and its ✕", async () => {
     await render(ALLOW);
     const row = rowFor("example.com");
     expect(Array.from(row.children).map((c) => c.className)).toEqual([
@@ -156,6 +171,11 @@ describe("rows", () => {
       "scope-site-domain",
       "scope-site-remove",
     ]);
+    // main's badge: first letter, a colour from the name, decorative only.
+    const badge = row.querySelector<HTMLElement>(".scope-site-icon")!;
+    expect(badge.textContent).toBe("E");
+    expect(badge.getAttribute("aria-hidden")).toBe("true");
+    expect(badge.style.backgroundColor).toMatch(/^rgb\(/);
     expect(row.querySelector(".scope-site-domain")?.getAttribute("title")).toBe("example.com");
     expect(row.querySelector(".scope-site-remove")?.getAttribute("aria-label")).toBe(
       "Remove site example.com"
@@ -165,18 +185,18 @@ describe("rows", () => {
   test("an exact address, a group and a link are one row each, with a meta line", async () => {
     await render(ALLOW);
     expect(rows()).toHaveLength(4);
-    expect(byId("scopeListCount").textContent).toBe("4");
+    expect(byId("scopeListRowValue").textContent).toBe("Allowlist · 4");
+    expect(byId("scopeListRowDesc").textContent).toBe("Allowlist: 4 on the list.");
 
     const meta = (title: string) => rowFor(title).querySelector(".scope-site-meta")?.textContent;
     expect(meta("mail.example.com")).toBe("Exact address only");
-    expect(meta("Google")).toBe("964 sites");
+    expect(meta("Google")).toBe("Site group · 964 sites");
     expect(meta("direct-list")).toBe(
       `${formatCount(110_197)} sites · from raw.githubusercontent.com · 8 rules skipped`
     );
 
     const link = rowFor("direct-list");
     expect(link.querySelector(".scope-site-domain")?.getAttribute("title")).toBe(LINK_URL);
-    expect(link.querySelector(".scope-site-icon")?.textContent).toBe("D");
     expect(rowFor("Google").querySelector(".scope-site-remove")?.getAttribute("aria-label")).toBe(
       "Remove site Google"
     );
@@ -329,24 +349,58 @@ describe("adding", () => {
     expect(input.value).toBe("geosite:google");
     renderScope(makeSettings({ scopeMode: "denylist", denylist: [] }));
     expect(input.value).toBe("");
-    expect(byId<HTMLSelectElement>("scopeAddKind").value).toBe("site");
+    expect(byId("scopeGroupListbox").hidden).toBe(true);
+  });
+
+  test("a reading picked from the suggestions sends its entry", async () => {
+    await render(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+    sendMessage.mockImplementation((message: unknown) => {
+      const { type } = message as { type: string };
+      return Promise.resolve(type === "ADD_SCOPE_SITE" ? { success: true } : undefined);
+    });
+    const input = byId<HTMLInputElement>("scopeAddInput");
+    input.value = "twitch.tv";
+    input.dispatchEvent(new Event("input"));
+    const key = (name: string) =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true }));
+    key("ArrowDown");
+    key("ArrowDown");
+    key("Enter");
+    await flush();
+    expect(messagesOfType("ADD_SCOPE_SITE")).toEqual([
+      { list: "allowlist", pattern: "=twitch.tv" },
+    ]);
+  });
+
+  test("a word that isn't a site names the fix", async () => {
+    await render(makeSettings({ scopeMode: "allowlist", allowlist: [] }));
+    typeAndEnter("google");
+    await flush();
+    expect(messagesOfType("ADD_SCOPE_SITE")).toEqual([]);
+    expect(byId("scopeAddError").textContent).toBe(
+      "Use a site like example.com, or pick a site group below."
+    );
   });
 });
 
 describe("removing a group row", () => {
   test("sends its token, and a failure puts the row back as it was", async () => {
     await render(ALLOW);
+    byId("scopeListRow").click();
     sendMessage.mockResolvedValue({ error: "STORAGE_ERROR" });
     rowFor("Google").querySelector<HTMLButtonElement>(".scope-site-remove")!.click();
     expect(rows()).toHaveLength(3);
-    expect(byId("scopeListCount").textContent).toBe("3");
     await flush();
 
     expect(messagesOfType("REMOVE_SCOPE_SITE")).toEqual([{ list: "allowlist", pattern: GOOGLE }]);
     expect(rows()).toHaveLength(4);
     expect(rows()[2].querySelector(".scope-site-domain")?.textContent).toBe("Google");
-    expect(rows()[2].querySelector(".scope-site-meta")?.textContent).toBe("964 sites");
-    expect(byId("scopeModeError").style.display).toBe("block");
+    expect(rows()[2].querySelector(".scope-site-meta")?.textContent).toBe("Site group · 964 sites");
+    // The message shows on the list screen, where the remove happened.
+    const error = byId("scopeAddError");
+    expect(error.textContent).toBe("⚠ Change not saved");
+    expect(error.style.display).toBe("block");
+    expect(error.closest("[hidden]")).toBeNull();
   });
 
   test("a successful remove reloads", async () => {
@@ -359,47 +413,87 @@ describe("removing a group row", () => {
   });
 });
 
-describe("the site group status line", () => {
-  test("is a polite status with an Update now button", () => {
-    expect(byId("siteGroupsStatusText").getAttribute("role")).toBe("status");
-    expect(byId("siteGroupsStatusText").getAttribute("aria-live")).toBe("polite");
-    expect(byId<HTMLButtonElement>("siteGroupsUpdateNow").type).toBe("button");
-    expect(byId("siteGroupsStatus").hidden).toBe(true);
+describe("the site group status (S5)", () => {
+  const PER_SITE_GROUP = [makeSiteLocation({ patterns: ["twitch.tv", GOOGLE] })];
+
+  test("three polite status lines, each with an Update now button, hidden at first", () => {
+    for (const [box, textId, button] of [
+      ["siteGroupsHelpStatus", "siteGroupsHelpStatusText", "siteGroupsHelpUpdateNow"],
+      ["siteGroupsStatus", "siteGroupsStatusText", "siteGroupsUpdateNow"],
+      [
+        "siteLocationsGroupsStatus",
+        "siteLocationsGroupsStatusText",
+        "siteLocationsGroupsUpdateNow",
+      ],
+    ]) {
+      expect(byId(textId).getAttribute("role")).toBe("status");
+      expect(byId(textId).getAttribute("aria-live")).toBe("polite");
+      expect(byId<HTMLButtonElement>(button).type).toBe("button");
+      expect(byId(box).hidden).toBe(true);
+    }
+    // The date line is the last thing in "What can I add?"; the others are on
+    // their screens.
+    expect(byId("scopeSyntax").contains(byId("siteGroupsHelpStatus"))).toBe(true);
+    expect(byId("scopeListScreen").contains(byId("siteGroupsStatus"))).toBe(true);
+    expect(byId("siteLocationsScreen").contains(byId("siteLocationsGroupsStatus"))).toBe(true);
   });
 
-  test("stays hidden when nothing uses a site group", async () => {
+  test("stay hidden when nothing uses a site group", async () => {
     await render(makeSettings({ scopeMode: "allowlist", allowlist: ["example.com"] }));
-    expect(byId("siteGroupsStatus").hidden).toBe(true);
+    expect(shownStatusLines()).toEqual([]);
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  test("names the date of the lists in use", async () => {
+  test("the date of the lists in use is in What can I add?, and only there", async () => {
     await render(ALLOW);
-    expect(byId("siteGroupsStatus").hidden).toBe(false);
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus"]);
     expect(statusText()).toBe(`Site group lists from ${DATE}`);
   });
 
-  test("shows in 'All sites' mode when a site location uses a group", async () => {
-    const settings = makeSettings({
-      scopeMode: "all",
-      siteLocations: [makeSiteLocation({ patterns: ["twitch.tv", GOOGLE] })],
-    });
+  test("a site location using a group counts too, in 'All sites' mode as well", async () => {
+    const settings = makeSettings({ scopeMode: "all", siteLocations: PER_SITE_GROUP });
     await render(settings);
-    expect(byId("scopeListManager").style.display).toBe("none");
-    expect(byId("siteGroupsStatus").hidden).toBe(false);
+    expect(byId("scopeListContent").hidden).toBe(true);
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus"]);
     expect(statusText()).toBe(`Site group lists from ${DATE}`);
   });
 
-  test("hides when only the inactive list uses a group", async () => {
+  test("hide when only the inactive list uses a group", async () => {
     await render(makeSettings({ scopeMode: "denylist", denylist: [], allowlist: [GOOGLE] }));
-    expect(byId("siteGroupsStatus").hidden).toBe(true);
+    expect(shownStatusLines()).toEqual([]);
   });
 
-  test("says when the last update failed, and while one runs", async () => {
+  test("after a failed update, the screens whose entries use a group say so", async () => {
     await render(ALLOW, GROUPS, { ...STATUS, lastError: "NETWORK" });
-    expect(statusText()).toBe(`Couldn't update site groups. Using lists from ${DATE}.`);
+    const failed = `Couldn't update site groups. Using lists from ${DATE}.`;
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus", "siteGroupsStatus"]);
+    expect(statusText()).toBe(failed);
+    expect(listStatusText()).toBe(failed);
+
+    await render({ ...ALLOW, siteLocations: PER_SITE_GROUP }, GROUPS, {
+      ...STATUS,
+      lastError: "NETWORK",
+    });
+    expect(shownStatusLines()).toEqual([
+      "siteGroupsHelpStatus",
+      "siteGroupsStatus",
+      "siteLocationsGroupsStatus",
+    ]);
+    expect(byId("siteLocationsGroupsStatusText").textContent).toBe(failed);
+
+    // Only the Per-site locations screen's entries use one.
+    await render(
+      makeSettings({ scopeMode: "allowlist", allowlist: [], siteLocations: PER_SITE_GROUP }),
+      GROUPS,
+      { ...STATUS, lastError: "NETWORK" }
+    );
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus", "siteLocationsGroupsStatus"]);
+  });
+
+  test("while an update runs, the list screen says so", async () => {
     await render(ALLOW, GROUPS, { ...STATUS, updating: true });
-    expect(statusText()).toBe("Updating site groups…");
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus", "siteGroupsStatus"]);
+    expect(listStatusText()).toBe("Updating site groups…");
   });
 
   test("Update now refreshes, then reports up to date when nothing changed", async () => {
@@ -411,19 +505,25 @@ describe("the site group status line", () => {
       renderScope(ALLOW);
     });
 
-    const button = byId("siteGroupsUpdateNow");
+    const button = byId("siteGroupsHelpUpdateNow");
     button.click();
     expect(messagesOfType("UPDATE_SITE_GROUPS")).toEqual([undefined]);
+    // The list screen shows the update while it runs, with its own Update now.
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus", "siteGroupsStatus"]);
     expect(statusText()).toBe("Updating site groups…");
+    expect(listStatusText()).toBe("Updating site groups…");
     expect(button.getAttribute("aria-disabled")).toBe("true");
-    // A second press meanwhile does nothing.
+    expect(byId("siteGroupsUpdateNow").getAttribute("aria-disabled")).toBe("true");
+    // A second press meanwhile, from either button, does nothing.
     button.click();
+    byId("siteGroupsUpdateNow").click();
     expect(messagesOfType("UPDATE_SITE_GROUPS")).toHaveLength(1);
 
     finish({ success: true, status: STATUS });
     await flush();
     expect(loadSettings).toHaveBeenCalledTimes(1);
     expect(statusText()).toBe(`Site groups are up to date (lists from ${DATE})`);
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus"]);
     expect(button.hasAttribute("aria-disabled")).toBe(false);
   });
 
@@ -435,7 +535,7 @@ describe("the site group status line", () => {
       await loadGroups(ALLOW, GROUPS, newer);
       renderScope(ALLOW);
     });
-    byId("siteGroupsUpdateNow").click();
+    byId("siteGroupsHelpUpdateNow").click();
     await flush();
     expect(statusText()).toBe(
       `Site group lists from ${formatCatalogDate(Date.parse(newer.releasedAt))}`
@@ -450,24 +550,30 @@ describe("the site group status line", () => {
       await loadGroups(ALLOW, GROUPS, failed);
       renderScope(ALLOW);
     });
-    byId("siteGroupsUpdateNow").click();
+    byId("siteGroupsHelpUpdateNow").click();
     await flush();
-    expect(statusText()).toBe(`Couldn't update site groups. Using lists from ${DATE}.`);
+    expect(shownStatusLines()).toEqual(["siteGroupsHelpStatus", "siteGroupsStatus"]);
+    expect(listStatusText()).toBe(`Couldn't update site groups. Using lists from ${DATE}.`);
   });
 });
 
 describe("the Pro lock and the Safari gate", () => {
-  test("the Pro lock also disables the type menu", async () => {
+  test("the Pro lock also disables the add field", async () => {
     await render(ALLOW);
     renderScope(ALLOW, true);
-    expect(byId<HTMLSelectElement>("scopeAddKind").disabled).toBe(true);
+    expect(byId<HTMLInputElement>("scopeAddInput").disabled).toBe(true);
+    expect(byId<HTMLButtonElement>("scopeAddButton").disabled).toBe(true);
     renderScope(ALLOW, false);
-    expect(byId<HTMLSelectElement>("scopeAddKind").disabled).toBe(false);
+    expect(byId<HTMLInputElement>("scopeAddInput").disabled).toBe(false);
+    expect(byId<HTMLButtonElement>("scopeAddButton").disabled).toBe(false);
   });
 
   test("the syntax rows for the new forms show only where they can be added", () => {
     renderScope(ALLOW);
-    const rowsOnly = Array.from(document.querySelectorAll<HTMLElement>("[data-site-groups-only]"));
+    // The Filters help's rows (the per-site editor has its own help).
+    const rowsOnly = Array.from(
+      document.querySelectorAll<HTMLElement>("#scopeSyntax [data-site-groups-only]")
+    );
     expect(rowsOnly.map((r) => r.querySelector("code")?.textContent)).toEqual([
       "=mail.example.com",
       "geosite:google",
@@ -484,9 +590,15 @@ describe("the Pro lock and the Safari gate", () => {
         (r) => r.hidden
       )
     ).toBe(true);
-    expect(Array.from(byId<HTMLSelectElement>("scopeAddKind").options).map((o) => o.value)).toEqual(
-      ["site", "subdomains"]
-    );
+    // The field suggests only the readings this build can add.
+    const input = byId<HTMLInputElement>("scopeAddInput");
+    input.value = "twitch.tv";
+    input.dispatchEvent(new Event("input"));
+    expect(
+      Array.from(byId("scopeGroupListbox").querySelectorAll(".entry-suggestion-meta")).map(
+        (node) => node.textContent
+      )
+    ).toEqual(["Site and its subdomains", "Subdomains only"]);
   });
 
   test("where site groups are unavailable, stored tokens ask nothing and show no status", () => {
@@ -494,6 +606,6 @@ describe("the Pro lock and the Safari gate", () => {
     expect(loadPopupSiteGroups(ALLOW)).toBeNull();
     renderScope(ALLOW);
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(byId("siteGroupsStatus").hidden).toBe(true);
+    expect(shownStatusLines()).toEqual([]);
   });
 });
