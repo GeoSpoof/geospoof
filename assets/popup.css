@@ -427,6 +427,24 @@ input {
   margin-bottom: 12px;
 }
 
+/* Toggles grouped in one card: the card carries the surface and corners,
+   each row keeps its own 12px padding, and a line divides the rows. */
+.toggle-group {
+  background: var(--surface);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.toggle-group > .toggle-section,
+.toggle-group > .webrtc-section {
+  background: none;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+.toggle-group > * + * {
+  border-top: 1px solid var(--border-subtle);
+}
+
 .toggle-label {
   display: flex;
   justify-content: space-between;

@@ -141,26 +141,28 @@
       <div class="tab-content" id="mainView">
         <div class="section-heading" data-i18n="heading_protection">Protection</div>
 
-        <!-- Protection Toggle -->
-        <div class="toggle-section">
-          <label class="toggle-label">
-            <span data-i18n="toggle_locationProtection">Location Protection</span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="protectionToggle" />
-              <span class="toggle-slider"></span>
-            </div>
-          </label>
-        </div>
+        <!-- Protection toggles: one card, one row per toggle, divided by a
+             line (the same grouped-row pattern as the Sites tab's SITE RULES). -->
+        <div class="toggle-group">
+          <div class="toggle-section">
+            <label class="toggle-label">
+              <span data-i18n="toggle_locationProtection">Location Protection</span>
+              <div class="toggle-wrapper">
+                <input type="checkbox" id="protectionToggle" />
+                <span class="toggle-slider"></span>
+              </div>
+            </label>
+          </div>
 
-        <!-- WebRTC Protection -->
-        <div class="webrtc-section">
-          <label class="toggle-label">
-            <span data-i18n="toggle_webrtcProtection">WebRTC Protection</span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="webrtcToggle" />
-              <span class="toggle-slider"></span>
-            </div>
-          </label>
+          <div class="webrtc-section">
+            <label class="toggle-label">
+              <span data-i18n="toggle_webrtcProtection">WebRTC Protection</span>
+              <div class="toggle-wrapper">
+                <input type="checkbox" id="webrtcToggle" />
+                <span class="toggle-slider"></span>
+              </div>
+            </label>
+          </div>
         </div>
 
         <!-- Divider between protection toggles and location controls -->
