@@ -256,9 +256,9 @@ describe("Per-site locations keys are present in every locale", () => {
   // Per-site strings use each locale's established words. Vietnamese says
   // "trang web" for a site, as Filters do ("trang" alone reads as "page"), and
   // both Chinese locales say 伪造/偽造 for spoofing, not 伪装/偽裝 ("disguise").
-  test("vi says 'trang web' for a site, as its Filters heading does", () => {
+  test("vi says 'trang web' for a site, as its Sites tab does", () => {
     const vi = loadLocale("vi");
-    expect(vi.filters_heading.message).toContain("trang web");
+    expect(vi.filters_heading.message.toLowerCase()).toContain("trang web");
     expect(vi.siteLocation_sectionTitle.message).toMatch(/trang web$/);
     expect(vi.details_siteLocation.message).toContain("trang web");
   });
@@ -312,8 +312,8 @@ describe("Per-site locations keys are present in every locale", () => {
     }
   });
 
-  // The Per-site mark names the Filters tab with the tab's own word.
-  test.each(listLocales())("%s marks name the Filters tab with its tab label", (locale) => {
+  // The Per-site mark names the Sites tab (tab_filters) with the tab's own word.
+  test.each(listLocales())("%s marks name the Sites tab with its tab label", (locale) => {
     const file = loadLocale(locale);
     const tab = file.tab_filters.message.toLowerCase();
     for (const key of ["siteLocation_notUsed", "siteLocation_notUsedOn"]) {

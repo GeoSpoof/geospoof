@@ -56,8 +56,8 @@
     "description": "Tab label for the protection details view."
   },
   "tab_filters": {
-    "message": "Фильтры",
-    "description": "Tab label for the site-scoping filters view."
+    "message": "Сайты",
+    "description": "Tab label for the Sites view (formerly 'Filters'): where GeoSpoof works, this site, and per-site locations. Also the back rows' label (‹ Sites). Use the locale's plain word for websites as a tab name; it shares a word with siteLocation_sitesLabel. The key keeps its old name."
   },
   "tab_settings": {
     "message": "Настройки",
@@ -72,8 +72,8 @@
     "description": "Heading for the group of language/locale APIs listed under 'Key Overrides' in the Details tab. Shown only when a Reported Language is active."
   },
   "filters_heading": {
-    "message": "Фильтры сайтов",
-    "description": "Heading for the site-scoping filters panel."
+    "message": "Сайты",
+    "description": "Heading for the Sites view (tab_filters). Not shown in the popup today; kept equal to tab_filters."
   },
   "filters_where": {
     "message": "Где работает GeoSpoof",
@@ -1042,11 +1042,11 @@
     "description": "The Per-site locations row's value on the Filters root with no entries. A status value."
   },
   "siteLocation_notUsed": {
-    "message": "Не используется · Отключено в «Фильтрах»",
-    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: Filters keep GeoSpoof off there, so its location isn't used. 'Filters' is the Filters tab's name (tab_filters), inflected as the grammar needs and written the way the locale writes a UI element's name."
+    "message": "Не используется · «Сайты»: выкл.",
+    "description": "Mark under a one-site entry on the Per-site locations screen, after a ⚠ drawn by the markup: the Sites tab's settings keep GeoSpoof off there, so its location isn't used. 'Sites' is the tab's name (tab_filters), inflected as the grammar needs and written the way the locale writes a UI element's name."
   },
   "siteLocation_notUsedOn": {
-    "message": "Не используется на $SITES$ · Отключено в «Фильтрах»",
+    "message": "Не используется на $SITES$ · «Сайты»: выкл.",
     "placeholders": {
       "sites": {
         "content": "$1",

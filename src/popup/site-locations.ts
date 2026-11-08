@@ -610,10 +610,10 @@ function markText(mark: SiteLocationMarkText): string | null {
   if (mark === null) return null;
   switch (mark.key) {
     case "siteLocation_notUsed":
-      return t("siteLocation_notUsed") || "Not used · Off in Filters";
+      return t("siteLocation_notUsed") || "Not used · Off in Sites";
     case "siteLocation_notUsedOn": {
       const sites = formatHostList(mark.hosts);
-      return t("siteLocation_notUsedOn", [sites]) || `Not used on ${sites} · Off in Filters`;
+      return t("siteLocation_notUsedOn", [sites]) || `Not used on ${sites} · Off in Sites`;
     }
     case "siteLocation_somePages":
       return t("siteLocation_somePages") || "Used on some pages only";
@@ -959,8 +959,8 @@ function updateEditorHints(): void {
   if (text) {
     text.textContent =
       editorEntriesWithPending().entries.length === 1
-        ? t("siteLocation_notUsed") || "Not used · Off in Filters"
-        : t("siteLocation_notUsedOn", [site]) || `Not used on ${site} · Off in Filters`;
+        ? t("siteLocation_notUsed") || "Not used · Off in Sites"
+        : t("siteLocation_notUsedOn", [site]) || `Not used on ${site} · Off in Sites`;
   }
   if (button) {
     if (action === null || card.kind !== "shown") {

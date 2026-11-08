@@ -82,14 +82,14 @@ describe("buildSiteRow", () => {
     const mark = buildSiteRow({
       host: "twitch.tv",
       value: "Los Angeles",
-      sub: "Not used · Off in Filters",
+      sub: "Not used · Off in Sites",
       warn: true,
       idPrefix: "b",
     }).row.querySelector(".site-row-sub")!;
     expect(mark.className).toBe("site-row-sub warn");
     expect(mark.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
     expect(mark.firstElementChild?.textContent).toBe("⚠ ");
-    expect(mark.textContent).toBe("⚠ Not used · Off in Filters");
+    expect(mark.textContent).toBe("⚠ Not used · Off in Sites");
 
     expect(
       buildSiteRow({ host: "a.com", value: "Tokyo", idPrefix: "c" }).row.querySelector(

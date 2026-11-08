@@ -230,7 +230,7 @@ function shownScreens(): string[] {
   ].filter((id) => !byId(id).hidden);
 }
 
-/** The editor's back row, as read: "Filters", "Per-site locations" or "Main". */
+/** The editor's back row, as read: "Sites", "Per-site locations" or "Main". */
 function editorBackLabel(): string {
   return text("siteLocationEditorBackLabel");
 }
@@ -638,7 +638,7 @@ describe("the Per-site locations screen", () => {
     renderSiteLocationsSection(makeSettings(), "https://example.com/", false);
     const screen = byId("siteLocationsScreen");
     expect(screen.firstElementChild).toBe(byId("siteLocationsBack"));
-    expect(text("siteLocationsBack").replace(/\s+/g, " ")).toBe("‹ Filters");
+    expect(text("siteLocationsBack").replace(/\s+/g, " ")).toBe("‹ Sites");
     expect(screen.querySelector(".view-caption")?.textContent?.trim()).toBe(
       "Use a different location on specific sites."
     );
@@ -708,13 +708,13 @@ describe("the Per-site locations screen", () => {
   });
 
   describe("marks: when Filters keep a location from being used (M2, M13)", () => {
-    test("Scenario S: twitch.tv isn't in the Allowlist, so 'Not used · Off in Filters'", async () => {
+    test("Scenario S: twitch.tv isn't in the Allowlist, so 'Not used · Off in Sites'", async () => {
       const settings = makeSettings(SCENARIO_S);
       await loadGroups(settings);
       renderSiteLocationsSection(settings, "https://www.twitch.tv/", false);
       expect(rowTexts()).toEqual([
         { host: "example.com", value: "Paris", sub: null },
-        { host: "twitch.tv", value: "Los Angeles", sub: "⚠ Not used · Off in Filters" },
+        { host: "twitch.tv", value: "Los Angeles", sub: "⚠ Not used · Off in Sites" },
       ]);
       const mark = markOf("la")!;
       expect(mark.classList.contains("warn")).toBe(true);
@@ -728,7 +728,7 @@ describe("the Per-site locations screen", () => {
         undefined,
         false
       );
-      expect(markOf("both")?.textContent).toBe("⚠ Not used on twitch.tv · Off in Filters");
+      expect(markOf("both")?.textContent).toBe("⚠ Not used on twitch.tv · Off in Sites");
     });
 
     test("more than two: the first two, then how many more", () => {
@@ -742,7 +742,7 @@ describe("the Per-site locations screen", () => {
         false
       );
       expect(markOf("many")?.textContent).toBe(
-        "⚠ Not used on a.com, b.com and 3 more · Off in Filters"
+        "⚠ Not used on a.com, b.com and 3 more · Off in Sites"
       );
     });
 
@@ -756,7 +756,7 @@ describe("the Per-site locations screen", () => {
       });
       await loadGroups(settings);
       renderSiteLocationsSection(settings, undefined, false);
-      expect(markOf("mixed")?.textContent).toBe("⚠ Not used on twitch.tv · Off in Filters");
+      expect(markOf("mixed")?.textContent).toBe("⚠ Not used on twitch.tv · Off in Sites");
     });
 
     test("an Allowlist entry with a path covers only some pages", () => {
@@ -782,7 +782,7 @@ describe("the Per-site locations screen", () => {
         undefined,
         false
       );
-      expect(markOf("la")?.textContent).toBe("⚠ Not used · Off in Filters");
+      expect(markOf("la")?.textContent).toBe("⚠ Not used · Off in Sites");
       expect(markOf("paris")?.textContent).toBe("⚠ Used on some pages only");
       expect(markOf(ENTRY_DUBLIN.id)).toBeNull();
     });
@@ -1947,7 +1947,7 @@ describe("Hints only in context", () => {
     expect(chipTitles()).toEqual(["chatgpt.com"]);
     expect(isShown("siteLocationFiltersHint")).toBe(true);
     // One site: the plain mark, without the ⚠ the Per-site rows draw (M13).
-    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Sites");
     expect(filtersAction()).toEqual({
       label: "Add to Allowlist",
       name: "Add to Allowlist: chatgpt.com",
@@ -2026,14 +2026,14 @@ describe("Hints only in context", () => {
     );
     siteRow(shared.id).click();
     expect(chipTitles()).toEqual(["twitch.tv", "kick.com"]);
-    expect(text("siteLocationFiltersHintText")).toBe("Not used on twitch.tv · Off in Filters");
+    expect(text("siteLocationFiltersHintText")).toBe("Not used on twitch.tv · Off in Sites");
     expect(filtersAction()).toEqual({
       label: "Add to Allowlist",
       name: "Add to Allowlist: twitch.tv",
     });
     // Down to one site, the hint is the plain mark again.
     chipRemoveButton("kick.com").click();
-    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Sites");
   });
 
   test("a failed Filters hint action shows the editor error", async () => {
@@ -2054,7 +2054,7 @@ describe("Hints only in context", () => {
     );
     siteRow(ENTRY_MEXICO_CITY.id).click();
     expect(isShown("siteLocationFiltersHint")).toBe(true);
-    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Sites");
     expect(filtersAction()).toEqual({
       label: "Remove from Denylist",
       name: "Remove from Denylist: twitch.tv",
@@ -2077,7 +2077,7 @@ describe("Hints only in context", () => {
     );
     siteRow(ru.id).click();
     expect(isShown("siteLocationFiltersHint")).toBe(true);
-    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Sites");
     expect(filtersAction()).toBeNull();
   });
 

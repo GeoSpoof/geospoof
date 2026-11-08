@@ -148,7 +148,7 @@ function renderEditorBackLabel(): void {
       ? t("siteLocation_sectionTitle") || "Per-site locations"
       : editorOrigin === "main"
         ? t("tab_main") || "Main"
-        : t("tab_filters") || "Filters";
+        : t("tab_filters") || "Sites";
 }
 
 /**

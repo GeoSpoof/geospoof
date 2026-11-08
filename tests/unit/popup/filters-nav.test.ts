@@ -163,7 +163,7 @@ describe("screens", () => {
 
 describe("the editor returns to where it was opened from", () => {
   test.each<["root" | "perSite" | "main", string]>([
-    ["root", "Filters"],
+    ["root", "Sites"],
     ["perSite", "Per-site locations"],
     ["main", "Main"],
   ])("from %s its back row reads '‹ %s'", (origin, label) => {
@@ -214,7 +214,7 @@ describe("the editor returns to where it was opened from", () => {
 
     // The next editor starts from its own origin.
     openFiltersScreen("editor", { opener: null });
-    expect(backLabel()).toBe("Filters");
+    expect(backLabel()).toBe("Sites");
   });
 });
 

@@ -748,7 +748,7 @@ describe("the editor opened from the card", () => {
     opener.focus();
     opener.click();
     expect(isShown("siteLocationEditorScreen")).toBe(true);
-    expect(text("siteLocationEditorBackLabel")).toBe("Filters");
+    expect(text("siteLocationEditorBackLabel")).toBe("Sites");
     expect(text("siteLocationEditorTitle")).toBe("New per-site location");
     expect(
       Array.from(byId("siteLocationEntries").querySelectorAll(".entry-chip-title")).map(
@@ -767,7 +767,7 @@ describe("the editor opened from the card", () => {
     row().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(isShown("siteLocationEditorScreen")).toBe(true);
     expect(text("siteLocationEditorTitle")).toBe("Per-site location");
-    expect(text("siteLocationEditorBackLabel")).toBe("Filters");
+    expect(text("siteLocationEditorBackLabel")).toBe("Sites");
   });
 
   test("Save returns to the root, with the reload hint on the card and focus on its row", async () => {
@@ -809,7 +809,7 @@ describe("the editor opened from the card", () => {
       `[data-site-location-id="${LOS_ANGELES.id}"] .site-row`
     );
     entryRow?.click();
-    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Filters");
+    expect(text("siteLocationFiltersHintText")).toBe("Not used · Off in Sites");
     expect(text("siteLocationFiltersAction")).toBe("Add to Allowlist");
     expect(byId("siteLocationFiltersAction").getAttribute("aria-label")).toBe(
       byId("thisSiteButton").getAttribute("aria-label")
