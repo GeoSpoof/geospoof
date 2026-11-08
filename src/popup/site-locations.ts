@@ -551,29 +551,31 @@ export function renderSiteLocationsSection(
 }
 
 /**
- * "Per-site locations / 2 locations ›" on the root. Locked, it stays a Tab
- * stop, described by the Pro note, but it's inert and shows 🔒 (H-8).
+ * "Per-site locations   2 ›" on the root, described as "2 locations".
+ * Locked, it stays a Tab stop, also described by the Pro note, but it's
+ * inert and shows 🔒 (H-8).
  */
 function renderRootRow(count: number, proLocked: boolean): void {
+  const n = formatCount(count);
   const value = el("siteLocationsRowValue");
-  if (value) {
-    if (count === 0) {
-      value.textContent = t("siteLocation_noLocations") || "None";
-    } else if (count === 1) {
-      value.textContent = t("siteLocation_countLocationsOne") || "1 location";
-    } else {
-      const n = formatCount(count);
-      value.textContent = t("siteLocation_countLocations", [n]) || `${n} locations`;
-    }
+  if (value) value.textContent = n;
+  const desc = el("siteLocationsRowDesc");
+  if (desc) {
+    desc.textContent =
+      count === 0
+        ? t("siteLocation_noLocations") || "None"
+        : count === 1
+          ? t("siteLocation_countLocationsOne") || "1 location"
+          : t("siteLocation_countLocations", [n]) || `${n} locations`;
   }
   const row = el("siteLocationsRow");
   if (row) {
     if (proLocked) {
       row.setAttribute("aria-disabled", "true");
-      row.setAttribute("aria-describedby", "scopeProNote");
+      row.setAttribute("aria-describedby", "siteLocationsRowDesc scopeProNote");
     } else {
       row.removeAttribute("aria-disabled");
-      row.removeAttribute("aria-describedby");
+      row.setAttribute("aria-describedby", "siteLocationsRowDesc");
     }
   }
   const chev = el("siteLocationsRowChev");

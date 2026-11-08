@@ -95,7 +95,7 @@ describe("Popup Filters tab — scope mode selector (Req 13)", () => {
 
   // Property: in a list mode the row names the list and counts its entries,
   // and in All sites mode there's no row.
-  test("the row's value is the entry count, or Empty", () => {
+  test("the row shows the entry count and is described in words, or warns when empty", () => {
     const entries = fc.uniqueArray(fc.constantFrom("a.com", "b.org", "*.ru", "=c.net", "d.io"), {
       maxLength: 5,
     });
@@ -108,15 +108,20 @@ describe("Popup Filters tab — scope mode selector (Req 13)", () => {
           renderScope(makeSettings({ scopeMode: mode, allowlist: list, denylist: list }));
           const card = document.getElementById("scopeListCard")!;
           const value = document.getElementById("scopeListRowValue")!;
+          const desc = document.getElementById("scopeListRowDesc")!;
           expect(card.hidden).toBe(mode === "all");
           if (mode === "all") return;
-          const expected =
+          const warn = mode === "allowlist" && list.length === 0;
+          expect(value.textContent).toBe(
+            warn ? "⚠ Empty · Off on every site" : String(list.length)
+          );
+          expect(desc.textContent).toBe(
             list.length > 0
               ? `${list.length} on the list`
-              : mode === "allowlist"
-                ? "⚠ Empty · Off on every site"
-                : "Empty";
-          expect(value.textContent).toBe(expected);
+              : warn
+                ? "Empty · Off on every site"
+                : "Empty"
+          );
           expect(value.classList.contains("warn")).toBe(mode === "allowlist" && list.length === 0);
         }
       ),
@@ -514,7 +519,8 @@ describe("Popup Filters tab — the root and the list screen (design H)", () => 
   test("the list's row opens its screen: title, caption, focus on the title; back returns", () => {
     renderScope(makeSettings({ scopeMode: "denylist", denylist: ["a.com", "*.ru"] }));
     const row = byId("scopeListRow");
-    expect(row.textContent?.replace(/\s+/g, " ").trim()).toBe("Denylist 2 on the list ›");
+    expect(row.textContent?.replace(/\s+/g, " ").trim()).toBe("Denylist 2 ›");
+    expect(byId("scopeListRowDesc").textContent).toBe("2 on the list");
     row.focus();
     row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(byId("scopeListScreen").hidden).toBe(false);

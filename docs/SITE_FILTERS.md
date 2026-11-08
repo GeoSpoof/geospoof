@@ -1,6 +1,6 @@
 # Site Filters
 
-Site Filters let you control **which sites GeoSpoof spoofs on**. Instead of spoofing everywhere, you can limit spoofing to a list of sites (or spoof everywhere _except_ a list). They live in the popup's **Sites** tab (called **Filters** before this version), under **Where GeoSpoof works**.
+Site Filters let you control **which sites GeoSpoof spoofs on**. Instead of spoofing everywhere, you can limit spoofing to a list of sites (or spoof everywhere _except_ a list). They live in the popup's **Sites** tab (called **Filters** before this version), under **Filter mode**.
 
 This page is the complete reference for what you can add to a filter list: typed patterns, exact addresses, site groups, and lists from a link. The popup shows a short "What can I add?" summary at the bottom of each list screen; this page covers every form, the exact matching rules, and the limitations.
 
@@ -14,7 +14,7 @@ Each list (the Allowlist and the Denylist) has its own screen with one add field
 | **Allowlist** | Spoof **only** on sites that match a pattern in the list.              |
 | **Denylist**  | Spoof on every site **except** those that match a pattern in the list. |
 
-The popup shows the three modes under **Where GeoSpoof works**, with a sentence that says what the chosen one does. The master **Location Protection** toggle is still the on/off switch. The mode only decides _which_ sites are spoofed _when_ protection is on.
+The popup shows the three modes under **Filter mode**, with a sentence that says what the chosen one does. The master **Location Protection** toggle is still the on/off switch. The mode only decides _which_ sites are spoofed _when_ protection is on.
 
 ## Pattern quick reference
 
@@ -185,10 +185,10 @@ Paste an `https://` link to a domain list you already use, such as a Loyalsoldie
 
 The **Per-site locations** screen, opened from the bottom of the Sites tab, gives specific sites their own location. It's a second, separate setting, not a kind of filter:
 
-| Setting                  | Decides                                               |
-| ------------------------ | ----------------------------------------------------- |
-| **Where GeoSpoof works** | **Whether** GeoSpoof is on for a site                 |
-| **Per-site locations**   | **Which** location it reports on a site where it's on |
+| Setting                | Decides                                               |
+| ---------------------- | ----------------------------------------------------- |
+| **Filter mode**        | **Whether** GeoSpoof is on for a site                 |
+| **Per-site locations** | **Which** location it reports on a site where it's on |
 
 Filters are checked first. If they keep GeoSpoof off for a site, its own location doesn't apply. Otherwise the matching location replaces the main location and time zone (and, with Reported Language on **Match my location**, the language); every other site keeps your main location, if you've set one. Neither setting changes your IP address. See [Per-site locations in the User Guide](USER_GUIDE.md#per-site-locations) for what that means in practice.
 

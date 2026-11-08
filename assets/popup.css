@@ -2412,7 +2412,7 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
-   Filters screens (design H): the root's drill rows, each screen's back row,
+   Filters screens (design H): the root's rows, each screen's back row,
    title and caption, the green "＋ Add <site>" action, and the site row the
    Per-site locations screen (and the This site card) use.
    ────────────────────────────────────────────────────────────────────── */
@@ -2542,91 +2542,14 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   padding: 6px 0;
 }
 
-/* The root's rows that open a screen: a title over its value, with a ›
-   centred on the row. */
-.drill-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  overflow: hidden;
-}
-
-/* Per-site locations, a group of their own 16 px lower. The top margin
-   collapses with the block above's; the container's padding ends the page. */
-.drill-card-separate {
-  margin-top: 16px;
+/* The root's two rows that open a screen, in one card: site rows (below)
+   divided by a thin line. A hidden list row (All sites) leaves no line. */
+.site-card.site-row-group {
   margin-bottom: 0;
 }
-
-.drill-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 52px;
-  padding: 0 12px;
-  cursor: pointer;
-}
-
-.drill-row + .drill-row {
+.site-row-group > :not([hidden]) ~ :not([hidden]) {
   border-top: 1px solid var(--border-subtle);
 }
-
-.drill-row:hover {
-  background: var(--surface-hover);
-}
-
-.drill-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 0;
-}
-
-.drill-title {
-  font-size: 14px;
-  color: var(--text);
-}
-
-.drill-sub {
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-/* "⚠ Empty · Off on every site": coloured text, as .scope-site-meta.warning. */
-.drill-sub.warn {
-  color: var(--warn-text);
-  font-weight: 500;
-}
-
-.drill-chev {
-  flex: none;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--text-muted);
-}
-
-/* Locked (Safari without Pro): still a Tab stop, described by the Pro note,
-   but inert, with 🔒 in place of the ›. */
-.drill-row[aria-disabled="true"] {
-  cursor: not-allowed;
-}
-
-.drill-row[aria-disabled="true"]:hover {
-  background: none;
-}
-
-.drill-row[aria-disabled="true"] .drill-title,
-.drill-row[aria-disabled="true"] .drill-sub {
-  color: var(--text-faint);
-}
-
-.drill-row[aria-disabled="true"] .drill-chev {
-  font-size: 13px;
-}
-
 /* The site row (direction.md 4.2): the site at the left, the value and its ›
    at the right of the same line, the source or a mark under the site. 44 px
    with one line, 64 px with two. */
@@ -2689,6 +2612,31 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 
 /* A mark ("⚠ Not used · Off in Filters"): .scope-site-meta.warning's colour
    and weight, not the .warning banner. */
+/* The root rows' count ("2"): muted, as a value that isn't a place. */
+.site-row-value.count {
+  color: var(--text-muted);
+}
+/* An empty Allowlist: "⚠ Empty · Off on every site", the marks' colour. */
+.site-row-value.warn {
+  color: var(--warn-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+/* Locked (Safari without Pro): still a Tab stop, described by the Pro note,
+   but inert, with 🔒 in place of the ›. */
+.site-row[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+.site-row[aria-disabled="true"]:hover {
+  background: none;
+}
+.site-row[aria-disabled="true"] .site-row-host,
+.site-row[aria-disabled="true"] .site-row-value {
+  color: var(--text-faint);
+}
+.site-row[aria-disabled="true"] .site-row-chev {
+  font-size: 13px;
+}
 .site-row-sub.warn {
   color: var(--warn-text);
   font-weight: 500;
@@ -2774,7 +2722,6 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 }
 
 /* Inset, so the card's and the list's clipping doesn't cut it off. */
-.drill-row:focus-visible,
 .site-row:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: -2px;

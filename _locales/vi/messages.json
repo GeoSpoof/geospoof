@@ -76,8 +76,8 @@
     "description": "Heading for the Sites view (tab_filters). Not shown in the popup today; kept equal to tab_filters."
   },
   "filters_where": {
-    "message": "Nơi GeoSpoof hoạt động",
-    "description": "Section heading above the scope-mode selector on the Filters tab (shown uppercase). Replaces the old 'Mode' heading."
+    "message": "Chế độ lọc",
+    "description": "Section heading above the three mode segments (All sites, Allowlist, Denylist) on the Sites tab. Shown uppercase by the style. Names the radiogroup for screen readers. Formerly \"Where GeoSpoof works\"."
   },
   "filters_modeAll": {
     "message": "Mọi trang web",

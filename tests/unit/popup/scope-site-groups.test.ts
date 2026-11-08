@@ -180,7 +180,8 @@ describe("rows", () => {
   test("an exact address, a group and a link are one row each, with a meta line", async () => {
     await render(ALLOW);
     expect(rows()).toHaveLength(4);
-    expect(byId("scopeListRowValue").textContent).toBe("4 on the list");
+    expect(byId("scopeListRowValue").textContent).toBe("4");
+    expect(byId("scopeListRowDesc").textContent).toBe("4 on the list");
 
     const meta = (title: string) => rowFor(title).querySelector(".scope-site-meta")?.textContent;
     expect(meta("mail.example.com")).toBe("Exact address only");

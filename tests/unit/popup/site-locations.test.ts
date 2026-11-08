@@ -530,7 +530,8 @@ describe("Main tab: the line when a site location applies", () => {
     expect(browser.tabs.query).not.toHaveBeenCalled();
     expect(text("siteLocationLineStatus")).toBe("On twitch.tv: Mexico City");
     expect(text("detailSiteLocation")).toBe("Mexico City (twitch.tv) · America/Mexico_City");
-    expect(text("siteLocationsRowValue")).toBe("2 locations");
+    expect(text("siteLocationsRowValue")).toBe("2");
+    expect(text("siteLocationsRowDesc")).toBe("2 locations");
 
     expect(renderSiteLocations(makeSettings(), false, "https://example.com/")).toBe(false);
     expect(byId("siteLocationLine").hidden).toBe(true);
@@ -539,10 +540,11 @@ describe("Main tab: the line when a site location applies", () => {
 });
 
 describe("Filters root: the Per-site locations row", () => {
-  test("is a group of its own, after the list's row, at the end of the root", () => {
+  test("shares one card with the list's row, after it, at the end of the root", () => {
     const card = byId("siteLocationsCard");
-    expect(card.classList.contains("drill-card-separate")).toBe(true);
-    expect(byId("filtersRoot").lastElementChild).toBe(card);
+    expect(card.parentElement).toBe(byId("filtersRootRows"));
+    expect(card.parentElement).toBe(byId("scopeListCard").parentElement);
+    expect(byId("filtersRoot").lastElementChild).toBe(byId("filtersRootRows"));
     expect(byId("scopeListCard").compareDocumentPosition(card)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
@@ -550,14 +552,16 @@ describe("Filters root: the Per-site locations row", () => {
     expect(byId("siteLocationsRow").getAttribute("tabindex")).toBe("0");
   });
 
-  test.each<[string, SiteLocation[], string]>([
-    ["no entries", [], "None"],
-    ["one entry", [ENTRY_DUBLIN], "1 location"],
-    ["two entries", [ENTRY_DUBLIN, ENTRY_MEXICO_CITY], "2 locations"],
-  ])("with %s it reads '%s'", (_name, siteLocations, value) => {
+  test.each<[string, SiteLocation[], string, string]>([
+    ["no entries", [], "0", "None"],
+    ["one entry", [ENTRY_DUBLIN], "1", "1 location"],
+    ["two entries", [ENTRY_DUBLIN, ENTRY_MEXICO_CITY], "2", "2 locations"],
+  ])("with %s it reads '%s', described as '%s'", (_name, siteLocations, value, words) => {
     renderSiteLocationsSection(makeSettings({ siteLocations }), undefined, false);
     expect(text("siteLocationsRow").replace(/\s+/g, " ")).toBe(`Per-site locations ${value} ›`);
     expect(text("siteLocationsRowValue")).toBe(value);
+    expect(byId("siteLocationsRow").getAttribute("aria-describedby")).toBe("siteLocationsRowDesc");
+    expect(text("siteLocationsRowDesc")).toBe(words);
     expect(byId("siteLocationsRowChev").getAttribute("aria-hidden")).toBe("true");
     expect(byId("siteLocationsRow").hasAttribute("aria-disabled")).toBe(false);
   });
@@ -583,9 +587,9 @@ describe("Filters root: the Per-site locations row", () => {
     const row = byId("siteLocationsRow");
     expect(row.getAttribute("tabindex")).toBe("0");
     expect(row.getAttribute("aria-disabled")).toBe("true");
-    expect(row.getAttribute("aria-describedby")).toBe("scopeProNote");
+    expect(row.getAttribute("aria-describedby")).toBe("siteLocationsRowDesc scopeProNote");
     expect(text("siteLocationsRowChev")).toBe("🔒");
-    expect(text("siteLocationsRowValue")).toBe("2 locations");
+    expect(text("siteLocationsRowValue")).toBe("2");
 
     row.click();
     row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -595,7 +599,7 @@ describe("Filters root: the Per-site locations row", () => {
     // Unlocked again, it opens.
     renderAll(makeSettings(), "https://example.com/", false);
     expect(row.hasAttribute("aria-disabled")).toBe(false);
-    expect(row.hasAttribute("aria-describedby")).toBe(false);
+    expect(row.getAttribute("aria-describedby")).toBe("siteLocationsRowDesc");
     expect(text("siteLocationsRowChev")).toBe("›");
     row.click();
     expect(shownScreens()).toEqual(["siteLocationsScreen"]);

@@ -113,24 +113,33 @@ describe("Popup HTML Structure", () => {
     ).not.toBeNull();
   });
 
-  test("the root: the heading names the mode group, and the two drill rows", () => {
+  test("the root: the heading names the mode group, and the two rows share one card", () => {
     const tabs = document.getElementById("scopeModeTabs")!;
     expect(tabs.getAttribute("role")).toBe("radiogroup");
     expect(tabs.getAttribute("aria-labelledby")).toBe("scopeModeHeading");
     expect(tabs.getAttribute("aria-describedby")).toBe("scopeModeDesc");
     expect(tabs.hasAttribute("aria-label")).toBe(false);
-    expect(document.getElementById("scopeModeHeading")?.textContent?.trim()).toBe(
-      "Where GeoSpoof works"
-    );
+    expect(document.getElementById("scopeModeHeading")?.textContent?.trim()).toBe("Filter mode");
+    const card = document.getElementById("filtersRootRows")!;
+    expect(card.classList.contains("site-card")).toBe(true);
     for (const id of ["scopeListRow", "siteLocationsRow"]) {
       const row = document.getElementById(id)!;
-      expect(row.classList.contains("drill-row")).toBe(true);
+      // The This site card's row component: label, then the count and a ›.
+      expect(row.classList.contains("site-row")).toBe(true);
+      expect(row.closest("#filtersRootRows")).toBe(card);
+      expect(row.querySelector(".site-row-line .site-row-host")).not.toBeNull();
+      expect(
+        row.querySelector(".site-row-trail .site-row-value.count")?.getAttribute("aria-hidden")
+      ).toBe("true");
+      expect(row.querySelector(".site-row-trail .site-row-chev")?.getAttribute("aria-hidden")).toBe(
+        "true"
+      );
       expect(row.getAttribute("role")).toBe("button");
       expect(row.getAttribute("tabindex")).toBe("0");
+      expect(row.getAttribute("aria-describedby")).toBe(`${id}Desc`);
+      expect(document.getElementById(`${id}Desc`)?.classList).toContain("visually-hidden");
     }
-    expect(document.getElementById("siteLocationsCard")?.classList).toContain(
-      "drill-card-separate"
-    );
+    expect(document.querySelector(".drill-row, .drill-card")).toBeNull();
   });
 
   test("the root starts with the This site card, whose button, hint and error are static", () => {

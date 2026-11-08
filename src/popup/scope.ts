@@ -333,8 +333,9 @@ function setListCardVisible(visible: boolean): void {
 }
 
 /**
- * "Allowlist / 4 on the list ›". An empty Denylist reads "Empty"; an empty
- * Allowlist "⚠ Empty · Off on every site", because nothing is spoofed then.
+ * "Allowlist   4 ›", described as "4 on the list". An empty Denylist reads
+ * "0", described as "Empty"; an empty Allowlist "⚠ Empty · Off on every
+ * site", because nothing is spoofed then.
  */
 function renderListRow(listKey: ListKey, entries: readonly string[]): void {
   setListCardVisible(true);
@@ -345,17 +346,25 @@ function renderListRow(listKey: ListKey, entries: readonly string[]): void {
   value.replaceChildren();
   const warn = entries.length === 0 && listKey === "allowlist";
   value.classList.toggle("warn", warn);
+  value.classList.toggle("count", !warn);
+  // The count shows as a number; the description says it in words.
+  const count = formatCount(entries.length);
+  let words: string;
   if (entries.length > 0) {
-    const count = formatCount(entries.length);
-    value.textContent = t("filters_countOnList", [count]) || `${count} on the list`;
+    words = t("filters_countOnList", [count]) || `${count} on the list`;
+    value.textContent = count;
   } else if (warn) {
+    words = t("filters_listEmptyAllow") || "Empty · Off on every site";
     const sign = document.createElement("span");
     sign.setAttribute("aria-hidden", "true");
     sign.textContent = "⚠ ";
-    value.append(sign, t("filters_listEmptyAllow") || "Empty · Off on every site");
+    value.append(sign, words);
   } else {
-    value.textContent = t("filters_listEmpty") || "Empty";
+    words = t("filters_listEmpty") || "Empty";
+    value.textContent = count;
   }
+  const desc = el("scopeListRowDesc");
+  if (desc) desc.textContent = words;
 }
 
 /** The root's list row opens the list screen; leaving it, focus returns to the row. */

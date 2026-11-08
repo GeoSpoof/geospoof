@@ -2,7 +2,7 @@
  * Filters tab navigation (design H, direction.md 4.4 and 6.3–6.4): a root and
  * three screens, one shown at a time.
  *
- *   - `root` (#filtersRoot): "Where GeoSpoof works", the active list's row and
+ *   - `root` (#filtersRoot): "Filter mode", the active list's row and
  *     the Per-site locations row;
  *   - `list` (#scopeListScreen): the Allowlist or the Denylist;
  *   - `perSite` (#siteLocationsScreen): Per-site locations;

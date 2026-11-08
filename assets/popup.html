@@ -596,7 +596,7 @@
           </section>
 
           <div class="section-heading" id="scopeModeHeading" data-i18n="filters_where">
-            Where GeoSpoof works
+            Filter mode
           </div>
 
           <!-- The mode: three radios that apply on click (6.3). The group is
@@ -661,26 +661,58 @@
             ⚠️ Change not saved
           </div>
 
-          <!-- The active list's row (hidden in All sites mode). -->
-          <div class="drill-card" id="scopeListCard" hidden>
-            <div class="drill-row" id="scopeListRow" role="button" tabindex="0">
-              <span class="drill-text">
-                <span class="drill-title" id="scopeListRowTitle">Allowlist</span>
-                <span class="drill-sub" id="scopeListRowValue"></span>
-              </span>
-              <span class="drill-chev" aria-hidden="true">›</span>
+          <!-- One card, two site rows ("Allowlist   2 ›", "Per-site locations
+               1 ›"), the This site card's row component. The list row hides in
+               All sites mode. The count is aria-hidden; each row's description
+               says it in words ("2 on the list", "1 location"). -->
+          <div class="site-card site-row-group" id="filtersRootRows">
+            <div id="scopeListCard" hidden>
+              <div
+                class="site-row"
+                id="scopeListRow"
+                role="button"
+                tabindex="0"
+                aria-describedby="scopeListRowDesc"
+              >
+                <div class="site-row-line">
+                  <span class="site-row-host" id="scopeListRowTitle">Allowlist</span>
+                  <span class="site-row-trail"
+                    ><span
+                      class="site-row-value count"
+                      id="scopeListRowValue"
+                      aria-hidden="true"
+                    ></span
+                    >&nbsp;<span class="site-row-chev" aria-hidden="true">›</span></span
+                  >
+                </div>
+              </div>
+              <span class="visually-hidden" id="scopeListRowDesc"></span>
             </div>
-          </div>
-
-          <div class="drill-card drill-card-separate" id="siteLocationsCard">
-            <div class="drill-row" id="siteLocationsRow" role="button" tabindex="0">
-              <span class="drill-text">
-                <span class="drill-title" data-i18n="siteLocation_sectionTitle"
-                  >Per-site locations</span
-                >
-                <span class="drill-sub" id="siteLocationsRowValue"></span>
-              </span>
-              <span class="drill-chev" id="siteLocationsRowChev" aria-hidden="true">›</span>
+            <div id="siteLocationsCard">
+              <div
+                class="site-row"
+                id="siteLocationsRow"
+                role="button"
+                tabindex="0"
+                aria-describedby="siteLocationsRowDesc"
+              >
+                <div class="site-row-line">
+                  <span class="site-row-host" data-i18n="siteLocation_sectionTitle"
+                    >Per-site locations</span
+                  >
+                  <span class="site-row-trail"
+                    ><span
+                      class="site-row-value count"
+                      id="siteLocationsRowValue"
+                      aria-hidden="true"
+                    ></span
+                    >&nbsp;<span class="site-row-chev" id="siteLocationsRowChev" aria-hidden="true"
+                      >›</span
+                    ></span
+                  >
+                </div>
+              </div>
+              <span class="visually-hidden" id="siteLocationsRowDesc"></span>
             </div>
           </div>
         </div>
