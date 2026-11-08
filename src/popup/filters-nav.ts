@@ -82,6 +82,7 @@ export function wireFiltersNavOnce(): void {
   const view = el("filtersView");
   if (!view || view.dataset.navWired === "1") return;
   view.dataset.navWired = "1";
+  wireNavBarsOnce();
   current = "root";
   editorOrigin = "root";
   openers = {};
@@ -149,6 +150,9 @@ function renderEditorBackLabel(): void {
       : editorOrigin === "main"
         ? t("tab_main") || "Main"
         : t("tab_filters") || "Sites";
+  // A new label may fit, or not, where the old one didn't.
+  const bar = label.closest<HTMLElement>(".nav-bar");
+  if (bar) fitNavBar(bar);
 }
 
 /**
@@ -232,4 +236,35 @@ export function __resetFiltersNavForTest(): void {
   editorOrigin = "root";
   openers = {};
   listeners.clear();
+}
+
+/**
+ * Collapse a nav bar's back label to its ‹ when the label doesn't fit beside
+ * the centred title (iOS shortens a long back title the same way). Measured
+ * with the label shown; the label stays in the button's accessible name.
+ */
+export function fitNavBar(bar: HTMLElement): void {
+  const back = bar.querySelector<HTMLElement>(".back-row");
+  const label = back?.querySelector<HTMLElement>(":scope > span:last-child");
+  if (!back || !label || bar.getClientRects().length === 0) return;
+  back.classList.remove("compact");
+  if (label.scrollWidth > label.clientWidth + 1) back.classList.add("compact");
+}
+
+const navWidths = new WeakMap<Element, number>();
+let navObserver: ResizeObserver | null = null;
+
+/** Fit every nav bar now, and again whenever one is shown or resized. */
+export function wireNavBarsOnce(): void {
+  if (typeof ResizeObserver === "undefined" || navObserver !== null) return;
+  navObserver = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const width = Math.round(entry.contentRect.width);
+      // A hidden bar reads 0, so showing it again always refits.
+      if (navWidths.get(entry.target) === width) continue;
+      navWidths.set(entry.target, width);
+      if (width > 0) fitNavBar(entry.target as HTMLElement);
+    }
+  });
+  document.querySelectorAll<HTMLElement>(".nav-bar").forEach((bar) => navObserver?.observe(bar));
 }

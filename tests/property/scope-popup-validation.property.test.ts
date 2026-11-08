@@ -548,6 +548,7 @@ describe("Popup Filters tab — the root and the list screen (design H)", () => 
     // The list keeps its name: the list's own.
     expect(byId("scopeList").getAttribute("aria-labelledby")).toBe("scopeListName");
     expect(byId("scopeListName").textContent).toBe("Denylist");
+    expect(byId("scopeListCount").textContent).toBe("2");
 
     byId("scopeListTitle").dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })

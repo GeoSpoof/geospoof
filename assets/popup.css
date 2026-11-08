@@ -497,7 +497,8 @@ input[type="checkbox"]:checked + .toggle-slider:before {
 }
 
 /* The same look on a real heading (SITE RULES): no UA margins or size. */
-h2.section-heading {
+h2.section-heading,
+h3.section-heading {
   margin: 0 0 8px;
 }
 
@@ -2146,7 +2147,8 @@ h2.section-heading {
 .scope-mode-desc {
   font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 12px;
+  /* 16 px between sections: the mode, then the list. */
+  margin-bottom: 16px;
   line-height: 1.4;
 }
 
@@ -2174,6 +2176,27 @@ h2.section-heading {
   color: var(--text-muted);
 }
 
+/* The list's section heading and its count (main's look). */
+.scope-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.scope-list-header .section-heading {
+  margin: 0;
+}
+.scope-list-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--badge-bg);
+  border-radius: 10px;
+  padding: 1px 8px;
+  min-width: 20px;
+  text-align: center;
+}
+
 .scope-add-row {
   display: flex;
   gap: 8px;
@@ -2183,7 +2206,8 @@ h2.section-heading {
 .scope-add-row input {
   flex: 1;
   min-width: 0;
-  padding: 10px;
+  height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--border-input);
   border-radius: 8px;
   font-size: 14px;
@@ -2196,7 +2220,8 @@ h2.section-heading {
 
 .scope-add-row button {
   flex-shrink: 0;
-  padding: 10px 14px;
+  height: 36px;
+  padding: 0 14px;
   background: var(--brand);
   border: 1px solid transparent;
   border-radius: 8px;
@@ -2363,7 +2388,7 @@ h2.section-heading {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 43px;
+  min-height: 44px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-subtle);
   transition: background 0.15s;
@@ -2470,6 +2495,47 @@ h2.section-heading {
 }
 
 /* Takes focus from script when its screen opens, to be read out. */
+/* A sub-screen's nav bar (HIG): the back row at the leading edge and the
+   title centred over the screen. Two equal side columns keep it centred. When
+   the back label doesn't fit beside the title it collapses to its ‹, as iOS
+   shortens a long back title (fitNavBar); its accessible name stays whole.
+   44 px tall, 12 px above the content. */
+.nav-bar {
+  display: grid;
+  grid-template-columns: minmax(44px, 1fr) auto minmax(44px, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 44px;
+  margin-bottom: 12px;
+}
+.nav-bar .back-row {
+  justify-self: start;
+  max-width: 100%;
+  min-width: 0;
+  height: 44px;
+  white-space: nowrap;
+}
+.nav-bar .back-row > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Collapsed: the label is read, not shown (as .visually-hidden). */
+.nav-bar .back-row.compact > span:last-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nav-bar .view-title {
+  grid-column: 2;
+  height: auto;
+  margin: 0;
+  text-align: center;
+}
+
 .view-title {
   height: 24px;
   margin: 0 0 12px;
@@ -2882,7 +2948,8 @@ h2.section-heading {
 }
 
 .site-location-cancel {
-  padding: 7px 12px;
+  height: 36px;
+  padding: 0 12px;
   background: var(--btn-secondary);
   border: none;
   border-radius: 8px;
@@ -2972,7 +3039,8 @@ h2.section-heading {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
-  padding: 8px 10px;
+  height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--border-input);
   border-radius: 8px;
   background: var(--surface);
@@ -3157,7 +3225,8 @@ h2.section-heading {
 
 .site-location-save {
   flex: 1;
-  padding: 8px 12px;
+  height: 36px;
+  padding: 0 12px;
   background: var(--brand);
   border: 1px solid transparent;
   border-radius: 8px;
@@ -3462,7 +3531,8 @@ h2.section-heading {
 
 .entry-add-button {
   flex-shrink: 0;
-  padding: 8px 12px;
+  height: 36px;
+  padding: 0 12px;
   background: var(--btn-secondary);
   border: none;
   border-radius: 8px;

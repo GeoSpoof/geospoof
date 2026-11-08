@@ -101,9 +101,13 @@ describe("Popup HTML Structure", () => {
     expect(screens.filter((screen) => !screen.hasAttribute("hidden")).map((s) => s.id)).toEqual([
       "filtersRoot",
     ]);
-    // Each screen below the root has a back row and a script-focusable title.
+    // Each screen below the root opens with a nav bar: the back row, then a
+    // script-focusable title, on one row.
     for (const screen of screens.slice(1)) {
-      expect(screen.firstElementChild?.matches("button.back-row"), screen.id).toBe(true);
+      const bar = screen.firstElementChild;
+      expect(bar?.classList.contains("nav-bar"), screen.id).toBe(true);
+      expect(bar?.firstElementChild?.matches("button.back-row"), screen.id).toBe(true);
+      expect(bar?.lastElementChild?.matches("h2.view-title"), screen.id).toBe(true);
       const title = screen.querySelector(".view-title");
       expect(title?.getAttribute("tabindex"), screen.id).toBe("-1");
       expect(screen.querySelector(".back-row [aria-hidden='true']")?.textContent).toBe("‹ ");
@@ -204,7 +208,6 @@ describe("Popup HTML Structure", () => {
     for (const id of [
       "scopeListManager",
       "scopeListHeader",
-      "scopeListCount",
       "scopeAddCurrentButton",
       "scopeCurrentMsg",
       "siteLocationsDisclosure",
@@ -213,6 +216,9 @@ describe("Popup HTML Structure", () => {
       expect(document.getElementById(id), id).toBeNull();
     }
     expect(filters.querySelector("hr, details.site-locations-disclosure")).toBeNull();
+    // main's list heading and count are back, inside the Filters screen's list.
+    expect(document.getElementById("scopeListCount")?.closest("#scopeListContent")).not.toBeNull();
+    expect(document.getElementById("scopeListName")?.tagName).toBe("H3");
   });
 
   test("should link popup.css and popup.js", () => {

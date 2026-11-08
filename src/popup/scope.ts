@@ -422,6 +422,8 @@ function renderListScreen(
   // The list is named by its list ("Allowlist"); the screen's title is Filters.
   const name = el("scopeListName");
   if (name) name.textContent = listName(listKey);
+  const count = el("scopeListCount");
+  if (count) count.textContent = formatCount(entries.length);
 
   siteStatus = listScreenSiteStatus({
     settings,

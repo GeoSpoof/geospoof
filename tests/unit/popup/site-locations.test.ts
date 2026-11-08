@@ -641,7 +641,7 @@ describe("the Per-site locations screen", () => {
   test("a title, the caption, '＋ Set a location for …', then the list", () => {
     renderSiteLocationsSection(makeSettings(), "https://example.com/", false);
     const screen = byId("siteLocationsScreen");
-    expect(screen.firstElementChild).toBe(byId("siteLocationsBack"));
+    expect(screen.firstElementChild?.firstElementChild).toBe(byId("siteLocationsBack"));
     expect(text("siteLocationsBack").replace(/\s+/g, " ")).toBe("‹ Sites");
     expect(screen.querySelector(".view-caption")?.textContent?.trim()).toBe(
       "Use a different location on specific sites."

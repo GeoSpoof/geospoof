@@ -671,15 +671,24 @@
 
         <!-- Filters: the mode, and in Allowlist or Denylist mode its list. -->
         <div class="filters-screen" id="scopeListScreen" hidden>
-          <button type="button" class="back-row" id="scopeListBack">
-            <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Sites</span>
-          </button>
-          <h2 class="view-title" id="scopeListTitle" tabindex="-1" data-i18n="filters_screenTitle">
-            Filters
-          </h2>
-          <div class="section-heading" id="scopeModeHeading" data-i18n="filters_where">
-            Filter mode
+          <!-- Nav bar (HIG): the back row at the leading edge, the title
+               centred over the screen when it fits. -->
+          <div class="nav-bar">
+            <button type="button" class="back-row" id="scopeListBack">
+              <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Sites</span>
+            </button>
+            <h2
+              class="view-title"
+              id="scopeListTitle"
+              tabindex="-1"
+              data-i18n="filters_screenTitle"
+            >
+              Filters
+            </h2>
           </div>
+          <h3 class="section-heading" id="scopeModeHeading" data-i18n="filters_where">
+            Filter mode
+          </h3>
 
           <!-- The mode: three radios that apply on click (6.3). The group is
                named by the heading and described by the sentence. -->
@@ -745,7 +754,11 @@
 
           <!-- The active list (Allowlist or Denylist mode only). -->
           <div id="scopeListContent" hidden>
-            <span class="visually-hidden" id="scopeListName">Allowlist</span>
+            <!-- The list's section: "ALLOWLIST  4", main's list heading and count. -->
+            <div class="scope-list-header">
+              <h3 class="section-heading scope-list-title" id="scopeListName">Allowlist</h3>
+              <span class="scope-list-count" id="scopeListCount">0</span>
+            </div>
 
             <!-- This site (without www.), one tap away, or whether it's listed. -->
             <button type="button" class="primary-add" id="scopeAddSiteButton" hidden>
@@ -917,17 +930,19 @@
 
         <!-- Per-site locations (#177). -->
         <div class="filters-screen" id="siteLocationsScreen" hidden>
-          <button type="button" class="back-row" id="siteLocationsBack">
-            <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Sites</span>
-          </button>
-          <h2
-            class="view-title"
-            id="siteLocationsTitle"
-            tabindex="-1"
-            data-i18n="siteLocation_sectionTitle"
-          >
-            Per-site locations
-          </h2>
+          <div class="nav-bar">
+            <button type="button" class="back-row" id="siteLocationsBack">
+              <span aria-hidden="true">‹ </span><span data-i18n="tab_filters">Sites</span>
+            </button>
+            <h2
+              class="view-title"
+              id="siteLocationsTitle"
+              tabindex="-1"
+              data-i18n="siteLocation_sectionTitle"
+            >
+              Per-site locations
+            </h2>
+          </div>
           <div class="view-caption" data-i18n="siteLocation_sectionDesc">
             Use a different location on specific sites.
           </div>
@@ -980,12 +995,14 @@
         <!-- One per-site location. Its back row names where it was opened
              from: Filters, Per-site locations or Main (6.4). -->
         <div class="filters-screen" id="siteLocationEditorScreen" hidden>
-          <button type="button" class="back-row" id="siteLocationEditorBack">
-            <span aria-hidden="true">‹ </span><span id="siteLocationEditorBackLabel">Sites</span>
-          </button>
-          <h2 class="view-title" id="siteLocationEditorTitle" tabindex="-1">
-            New per-site location
-          </h2>
+          <div class="nav-bar">
+            <button type="button" class="back-row" id="siteLocationEditorBack">
+              <span aria-hidden="true">‹ </span><span id="siteLocationEditorBackLabel">Sites</span>
+            </button>
+            <h2 class="view-title" id="siteLocationEditorTitle" tabindex="-1">
+              New per-site location
+            </h2>
+          </div>
           <div class="site-location-editor" id="siteLocationEditor">
             <label
               class="site-location-label"
