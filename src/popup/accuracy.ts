@@ -1,5 +1,5 @@
 /**
- * Popup Accuracy Control (Advanced accordion, Details tab)
+ * Popup Accuracy Control (Settings screen, WHAT SITES SEE)
  *
  * Renders and wires the accuracy dropdown (+ conditional Custom numeric input)
  * that lets the user choose how the spoofed `GeolocationCoordinates.accuracy`
@@ -16,26 +16,21 @@
  * backward compatibility (a value saved before removal keeps resolving), but the
  * picker no longer offers it and collapses any stored range to "Realistic".
  *
- * Selecting "Realistic" applies immediately and hides the whole Custom wrapper.
- * The Custom control, by contrast, is a small inline
- * edit/display toggle with two visual states:
+ * Selecting "Realistic" applies immediately and hides the Meters row.
+ * Selecting "Custom" shows the Meters row, an always-visible input holding the
+ * committed value. Its "Set" button shows only while the input differs from
+ * the committed value (dirty), and the value commits ONLY on Set or Enter —
+ * never on blur and never on every keystroke. On commit a finite, in-range
+ * value is rounded to an integer and sent via `SET_ACCURACY` as
+ * `{ mode: "fixed", meters }`. An empty, non-finite, or out-of-range entry is
+ * rejected: the field is outlined, the hint becomes the Location card's
+ * caption (it outranks the card's other captions), and nothing is sent —
+ * out-of-range values are NOT clamped/saved.
  *
- *   - Editing state — a single inline row `[ numeric input ][ Set ]`. The value
- *     commits ONLY when the user clicks "Set" or presses Enter — never on blur
- *     and never on every keystroke. On commit a finite, in-range value is
- *     rounded to an integer, sent via `SET_ACCURACY` as `{ mode: "fixed",
- *     meters }`, and the control switches to the display state. An empty,
- *     non-finite, or out-of-range entry is rejected: it stays in the editing
- *     state and surfaces the red-outline invalid indication + hint (sends
- *     nothing — out-of-range values are NOT clamped/saved).
- *   - Display state — a compact inline row `±{meters}m  [ Edit ]` showing the
- *     committed value. Clicking "Edit" returns to the editing state, pre-filled
- *     with the committed meters.
- *
- * Selecting "Custom" from the dropdown (coming from another option) opens the
- * editing state pre-filled with the currently-resolved accuracy (the ±Nm in
- * effect) and sends nothing. Restoring a stored `fixed` setting opens directly
- * in the display state (already committed; the editor is not opened).
+ * Selecting "Custom" from the dropdown (coming from another option) pre-fills
+ * the input with the currently-resolved accuracy (the ±Nm in effect) and sends
+ * nothing. Restoring a stored `fixed` setting shows the committed value with
+ * Set hidden.
  *
  * No controls for distribution, per-call jitter, or fractional precision are
  * exposed (Requirement 9.4); the Custom input must be a finite value within
@@ -48,6 +43,8 @@
 
 import type { AccuracySetting } from "@/shared/types/settings";
 import type { Message, SetAccuracyPayload } from "@/shared/types/messages";
+import { isCustomValueDirty, setRowLocked, syncValueRow } from "./settings-rows";
+import { setCaptionActive } from "./settings-captions";
 
 /** Inclusive bounds for a valid custom accuracy value, in metres. */
 export const MIN_ACCURACY_M = 1;
@@ -142,11 +139,11 @@ export function accuracySettingToControlState(setting: AccuracySetting): {
 let lastResolvedAccuracy: number | null = null;
 
 /**
- * The last successfully-committed custom value (metres), or `null` if no custom
- * value has been committed in this popup session. Used to pre-fill the editor
- * when the user clicks "Edit" from the display state.
+ * The committed custom value (metres): the stored `fixed` setting, or the last
+ * value committed this session. `null` while no custom value is committed
+ * (Realistic). Drives the dirty state that shows Set.
  */
-let committedMeters: number | null = null;
+let storedMeters: number | null = null;
 
 function getSelect(): HTMLSelectElement | null {
   return document.getElementById("accuracySelect") as HTMLSelectElement | null;
@@ -168,73 +165,37 @@ function getCustomEditRow(): HTMLElement | null {
   return document.getElementById("accuracyCustomEdit");
 }
 
-function getCustomDisplayRow(): HTMLElement | null {
-  return document.getElementById("accuracyCustomDisplay");
-}
-
-function getCustomValueLabel(): HTMLElement | null {
-  return document.getElementById("accuracyCustomValue");
-}
-
-function getCustomEditBtn(): HTMLButtonElement | null {
-  return document.getElementById("accuracyCustomEditBtn") as HTMLButtonElement | null;
-}
-
-/** Hide both inline Custom groups (used when a preset is selected). */
-function hideCustom(): void {
-  const editRow = getCustomEditRow();
-  const displayRow = getCustomDisplayRow();
-  if (editRow) editRow.style.display = "none";
-  if (displayRow) displayRow.style.display = "none";
-  setCustomInvalid(false);
-}
-
-/**
- * Switch the Custom control into its editing state: the inline
- * `[ input ][ Set ]` group is shown, the display group hidden, and the input
- * pre-filled (when `prefill` is provided), focused, and selected.
- */
-function showCustomEditing(prefill: number | null): void {
-  setCustomInvalid(false);
-
-  const editRow = getCustomEditRow();
-  const displayRow = getCustomDisplayRow();
-  if (editRow) editRow.style.display = "flex";
-  if (displayRow) displayRow.style.display = "none";
-
+/** Show Set only while the input differs from the committed value. */
+function syncConfirm(): void {
   const input = getCustomInput();
-  if (input && prefill != null) {
-    input.value = String(prefill);
-  }
-  input?.focus();
-  input?.select?.();
+  const confirm = getCustomConfirm();
+  if (!input || !confirm) return;
+  confirm.hidden = !isCustomValueDirty(input.value, storedMeters?.toString() ?? null);
+}
+
+/** Show or hide the Meters row. */
+function setCustomRowVisible(visible: boolean): void {
+  const row = getCustomEditRow();
+  if (row) row.style.display = visible ? "block" : "none";
 }
 
 /**
- * Switch the Custom control into its display state: the compact
- * `±{meters}m  [ Edit ]` group is shown, the editing group and hint hidden, and
- * the committed value recorded.
+ * Toggle the invalid indication: the field's outline and `aria-invalid`, and
+ * the hint as the Location card's caption (describing the field while invalid).
  */
-function showCustomDisplay(meters: number): void {
-  setCustomInvalid(false);
-
-  const editRow = getCustomEditRow();
-  const displayRow = getCustomDisplayRow();
-  if (editRow) editRow.style.display = "none";
-  if (displayRow) displayRow.style.display = "flex";
-
-  const label = getCustomValueLabel();
-  if (label) label.textContent = `±${meters}m`;
-
-  committedMeters = meters;
-}
-
-/** Toggle the out-of-range indication on the custom input. */
 function setCustomInvalid(invalid: boolean): void {
   const input = getCustomInput();
-  const hint = getCustomHint();
-  if (input) input.classList.toggle("invalid", invalid);
-  if (hint) hint.style.display = invalid ? "block" : "none";
+  if (input) {
+    input.classList.toggle("invalid", invalid);
+    if (invalid) {
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", "accuracyCustomHint");
+    } else {
+      input.removeAttribute("aria-invalid");
+      input.removeAttribute("aria-describedby");
+    }
+  }
+  setCaptionActive(getCustomHint(), invalid);
 }
 
 /** Persist an AccuracySetting via the background. */
@@ -253,68 +214,63 @@ async function sendAccuracy(accuracySetting: AccuracySetting): Promise<void> {
 /**
  * Read, validate, and (if usable) commit the Custom numeric input.
  *
- * Only a finite, in-range value commits and switches to the display state.
- * Every other entry is rejected: the input keeps the user's text, the
- * red-outline invalid indication + hint are surfaced, and the control stays in
- * the editing state so the value can be corrected (nothing is sent).
- *
- *   - Empty/blank        → invalid indication, stay editing, send nothing.
- *   - Non-finite         → invalid indication, stay editing, send nothing.
- *   - Out of range       → invalid indication, stay editing, send nothing. The
- *     value is NOT clamped/saved (the user must enter a value in `[1, 10000]`).
- *   - In range           → round to an integer, send `SET_ACCURACY` with
- *     `{ mode: "fixed", meters }`, and switch to the display state showing
- *     `±{meters}m` (Requirement 9.3).
+ *   - Empty/blank, non-finite, or out of range → invalid indication, send
+ *     nothing. The value is NOT clamped/saved (the user must enter a value in
+ *     `[1, 10000]`).
+ *   - In range → round to an integer, send `SET_ACCURACY` with
+ *     `{ mode: "fixed", meters }`, show the rounded value, and hide Set
+ *     (Requirement 9.3). Focus moves to the field when Set had it, since Set
+ *     disappears.
  */
 function commitCustom(): void {
   const input = getCustomInput();
   if (!input) return;
 
   const raw = input.value.trim();
-  if (raw === "") {
-    // Nothing entered yet — surface the hint, stay editing, send nothing.
-    setCustomInvalid(true);
-    return;
-  }
-
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) {
+  if (raw === "" || !Number.isFinite(parsed) || !isAccuracyMetersInRange(parsed)) {
     setCustomInvalid(true);
     return;
   }
 
-  if (!isAccuracyMetersInRange(parsed)) {
-    // Out of range — reject with the red outline + hint, keep the entered
-    // value, stay editing, and send nothing (no silent clamping/saving).
-    setCustomInvalid(true);
-    return;
-  }
-
-  // In range — round to an integer (clampAccuracyMeters just rounds here),
-  // commit, and switch to the display state.
   const meters = clampAccuracyMeters(parsed);
   void sendAccuracy({ mode: "fixed", meters });
-  showCustomDisplay(meters);
+  storedMeters = meters;
+  input.value = String(meters);
+  setCustomInvalid(false);
+  const confirmHadFocus = document.activeElement === getCustomConfirm();
+  syncConfirm();
+  if (confirmHadFocus) input.focus();
 }
 
 /** Handle a change of the dropdown selection. */
 function handleSelectChange(): void {
   const select = getSelect();
   if (!select) return;
+  syncValueRow(select);
 
   const option = select.value as AccuracyOption;
 
   if (option === "custom") {
-    // This fires when switching TO custom from another option, so there is no
-    // committed custom value yet — open the editing state pre-filled with the
-    // currently-resolved accuracy (the ±Nm in effect). Sends nothing; the
-    // value commits only via Set or Enter.
-    showCustomEditing(lastResolvedAccuracy);
+    // Switching TO custom: pre-fill with the resolved accuracy (the ±Nm in
+    // effect), focus and select it, and send nothing — the value commits only
+    // via Set or Enter.
+    setCustomInvalid(false);
+    setCustomRowVisible(true);
+    const input = getCustomInput();
+    if (input) {
+      if (lastResolvedAccuracy != null) input.value = String(lastResolvedAccuracy);
+      syncConfirm();
+      input.focus();
+      input.select?.();
+    }
     return;
   }
 
-  // Presets apply immediately and hide the inline Custom groups.
-  hideCustom();
+  // Presets apply immediately and hide the Meters row.
+  storedMeters = null;
+  setCustomRowVisible(false);
+  setCustomInvalid(false);
   const setting = optionToAccuracySetting(option);
   if (setting) void sendAccuracy(setting);
 }
@@ -332,9 +288,13 @@ export function initAccuracyControl(): void {
 
   const input = getCustomInput();
   if (input) {
-    // Clear the out-of-range indication while typing; do NOT commit here.
-    input.addEventListener("input", () => setCustomInvalid(false));
-    // Commit on Enter only (in addition to the Set button below).
+    // Clear the invalid indication while typing and track the dirty state; do
+    // NOT commit here.
+    input.addEventListener("input", () => {
+      setCustomInvalid(false);
+      syncConfirm();
+    });
+    // Commit on Enter (in addition to the Set button below).
     input.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -343,21 +303,7 @@ export function initAccuracyControl(): void {
     });
   }
 
-  // The Custom value commits only via the Set button (or Enter above) —
-  // never on blur or on every keystroke.
-  const confirm = getCustomConfirm();
-  if (confirm) {
-    confirm.addEventListener("click", () => commitCustom());
-  }
-
-  // The Edit button reopens the editing state pre-filled with the committed
-  // value (falling back to the resolved accuracy when nothing is committed yet).
-  const editBtn = getCustomEditBtn();
-  if (editBtn) {
-    editBtn.addEventListener("click", () =>
-      showCustomEditing(committedMeters ?? lastResolvedAccuracy)
-    );
-  }
+  getCustomConfirm()?.addEventListener("click", () => commitCustom());
 }
 
 /**
@@ -381,49 +327,43 @@ export function restoreAccuracyControl(
     lastResolvedAccuracy = clampAccuracyMeters(resolvedAccuracy);
   }
 
-  applyAccuracyLock(proLocked);
-
-  // Locked free iOS users always reflect "Realistic" (what the background
-  // enforces); the disabled control + Pro note explain custom accuracy is Pro.
-  if (proLocked) {
-    select.value = "realistic";
-    hideCustom();
-    return;
-  }
-
-  const { option, customMeters } = accuracySettingToControlState(setting ?? { mode: "auto" });
-
-  select.value = option;
   setCustomInvalid(false);
 
+  // Locked free iOS users always reflect "Realistic" (what the background
+  // enforces); the locked row + Pro note explain custom accuracy is Pro.
+  if (proLocked) {
+    select.value = "realistic";
+    storedMeters = null;
+    setCustomRowVisible(false);
+    applyAccuracyLock(true);
+    syncValueRow(select);
+    return;
+  }
+  applyAccuracyLock(false);
+
+  const { option, customMeters } = accuracySettingToControlState(setting ?? { mode: "auto" });
+  select.value = option;
+  syncValueRow(select);
+
   if (option === "custom" && customMeters !== null) {
-    // Stored fixed setting — already committed, so open directly in the display
-    // state showing ±{meters}m. Do NOT open the editor.
-    showCustomDisplay(customMeters);
+    // Stored fixed setting — already committed: show it, with Set hidden.
+    storedMeters = customMeters;
+    const input = getCustomInput();
+    if (input) input.value = String(customMeters);
+    setCustomRowVisible(true);
+    syncConfirm();
   } else {
-    // Preset (or fallback) — hide the inline Custom groups.
-    hideCustom();
+    storedMeters = null;
+    setCustomRowVisible(false);
   }
 }
 
 /**
- * Enable/disable the accuracy control for the Pro gate. The disabled dropdown
- * can't be changed (so "Custom" can't be picked) and the Pro note explains why;
- * toggling it off restores normal interaction.
+ * Lock or unlock the accuracy control for the Pro gate: the row stays a Tab
+ * stop (`aria-disabled`) on Realistic, and the Settings screen's one Pro note
+ * explains why.
  */
 function applyAccuracyLock(locked: boolean): void {
   const select = getSelect();
-  if (select) select.disabled = locked;
-
-  const input = getCustomInput();
-  if (input) input.disabled = locked;
-
-  const confirm = getCustomConfirm();
-  if (confirm) confirm.disabled = locked;
-
-  const editBtn = getCustomEditBtn();
-  if (editBtn) editBtn.disabled = locked;
-
-  const note = document.getElementById("accuracyProNote");
-  if (note) note.style.display = locked ? "block" : "none";
+  if (select) setRowLocked(select, locked, "realistic");
 }

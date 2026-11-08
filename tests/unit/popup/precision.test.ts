@@ -1,7 +1,7 @@
 /**
  * Unit tests for the popup precision control: the pure mapping helpers, and
  * the "Pick a new point" cadence control, exercised in jsdom against the real
- * `.precision-selector` markup from assets/popup.html.
+ * `#settingsSitesSee` markup from assets/popup.html.
  * Feature: location-precision (Task 8.3) and its cadence (GeoSpoof/geospoof#1).
  */
 
@@ -85,13 +85,13 @@ describe("cadenceUiState", () => {
   });
 });
 
-/** The real `.precision-selector` markup from the shipped popup. */
+/** The real WHAT SITES SEE group from the shipped popup. */
 const PRECISION_MARKUP = (() => {
   const html = readFileSync("assets/popup.html", "utf8");
   const section = new DOMParser()
     .parseFromString(html, "text/html")
-    .querySelector(".precision-selector");
-  if (!section) throw new Error(".precision-selector not found in assets/popup.html");
+    .querySelector("#settingsSitesSee");
+  if (!section) throw new Error("#settingsSitesSee not found in assets/popup.html");
   return section.outerHTML;
 })();
 
@@ -121,7 +121,7 @@ describe("cadence control in the popup (AC23)", () => {
     const label = document.querySelector('label[for="precisionCadenceSelect"]');
     expect(label).not.toBeNull();
     expect(label!.textContent).toContain("Pick a new point");
-    expect(cadence().closest(".precision-selector")).not.toBeNull();
+    expect(cadence().closest("#settingsLocationCard")).not.toBeNull();
   });
 
   test("Exact hides the row and keeps the stored cadence", () => {

@@ -67,6 +67,22 @@
     "message": "開啟設定",
     "description": "Screen-reader label for the settings gear button in the popup header. Phrased as an action ('Open settings') because the button has no visible text label, unlike the tooltip which is just the destination name."
   },
+  "settings_headingSitesSee": {
+    "message": "網站看到的內容",
+    "description": "Settings screen: heading over the group of settings that change what websites receive (Location Accuracy, Location Precision, Preserve location prompts, Reported Language). Shown in capitals."
+  },
+  "settings_headingAdvanced": {
+    "message": "進階",
+    "description": "Settings screen: heading over the browser-specific opt-in (Engine-level Spoofing on Chrome, Instant timezone protection on Firefox). Same word as advanced_button. Shown in capitals."
+  },
+  "settings_headingGeneral": {
+    "message": "一般",
+    "description": "Settings screen: heading over the settings about the popup itself (Theme, Language, Debug Logging). Shown in capitals."
+  },
+  "settings_proNote": {
+    "message": "🔒 此區段的設定是 GeoSpoof Pro 功能。請在 GeoSpoof App 中升級。",
+    "description": "Shown under the WHAT SITES SEE heading for non-Pro iOS users, whose settings in that section are locked; every locked row is described by it. The second sentence is siteLocation_proNote's second sentence, word for word."
+  },
   "details_section_locale": {
     "message": "語言與地區",
     "description": "Heading for the group of language/locale APIs listed under 'Key Overrides' in the Details tab. Shown only when a Reported Language is active."
@@ -318,8 +334,8 @@
     "description": "Accessible label on the Preserve location prompts info icon."
   },
   "preserveGeoPrompt_tooltip": {
-    "message": "僅適用於 GeoSpoof 正在偽造的網站（依你的允許／封鎖清單）。開啟時，這些網站會顯示瀏覽器一般的位置權限提示，你允許後才會取得偽造的位置。關閉時，網站會自動取得，不會顯示提示。",
-    "description": "Tooltip explaining the Preserve location prompts toggle: native permission prompt with spoofed coordinates vs. silent auto-grant. Notes that it only affects sites in spoofing scope (allow/deny list)."
+    "message": "開啟時，在 GeoSpoof 已啟用的網站取得你的偽造位置之前，瀏覽器會先詢問。",
+    "description": "Shown when the ⓘ next to Preserve location prompts is opened: when on, the browser's permission prompt appears before a site in spoofing scope receives the spoofed location."
   },
   "heading_location": {
     "message": "位置",
@@ -646,8 +662,8 @@
     "description": "Accessible label on the Instant timezone protection info icon."
   },
   "earlyTz_tooltip": {
-    "message": "僅限 Firefox。開啟後會要求選用的「userScripts」權限，讓 GeoSpoof 能在每次載入頁面的最開始執行，填補保護生效前網站可能讀取你真實時區的短暫空檔。關閉即可撤銷此權限。",
-    "description": "Tooltip explaining the Firefox-only Instant timezone protection toggle and the userScripts permission it requests."
+    "message": "在頁面載入的最開始執行保護，讓網站讀取你真實時區的時間更少。會要求 Firefox 的「userScripts」權限。",
+    "description": "Shown when the ⓘ next to Instant timezone protection (Firefox only) is opened. Must stay within docs/API.md: it shortens the window before protection runs, it doesn't promise to close it on every load."
   },
   "advanced_debuggerMode": {
     "message": "引擎層級偽造",
@@ -658,8 +674,8 @@
     "description": "Accessible label on the Engine-level Spoofing info icon."
   },
   "debuggerMode_tooltip": {
-    "message": "僅限 Chrome。在瀏覽器引擎中偽造你的時區，因此也涵蓋背景 Worker 和跨網站框架，並盡可能提早生效。開啟時，Chrome 會顯示「『GeoSpoof』已開始為這個瀏覽器偵錯」資訊列，這是正常現象。不開啟則使用標準保護。",
-    "description": "Tooltip explaining the Chrome-only Engine-level Spoofing toggle and the debugging notification bar it causes."
+    "message": "同時在 Chrome 引擎中設定你的時區，比標準保護涵蓋頁面中更多的 Worker 和框架。開啟時，Chrome 會顯示偵錯資訊列。",
+    "description": "Shown when the ⓘ next to Engine-level Spoofing (Chrome only) is opened. Must stay within docs/API.md: it reaches more workers and frames than standard protection, not all of them."
   },
   "debuggerBannerHelp_text": {
     "message": "開啟時，Chrome 會顯示「『GeoSpoof』已開始為這個瀏覽器偵錯」資訊列。如要隱藏，請使用以下旗標啟動 Chrome：",
@@ -725,10 +741,6 @@
     "message": "自訂",
     "description": "Accuracy option that reveals a numeric input for an exact meter value (fixed mode)."
   },
-  "advanced_accuracy_customMeters": {
-    "message": "準確度（公尺）",
-    "description": "Label for the numeric input shown when the Custom accuracy option is selected."
-  },
   "advanced_accuracy_customHint": {
     "message": "請輸入 1 到 10000 公尺之間的值",
     "description": "Inline hint shown when the custom accuracy value is out of the allowed range."
@@ -737,9 +749,9 @@
     "message": "設定",
     "description": "Button that commits the typed custom accuracy value (fixed mode). The custom value is applied only when this button is clicked or Enter is pressed."
   },
-  "advanced_accuracy_customEdit": {
-    "message": "編輯",
-    "description": "Button that reopens the custom accuracy editor from the compact display showing the committed value."
+  "advanced_accuracy_meters": {
+    "message": "公尺",
+    "description": "Visible label of the number field shown under Location Accuracy when Custom is selected; the field holds the accuracy in meters."
   },
   "advanced_precision": {
     "message": "位置精確度",
@@ -762,12 +774,8 @@
     "description": "Precision option that reports an approximate point within about ten kilometers of the chosen location."
   },
   "advanced_precision_hint": {
-    "message": "「模糊」會回報你位置附近的隨機地點，而不是確切位置。",
-    "description": "Explanatory note under the precision dropdown describing what the approximate options do."
-  },
-  "advanced_precision_proNote": {
-    "message": "🔒 模糊位置是 GeoSpoof Pro 功能。請在 GeoSpoof App 中升級，即可模糊你的確切位置。",
-    "description": "Shown for non-Pro iOS users when the precision control is disabled, explaining that approximate location is a Pro feature."
+    "message": "街道、街區和城市會回報你位置附近的隨機地點。",
+    "description": "Caption under the Location card explaining what the Street, Neighborhood and City options of Location Precision do. Name the three options with the same words as advanced_precision_street / _neighborhood / _city, without their distances."
   },
   "advanced_precisionCadence": {
     "message": "選取新地點",
@@ -825,10 +833,6 @@
     "message": "設定",
     "description": "Button that commits the typed language tag. The value is applied only when this button is clicked or Enter is pressed."
   },
-  "advanced_locale_customEdit": {
-    "message": "編輯",
-    "description": "Button that reopens the language editor from the compact display showing the committed tag."
-  },
   "advanced_locale_customHint": {
     "message": "請輸入瀏覽器支援的語言標籤，例如 fr-FR 或 ja",
     "description": "Inline hint shown when the entered language tag is malformed or unsupported by the browser, so it was not applied."
@@ -838,12 +842,8 @@
     "description": "Caution shown while a reported language is active, explaining that sites will visibly change language and that the choice is also sent as an HTTP header."
   },
   "advanced_locale_hint": {
-    "message": "設定網站看到的語言，包括 navigator.language、日期與數字格式，以及 Accept-Language 標頭。",
-    "description": "Explanatory note under the Reported Language control describing which signals it changes."
-  },
-  "advanced_locale_proNote": {
-    "message": "🔒 回報語言是 GeoSpoof Pro 功能。請在 GeoSpoof App 中升級，即可變更網站看到的語言。",
-    "description": "Shown for non-Pro users when the Reported Language control is disabled, explaining that it is a Pro feature."
+    "message": "設定網站看到的語言，以及日期與數字格式。",
+    "description": "Caption under the Reported Language card describing what it changes, in plain words."
   },
   "siteLocation_statusSite": {
     "message": "在 $SITE$：$PLACE$",

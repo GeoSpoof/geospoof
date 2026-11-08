@@ -21,6 +21,7 @@ import { reflectDebuggerModeState } from "./debugger-mode";
 import { restoreAccuracyControl } from "./accuracy";
 import { restorePrecisionCadenceControl, restorePrecisionControl } from "./precision";
 import { restoreLocaleControl } from "./locale";
+import { applySettingsProNote, setRowLocked, syncAllValueRows } from "./settings-rows";
 
 /**
  * Apply a theme class to the document body.
@@ -118,16 +119,14 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
 
     // Preserve-location-prompts is Pro-gated on iOS Safari (parity with custom
     // accuracy / per-site filtering). For a non-Pro user the background already
-    // forces the free behavior (auto-grant, no prompt); this disables the toggle
-    // and shows the Pro note so the popup explains why it can't be turned on.
+    // forces the free behavior (auto-grant, no prompt); this locks the toggle
+    // (aria-disabled, so it stays a Tab stop) and shows the section's one Pro
+    // note, which every locked row points at.
     if (preserveGeoPromptToggle) {
-      preserveGeoPromptToggle.disabled = proLocked;
       if (proLocked) preserveGeoPromptToggle.checked = false;
+      setRowLocked(preserveGeoPromptToggle, proLocked);
     }
-    const preserveGeoPromptProNote = document.getElementById("preserveGeoPromptProNote");
-    if (preserveGeoPromptProNote) {
-      preserveGeoPromptProNote.style.display = proLocked ? "block" : "none";
-    }
+    applySettingsProNote(proLocked);
 
     updateDetailsView(settings);
 
@@ -198,6 +197,10 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
     // Chrome-only: reveal the "Browser-level spoofing" toggle and sync it to the
     // persisted debuggerModeEnabled setting.
     reflectDebuggerModeState(settings.debuggerModeEnabled);
+
+    // Mirror every restored select into its value row (Theme, Language and
+    // Verbosity have no module of their own to do it).
+    syncAllValueRows();
 
     // Restore VPN sync toggle state (Req 4.1–4.4)
     const vpnSyncToggle = document.getElementById("vpnSyncToggle") as HTMLInputElement | null;

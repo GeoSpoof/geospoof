@@ -93,6 +93,15 @@ export const LOCALE_SUGGESTIONS: readonly LocaleSuggestion[] = [
 ];
 
 /**
+ * A suggested tag's own name for its language (its endonym), matched
+ * case-insensitively, or `null` for a tag that isn't in the list.
+ */
+export function endonymForTag(tag: string): string | null {
+  const match = LOCALE_SUGGESTIONS.find((s) => s.tag.toLowerCase() === tag.toLowerCase());
+  return match ? match.endonym : null;
+}
+
+/**
  * Human label for a tag, when it happens to be one of the suggestions.
  *
  * Returns `null` for anything not in the list — a freely typed tag is shown as

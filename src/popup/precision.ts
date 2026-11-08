@@ -1,5 +1,5 @@
 /**
- * Popup Location Precision control (Advanced accordion, Details tab).
+ * Popup Location Precision control (Settings screen, WHAT SITES SEE).
  *
  * A single dropdown that maps onto the {@link LocationPrecision} model:
  *
@@ -29,6 +29,7 @@ import type {
   SetPrecisionPayload,
 } from "@/shared/types/messages";
 import { validatePrecisionCadence } from "@/shared/precision/cadence";
+import { setRowLocked, syncValueRow } from "./settings-rows";
 
 /** The dropdown options, matching the `value` attributes in popup.html. */
 export type PrecisionOption = "exact" | "street" | "neighborhood" | "city";
@@ -82,17 +83,15 @@ function getSelect(): HTMLSelectElement | null {
 }
 
 /**
- * Enable/disable the precision control for the Pro gate. The disabled dropdown
- * can't be changed and the Pro note explains why; toggling it off restores
- * normal interaction. Approximate location is Pro-only on iOS Safari; the
- * background independently forces `exact` for a non-Pro user, so this is UI
- * clarity only.
+ * Lock or unlock the precision control for the Pro gate. The locked row stays a
+ * Tab stop (`aria-disabled`), shows Exact with a 🔒, and is described by the
+ * Settings screen's one Pro note. Approximate location is Pro-only on iOS
+ * Safari; the background independently forces `exact` for a non-Pro user, so
+ * this is UI clarity only.
  */
 function applyPrecisionLock(locked: boolean): void {
   const select = getSelect();
-  if (select) select.disabled = locked;
-  const note = document.getElementById("precisionProNote");
-  if (note) note.style.display = locked ? "block" : "none";
+  if (select) setRowLocked(select, locked, "exact");
 }
 
 /** Persist a LocationPrecision via the background. */
@@ -113,6 +112,7 @@ function handleSelectChange(): void {
   if (!select) return;
   // Show or hide the cadence row before the round-trip, so it tracks the
   // precision select synchronously.
+  syncValueRow(select);
   syncPrecisionCadenceUi();
   void sendPrecision(optionToLocationPrecision(select.value as PrecisionOption));
 }
@@ -133,9 +133,9 @@ export function initPrecisionControl(): void {
  * Called from `loadSettings` each time settings are (re)loaded; only sets the
  * value/lock state, never persists.
  *
- * `proLocked` (iOS Safari non-Pro) disables the control and forces "Exact" —
- * matching what the background enforces — while the Pro note explains that
- * approximate location is a Pro feature.
+ * `proLocked` (iOS Safari non-Pro) locks the control on "Exact" — matching
+ * what the background enforces — and the Pro note explains that approximate
+ * location is a Pro feature.
  */
 export function restorePrecisionControl(
   setting: LocationPrecision | undefined | null,
@@ -144,14 +144,9 @@ export function restorePrecisionControl(
   const select = getSelect();
   if (!select) return;
 
+  select.value = proLocked ? "exact" : locationPrecisionToOption(setting);
   applyPrecisionLock(proLocked);
-
-  if (proLocked) {
-    select.value = "exact";
-    return;
-  }
-
-  select.value = locationPrecisionToOption(setting);
+  syncValueRow(select);
 }
 
 // ── Cadence ("Pick a new point") ─────────────────────────────────────────────
@@ -205,6 +200,7 @@ async function sendPrecisionCadence(cadence: PrecisionCadence): Promise<void> {
 function handleCadenceChange(): void {
   const select = getCadenceSelect();
   if (!select) return;
+  syncValueRow(select);
   syncPrecisionCadenceUi();
   void sendPrecisionCadence(validatePrecisionCadence(select.value));
 }
@@ -230,5 +226,6 @@ export function restorePrecisionCadenceControl(cadence: unknown, proLocked = fal
   if (!select) return;
   cadenceProLocked = proLocked;
   select.value = validatePrecisionCadence(cadence);
+  syncValueRow(select);
   syncPrecisionCadenceUi();
 }

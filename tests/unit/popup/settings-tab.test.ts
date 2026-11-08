@@ -11,9 +11,11 @@
 import { describe, test, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { buildApiGroups } from "@/popup/ui";
+import { __resetViewsForTest, wireSettingsNav } from "@/popup/views";
 
 const html = readFileSync("assets/popup.html", "utf8");
 const indexTs = readFileSync("src/popup/index.ts", "utf8");
+const viewsTs = readFileSync("src/popup/views.ts", "utf8");
 const css = readFileSync("assets/popup.css", "utf8");
 const messages = JSON.parse(readFileSync("_locales/en/messages.json", "utf8")) as Record<
   string,
@@ -30,19 +32,24 @@ describe("Settings view + header gear trigger", () => {
 
   test("the view switcher knows about all four views", () => {
     for (const id of ["mainTab", "filtersTab", "detailsTab", "settingsTab"]) {
-      expect(indexTs, id).toContain(id);
+      expect(viewsTs, id).toContain(id);
     }
     for (const id of ["mainView", "filtersView", "detailsView", "settingsView"]) {
-      expect(indexTs, id).toContain(id);
+      expect(viewsTs, id).toContain(id);
     }
     // Iteration is over POPUP_VIEWS (asserted as the single source of truth in
     // its own test below), so there's no separate tuple to keep in step.
   });
 
-  test("the gear has a click handler", () => {
-    expect(indexTs).toMatch(
-      /getElementById\("settingsTab"\)[\s\S]{0,80}showPopupView\("settings"\)/
-    );
+  test("the gear opens Settings", () => {
+    document.body.innerHTML = new DOMParser().parseFromString(html, "text/html").body.innerHTML;
+    __resetViewsForTest();
+    wireSettingsNav();
+    document.getElementById("settingsTab")!.click();
+    expect(document.getElementById("settingsView")!.style.display).toBe("block");
+    expect(document.getElementById("mainView")!.style.display).toBe("none");
+    expect(document.getElementById("settingsTab")!.getAttribute("aria-current")).toBe("true");
+    expect(indexTs).toContain("wireSettingsNav()");
   });
 
   test("Settings is NOT in the tab bar - the bar stays at three labels", () => {
@@ -75,8 +82,8 @@ describe("Settings view + header gear trigger", () => {
     // selection, not a binary toggle — and one attribute drives both the visual
     // state and what assistive tech announces, so they can't drift apart.
     expect(html).toMatch(/id="mainTab"[\s\S]{0,80}aria-current="true"/);
-    expect(indexTs).toContain('setAttribute("aria-current", "true")');
-    expect(indexTs).toContain('removeAttribute("aria-current")');
+    expect(viewsTs).toContain('setAttribute("aria-current", "true")');
+    expect(viewsTs).toContain('removeAttribute("aria-current")');
     expect(css).toContain(".nav-tab[aria-current]");
     expect(css).toContain(".header-gear[aria-current]");
     // aria-pressed would be the wrong semantic here; make sure no element
@@ -84,6 +91,7 @@ describe("Settings view + header gear trigger", () => {
     // the word legitimately appears in comments explaining the choice.
     expect(html).not.toMatch(/aria-pressed\s*=/);
     expect(indexTs).not.toMatch(/"aria-pressed"/);
+    expect(viewsTs).not.toMatch(/"aria-pressed"/);
   });
 
   test("no separate .active class shadowing the aria state", () => {
@@ -96,10 +104,11 @@ describe("Settings view + header gear trigger", () => {
     // It used to live in three parallel lists (trigger map, panel map, iteration
     // tuple); missing one failed silently — the view rendered but never hid its
     // siblings.
-    expect(indexTs).toContain("const POPUP_VIEWS");
-    expect(indexTs).toContain("Object.entries(POPUP_VIEWS)");
+    expect(viewsTs).toContain("const POPUP_VIEWS");
+    expect(viewsTs).toContain("Object.entries(POPUP_VIEWS)");
+    expect(indexTs).not.toContain("const POPUP_VIEWS");
     for (const v of ["main", "filters", "details", "settings"]) {
-      expect(indexTs, v).toContain(`${v}: { trigger:`);
+      expect(viewsTs, v).toContain(`${v}: { trigger:`);
     }
   });
 
@@ -193,20 +202,17 @@ describe("every Advanced control survived the move into Settings", () => {
     "localeCustomInput",
     "localeSuggestions",
     "localeCustomConfirm",
-    "localeCustomDisplay",
-    "localeCustomEditBtn",
     "localeCustomHint",
     "localeWarning",
-    "localeProNote",
     // Accuracy sub-controls
     "accuracyCustomInput",
     "accuracyCustomConfirm",
-    "accuracyCustomDisplay",
     "accuracyCustomHint",
-    // Pro notes + footer
-    "accuracyProNote",
-    "precisionProNote",
-    "preserveGeoPromptProNote",
+    // The one Pro note, the nav bar, the Advanced group, and the footer
+    "settingsProNote",
+    "settingsBack",
+    "settingsTitle",
+    "settingsAdvancedGroup",
     "versionLabel",
   ];
 
