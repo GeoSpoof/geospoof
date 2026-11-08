@@ -846,6 +846,34 @@ describe("the empty add field offers this site", () => {
     expect(optionTexts("scopeGroupListbox")).toEqual(["Browse all site groups…"]);
   });
 
+  test("typing in the editor's Sites field lists the same readings as a list screen", () => {
+    showFiltersView();
+    const typeInto = (id: string, value: string): void => {
+      const field = byId<HTMLInputElement>(id);
+      field.focus();
+      field.value = value;
+      field.dispatchEvent(new Event("input"));
+    };
+    renderAll(S, "https://www.twitch.tv/");
+    byId("scopeListRow").click();
+    typeInto("scopeAddInput", "twitch.tv");
+    const onList = optionTexts("scopeGroupListbox");
+    byId("scopeAddInput").blur();
+    byId("scopeListBack").click();
+
+    // Paris's entry (example.com), from the Per-site locations screen.
+    byId("siteLocationsRow").click();
+    byId("siteLocationsList").querySelector<HTMLElement>(".site-row")?.click();
+    expect(isShown("siteLocationEditorScreen")).toBe(true);
+    typeInto("siteLocationPatterns", "twitch.tv");
+    expect(byId("siteLocationPatterns").getAttribute("aria-expanded")).toBe("true");
+    expect(optionTexts("siteLocationGroupListbox")).toEqual(onList);
+    expect(onList[0]).toBe("twitch.tvSite and its subdomains");
+    // By design, a comma list in the editor is added as typed, with no suggestions.
+    typeInto("siteLocationPatterns", "twitch.tv, chatgpt.com");
+    expect(byId("siteLocationGroupListbox").hidden).toBe(true);
+  });
+
   test("the editor's Sites field offers Add <site> only when the entry lacks it", () => {
     showFiltersView();
     // A new entry for chatgpt.com starts with it as a chip: only Browse.

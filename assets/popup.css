@@ -3395,7 +3395,10 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   background: var(--surface-hover);
 }
 
+/* The editor's suggestions hang from this row (.entry-picker is absolute),
+   so it must be their containing block, as .entry-add-field is in Filters. */
 .entry-add-row {
+  position: relative;
   display: flex;
   gap: 8px;
 }

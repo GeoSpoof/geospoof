@@ -760,3 +760,30 @@ describe("where site groups are unavailable (Safari)", () => {
     );
   });
 });
+
+describe("where the suggestions hang", () => {
+  // .entry-picker is position: absolute, top: 100%. Its parent row must be its
+  // containing block, or the list hangs from a far ancestor, below the popup's
+  // visible area (the per-site editor's Sites field showed nothing this way).
+  test("every field's suggestions hang from their own row", () => {
+    const css = readFileSync("assets/popup.css", "utf8");
+    const declares = (cls: string, decl: RegExp): boolean =>
+      Array.from(css.matchAll(new RegExp(`(^|\\n)\\.${cls}\\s*\\{([^}]*)\\}`, "g"))).some((m) =>
+        decl.test(m[2])
+      );
+    expect(declares("entry-picker", /position:\s*absolute/)).toBe(true);
+    const doc = new DOMParser().parseFromString(HTML, "text/html");
+    const pickers = Array.from(doc.querySelectorAll(".entry-picker"));
+    expect(pickers.map((p) => p.querySelector(".entry-listbox")?.id)).toEqual([
+      "scopeGroupListbox",
+      "siteLocationGroupListbox",
+    ]);
+    for (const picker of pickers) {
+      const row = picker.parentElement!;
+      const positioned = Array.from(row.classList).some((cls) =>
+        declares(cls, /position:\s*relative/)
+      );
+      expect({ row: row.className, positioned }).toEqual({ row: row.className, positioned: true });
+    }
+  });
+});
