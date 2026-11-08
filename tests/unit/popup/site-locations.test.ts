@@ -654,7 +654,7 @@ describe("the Per-site locations screen", () => {
     );
   });
 
-  test("each entry is one site row: its sites, its place and a ›; no ✕ and no badge", () => {
+  test("each entry is one site row: a letter badge, its sites, its place and a ›; no ✕", () => {
     renderSiteLocationsSection(makeSettings(), undefined, false);
     const items = byId("siteLocationsList").querySelectorAll('[role="listitem"]');
     expect(items).toHaveLength(2);
@@ -675,7 +675,15 @@ describe("the Per-site locations screen", () => {
       "Change the location for chatgpt.com, openai.com"
     );
     expect(document.getElementById(descId)?.classList.contains("visually-hidden")).toBe(true);
-    expect(byId("siteLocationsList").querySelector("button, .scope-site-icon")).toBeNull();
+    expect(byId("siteLocationsList").querySelector("button")).toBeNull();
+    // The decorative badge: the first site's first letter, hidden from AT and
+    // outside the row's name, which comes from the host and value.
+    const badge = row.querySelector(".scope-site-icon")!;
+    expect(badge.textContent).toBe("C");
+    expect(badge.getAttribute("aria-hidden")).toBe("true");
+    expect(row.firstElementChild).toBe(badge);
+    expect(row.querySelector(".site-row-body .site-row-line")).not.toBeNull();
+    expect(siteRow(ENTRY_MEXICO_CITY.id).querySelector(".scope-site-icon")?.textContent).toBe("T");
   });
 
   test("a row opens its entry in the editor, '‹ Per-site locations', focus on the title", () => {

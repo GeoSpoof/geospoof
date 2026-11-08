@@ -636,7 +636,8 @@ function buildSiteLocationRow(
   item.setAttribute("role", "listitem");
   item.dataset.siteLocationId = entry.id;
 
-  const sites = entry.patterns.map((pattern) => describeEntry(pattern).title).join(", ");
+  const titles = entry.patterns.map((pattern) => describeEntry(pattern).title);
+  const sites = titles.join(", ");
   const mark = markText(siteLocationMarkText(siteLocationFiltersMark(entry.patterns, args)));
   const { row, description } = buildSiteRow({
     host: sites,
@@ -646,6 +647,8 @@ function buildSiteLocationRow(
     opens: true,
     description: t("siteLocation_changeAria", [sites]) || `Change the location for ${sites}`,
     idPrefix: `sl-${index}`,
+    // Local monogram from the first site; never a favicon fetch.
+    badge: titles[0] ?? siteLocationDisplayName(entry),
     onActivate: () => {
       openEditor({ entry, opener: row, origin: "perSite" });
     },

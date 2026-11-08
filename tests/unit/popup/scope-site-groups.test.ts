@@ -163,14 +163,19 @@ beforeEach(() => {
 });
 
 describe("rows", () => {
-  test("typed rows are the entry and its ✕, with no letter badge (S4)", async () => {
+  test("typed rows are a letter badge, the entry and its ✕", async () => {
     await render(ALLOW);
     const row = rowFor("example.com");
     expect(Array.from(row.children).map((c) => c.className)).toEqual([
+      "scope-site-icon",
       "scope-site-domain",
       "scope-site-remove",
     ]);
-    expect(byId("scopeList").querySelector(".scope-site-icon")).toBeNull();
+    // main's badge: first letter, a colour from the name, decorative only.
+    const badge = row.querySelector<HTMLElement>(".scope-site-icon")!;
+    expect(badge.textContent).toBe("E");
+    expect(badge.getAttribute("aria-hidden")).toBe("true");
+    expect(badge.style.backgroundColor).toMatch(/^rgb\(/);
     expect(row.querySelector(".scope-site-domain")?.getAttribute("title")).toBe("example.com");
     expect(row.querySelector(".scope-site-remove")?.getAttribute("aria-label")).toBe(
       "Remove site example.com"

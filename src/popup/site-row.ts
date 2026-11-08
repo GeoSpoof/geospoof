@@ -37,6 +37,8 @@ export interface SiteRowOptions {
   valueId?: string | null;
   /** Click, Enter or Space on an opening row. */
   onActivate?: (() => void) | null;
+  /** A decorative letter badge before the text (`buildMonogram`), from this name. */
+  badge?: string | null;
 }
 
 export interface SiteRow {
@@ -84,7 +86,16 @@ export function buildSiteRow(opts: SiteRowOptions): SiteRow {
     trail.appendChild(chev);
   }
   line.append(host, trail);
-  row.appendChild(line);
+  // With a badge, the text sits in a body beside it, so the badge never shrinks.
+  let body: HTMLElement = row;
+  if (opts.badge) {
+    row.classList.add("with-badge");
+    row.appendChild(buildMonogram(opts.badge));
+    body = document.createElement("div");
+    body.className = "site-row-body";
+    row.appendChild(body);
+  }
+  body.appendChild(line);
 
   if (opts.sub) {
     const sub = document.createElement("div");
@@ -96,7 +107,7 @@ export function buildSiteRow(opts: SiteRowOptions): SiteRow {
       sub.appendChild(sign);
     }
     sub.appendChild(document.createTextNode(opts.sub));
-    row.appendChild(sub);
+    body.appendChild(sub);
   }
 
   let description: HTMLElement | null = null;
@@ -113,6 +124,34 @@ export function buildSiteRow(opts: SiteRowOptions): SiteRow {
     if (opts.onActivate) wireButtonRow(row, opts.onActivate);
   }
   return { row, description };
+}
+
+/**
+ * Deterministic hue (0–359) derived from the domain string, so each site keeps
+ * a stable colour across renders without any stored state.
+ */
+function monogramHue(domain: string): number {
+  let hash = 0;
+  for (let i = 0; i < domain.length; i++) {
+    hash = (hash * 31 + domain.charCodeAt(i)) % 360;
+  }
+  return hash;
+}
+
+/**
+ * Build a decorative monogram tile for a domain: the first character on a
+ * deterministic coloured background. Generated entirely locally — we never
+ * fetch a favicon, so the user's site list never leaves the device (a network
+ * request, even for a public icon, would reveal the list to that host or a
+ * third-party favicon service).
+ */
+export function buildMonogram(domain: string): HTMLElement {
+  const tile = document.createElement("span");
+  tile.className = "scope-site-icon";
+  tile.setAttribute("aria-hidden", "true");
+  tile.textContent = (domain.charAt(0) || "?").toUpperCase();
+  tile.style.backgroundColor = `hsl(${monogramHue(domain)}, 52%, 38%)`;
+  return tile;
 }
 
 /**

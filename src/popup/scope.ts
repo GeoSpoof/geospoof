@@ -39,7 +39,7 @@ import {
   wireButtonRow,
   wireFiltersNavOnce,
 } from "./filters-nav";
-import { buildEntryMeta } from "./site-row";
+import { buildEntryMeta, buildMonogram } from "./site-row";
 import {
   describeEntry,
   formatCatalogDate,
@@ -503,13 +503,17 @@ function renderSiteList(listKey: ListKey, entries: string[]): void {
  * Build a single list row: the entry + its remove button. An exact address,
  * site group or list from a link shows as one row too: its name, and a muted
  * meta line ("Site group · 964 sites"), in the warning style when its data is
- * missing or its last refresh failed. No letter badge (S4).
+ * missing or its last refresh failed. A decorative letter badge comes first,
+ * as on main.
  */
 function buildFilterRow(listKey: ListKey, domain: string): HTMLElement {
   const display = describeEntry(domain);
   const row = document.createElement("div");
   row.className = "scope-site-row";
   row.setAttribute("role", "listitem");
+  // Decorative monogram tile: deterministic colour from the domain, generated
+  // locally — no favicon fetch, so the list never leaves the device.
+  row.appendChild(buildMonogram(display.title));
 
   const label = document.createElement("span");
   label.className = "scope-site-domain";
