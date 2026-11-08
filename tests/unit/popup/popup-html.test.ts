@@ -128,6 +128,18 @@ describe("Popup HTML Structure", () => {
     expect(rules.classList).toContain("section-heading");
     expect(rules.textContent?.trim()).toBe("Site rules");
     expect(rules.nextElementSibling).toBe(card);
+    // THIS SITE then SITE RULES, both h2 under the page's h1: no skipped level.
+    expect(document.querySelector("h1")?.textContent?.trim()).toBe("GeoSpoof");
+    const headings = Array.from(
+      document.getElementById("filtersRoot")!.querySelectorAll("h1, h2, h3, h4, h5, h6")
+    ).filter(
+      (h) => !h.closest("#scopeListScreen, #siteLocationsScreen, #siteLocationEditorScreen")
+    );
+    expect(headings.map((h) => [h.tagName, h.textContent?.trim()])).toEqual([
+      ["H2", "This site"],
+      ["H2", "Site rules"],
+    ]);
+    expect(document.getElementById("thisSiteHeading")?.className).toBe(rules.className);
     const root = document.getElementById("filtersRoot")!;
     const screen = document.getElementById("scopeListScreen")!;
     for (const id of ["scopeModeHeading", "scopeModeTabs", "scopeModeDesc", "scopeProNote"]) {

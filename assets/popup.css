@@ -2765,21 +2765,25 @@ h2.section-heading {
   outline-offset: -2px;
 }
 
-/* The This site card's opening row: its highlight is a rounded inset, 4 px
-   inside the card, so hover, press and the focus ring never meet the card's
-   edges or corners. 4 px margin + 8 px padding keeps the text 12 px in, as
-   on a plain row. Plain rows (no hover) keep the plain row's box. */
-#thisSiteRow > .site-row[role="button"] {
-  margin: 4px;
-  padding: 8px;
-  border-radius: 6px;
+/* The This site card's row, in every state: a box 12 px inside the card,
+   the button's column (.site-card-actions' 12 px sides) and radius (8 px),
+   with 12 px around its text. Hover, press and the focus ring fill that box;
+   a plain row (Off, Not set) has the same box and no highlight. */
+#thisSiteRow > .site-row {
+  margin: 12px 12px 0;
+  padding: 12px;
+  border-radius: 8px;
 }
 #thisSiteRow > .site-row[role="button"]:active {
   background: var(--surface-hover);
 }
-/* 4 px row margin + 8 px: 12 px between the highlight and the button. */
-#thisSiteRow:has(> .site-row[role="button"]) + .site-card-actions {
-  padding-top: 8px;
+/* 12 px between the row and the button: the card's padding above the row. */
+#thisSiteRow + .site-card-actions {
+  padding-top: 12px;
+}
+/* With no action area, the card ends 12 px below the row. */
+#thisSiteRow:has(+ .site-card-actions[hidden]) > .site-row {
+  margin-bottom: 12px;
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
