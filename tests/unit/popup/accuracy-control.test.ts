@@ -1,77 +1,57 @@
 /**
- * jsdom tests for the popup accuracy control's edit/display toggle behavior.
+ * jsdom tests for the popup accuracy control, against the real WHAT SITES SEE
+ * markup from assets/popup.html.
  *
- * The Custom control has two states: an editing row `[ input ][ Set ]` and a
- * compact display row `±{meters}m  [ Edit ]`. The Custom value commits ONLY
- * when the user clicks "Set" or presses Enter — never on blur, never on mere
- * selection of "Custom", and never on every keystroke. Selecting "Custom"
- * opens the editing row pre-filled with the currently-resolved accuracy.
- * Committing switches to the display row; clicking "Edit" returns to editing.
- * Presets still apply immediately and hide the whole wrapper.
+ * Selecting "Custom" shows the always-visible Meters field, pre-filled with the
+ * resolved accuracy, and sends nothing. "Set" shows only while the field
+ * differs from the committed value; the value commits ONLY on Set or Enter.
+ * An unusable value is rejected: nothing is sent, the field is marked invalid,
+ * and the hint becomes the Location card's caption, outranking its others.
+ * Presets apply immediately and hide the Meters row.
  *
  * Validates: Requirements 9.2, 9.3
  */
-
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { initAccuracyControl, restoreAccuracyControl } from "@/popup/accuracy";
+import { initSettingsRows } from "@/popup/settings-rows";
+import { wireInfoButtons } from "@/popup/settings-captions";
 
-/** Build the minimal accuracy-control markup used by the popup. */
-function mountAccuracyControl(): void {
-  document.body.innerHTML = `
-    <div class="accuracy-selector">
-      <label class="select-label" for="accuracySelect">
-        <span>Location Accuracy</span>
-        <select id="accuracySelect">
-          <option value="realistic">Realistic</option>
-          <option value="custom">Custom</option>
-        </select>
-      </label>
-      <div class="accuracy-custom-edit" id="accuracyCustomEdit" style="display: none">
-        <input type="number" id="accuracyCustomInput" min="1" max="10000" step="1" />
-        <button type="button" id="accuracyCustomConfirm" class="accuracy-custom-confirm">Set</button>
-      </div>
-      <div class="accuracy-custom-display" id="accuracyCustomDisplay" style="display: none">
-        <span id="accuracyCustomValue"></span>
-        <button type="button" id="accuracyCustomEditBtn" class="accuracy-custom-confirm">Edit</button>
-      </div>
-      <div class="accuracy-custom-hint" id="accuracyCustomHint" style="display: none"></div>
-    </div>
-  `;
-}
+const SITES_SEE_MARKUP = (() => {
+  const html = readFileSync("assets/popup.html", "utf8");
+  const section = new DOMParser()
+    .parseFromString(html, "text/html")
+    .querySelector("#settingsSitesSee");
+  if (!section) throw new Error("#settingsSitesSee not found in assets/popup.html");
+  return section.outerHTML;
+})();
 
-function getSelect(): HTMLSelectElement {
-  return document.getElementById("accuracySelect") as HTMLSelectElement;
-}
-
-function getInput(): HTMLInputElement {
-  return document.getElementById("accuracyCustomInput") as HTMLInputElement;
-}
-
-function getConfirm(): HTMLButtonElement {
-  return document.getElementById("accuracyCustomConfirm") as HTMLButtonElement;
-}
-
-function getEditBtn(): HTMLButtonElement {
-  return document.getElementById("accuracyCustomEditBtn") as HTMLButtonElement;
-}
-
-function getEditRow(): HTMLElement {
-  return document.getElementById("accuracyCustomEdit") as HTMLElement;
-}
-
-function getDisplayRow(): HTMLElement {
-  return document.getElementById("accuracyCustomDisplay") as HTMLElement;
-}
-
-function getValueLabel(): HTMLElement {
-  return document.getElementById("accuracyCustomValue") as HTMLElement;
-}
+const byId = <T extends HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`#${id} missing`);
+  return el as T;
+};
+const select = () => byId<HTMLSelectElement>("accuracySelect");
+const input = () => byId<HTMLInputElement>("accuracyCustomInput");
+const confirm = () => byId<HTMLButtonElement>("accuracyCustomConfirm");
+const editRow = () => byId("accuracyCustomEdit");
+const hint = () => byId("accuracyCustomHint");
+const valueText = () => select().closest(".value-row")!.querySelector(".value-row-text")!;
 
 /** Select an option and fire the `change` event the control listens for. */
 function selectOption(value: string): void {
-  const select = getSelect();
-  select.value = value;
-  select.dispatchEvent(new Event("change"));
+  select().value = value;
+  select().dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+/** Type into the field, firing `input` as a keystroke would. */
+function type(value: string): void {
+  input().value = value;
+  input().dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function pressEnter(): void {
+  input().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 }
 
 /** Spy on the mocked `browser.runtime.sendMessage`. */
@@ -79,192 +59,140 @@ function sendSpy() {
   return browser.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>;
 }
 
-describe("accuracy control edit/display toggle (jsdom)", () => {
+/** The caption the Location card shows now. */
+function shownCaptions(): string[] {
+  return Array.from(byId("settingsLocationCaptions").children)
+    .filter((el) => !(el as HTMLElement).hidden)
+    .map((el) => el.id);
+}
+
+describe("accuracy control: Meters field, Set and validation (jsdom)", () => {
   beforeEach(() => {
-    mountAccuracyControl();
+    document.body.innerHTML = `<div id="advancedContent">${SITES_SEE_MARKUP}</div>`;
+    initSettingsRows();
+    wireInfoButtons(document.getElementById("advancedContent"));
     initAccuracyControl();
   });
 
-  it("opens the editing row pre-filled from the resolved value and sends nothing on select", () => {
-    // Resolved accuracy currently in effect is 72m (auto/realistic stored).
+  it("Custom pre-fills the resolved value, shows Set and sends nothing", () => {
     restoreAccuracyControl({ mode: "auto" }, 72);
-
+    expect(editRow().style.display).toBe("none");
     selectOption("custom");
-
-    expect(getInput().value).toBe("72");
-    expect(getEditRow().style.display).toBe("flex");
-    expect(getDisplayRow().style.display).toBe("none");
+    expect(input().value).toBe("72");
+    expect(editRow().style.display).toBe("block");
+    expect(confirm().hidden).toBe(false);
+    expect(valueText().textContent).toBe("Custom");
     expect(sendSpy()).not.toHaveBeenCalled();
   });
 
-  it("clicking Set commits the typed value and switches to the display row", () => {
+  it("Set commits with the SET_ACCURACY payload, then hides; the field keeps the value", () => {
     restoreAccuracyControl({ mode: "auto" }, 50);
     selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "250";
-    getConfirm().click();
-
+    type("250");
+    confirm().focus();
+    confirm().click();
     expect(sendSpy()).toHaveBeenCalledTimes(1);
     expect(sendSpy()).toHaveBeenCalledWith({
       type: "SET_ACCURACY",
       payload: { accuracySetting: { mode: "fixed", meters: 250 } },
     });
-    // Editing row hidden, display row shown with ±{meters}m.
-    expect(getEditRow().style.display).toBe("none");
-    expect(getDisplayRow().style.display).toBe("flex");
-    expect(getValueLabel().textContent).toBe("±250m");
+    expect(confirm().hidden).toBe(true);
+    expect(input().value).toBe("250");
+    // Set disappeared, so focus moves to the field rather than the body.
+    expect(document.activeElement).toBe(input());
   });
 
-  it("clicking Set rejects an above-range value: no send, stays editing, shows invalid", () => {
+  it("Enter commits and rounds a fractional value", () => {
     restoreAccuracyControl({ mode: "auto" }, 50);
     selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "99999";
-    getConfirm().click();
-
-    // Nothing is sent and the editor stays open with the entered value intact.
-    expect(sendSpy()).not.toHaveBeenCalled();
-    expect(getEditRow().style.display).toBe("flex");
-    expect(getDisplayRow().style.display).toBe("none");
-    expect(getInput().value).toBe("99999");
-    // The red-outline invalid indication + hint are surfaced.
-    expect(getInput().classList.contains("invalid")).toBe(true);
-    expect(document.getElementById("accuracyCustomHint")!.style.display).toBe("block");
-  });
-
-  it("clicking Set rejects a below-range value: no send, stays editing, shows invalid", () => {
-    restoreAccuracyControl({ mode: "auto" }, 50);
-    selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "0";
-    getConfirm().click();
-
-    expect(sendSpy()).not.toHaveBeenCalled();
-    expect(getEditRow().style.display).toBe("flex");
-    expect(getDisplayRow().style.display).toBe("none");
-    expect(getInput().value).toBe("0");
-    expect(getInput().classList.contains("invalid")).toBe(true);
-    expect(document.getElementById("accuracyCustomHint")!.style.display).toBe("block");
-  });
-
-  it("clicking Set rounds an in-range fractional value before sending", () => {
-    restoreAccuracyControl({ mode: "auto" }, 50);
-    selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "50.7";
-    getConfirm().click();
-
-    expect(sendSpy()).toHaveBeenCalledTimes(1);
+    type("12.6");
+    pressEnter();
     expect(sendSpy()).toHaveBeenCalledWith({
       type: "SET_ACCURACY",
-      payload: { accuracySetting: { mode: "fixed", meters: 51 } },
+      payload: { accuracySetting: { mode: "fixed", meters: 13 } },
     });
-    expect(getEditRow().style.display).toBe("none");
-    expect(getDisplayRow().style.display).toBe("flex");
-    expect(getValueLabel().textContent).toBe("±51m");
+    expect(input().value).toBe("13");
+    expect(confirm().hidden).toBe(true);
   });
 
-  it("clicking Edit reopens the editing row pre-filled with the committed meters", () => {
+  it("editing back to the committed value hides Set again", () => {
+    restoreAccuracyControl({ mode: "fixed", meters: 25 }, 25);
+    type("30");
+    expect(confirm().hidden).toBe(false);
+    type("25");
+    expect(confirm().hidden).toBe(true);
+  });
+
+  it("restoring a fixed setting shows the field with the value and Set hidden", () => {
+    restoreAccuracyControl({ mode: "fixed", meters: 25 }, 25);
+    expect(select().value).toBe("custom");
+    expect(editRow().style.display).toBe("block");
+    expect(input().value).toBe("25");
+    expect(confirm().hidden).toBe(true);
+    expect(valueText().textContent).toBe("Custom");
+  });
+
+  it.each(["0", "10001", "", "abc"])(
+    "rejects %j: nothing sent, field invalid, error caption",
+    (raw) => {
+      restoreAccuracyControl({ mode: "auto" }, 50);
+      selectOption("custom");
+      sendSpy().mockClear();
+      input().value = raw;
+      pressEnter();
+      expect(sendSpy()).not.toHaveBeenCalled();
+      expect(input().classList.contains("invalid")).toBe(true);
+      expect(input().getAttribute("aria-invalid")).toBe("true");
+      expect(input().getAttribute("aria-describedby")).toBe("accuracyCustomHint");
+      expect(hint().getAttribute("role")).toBe("alert");
+      // The error outranks the precision hint: it's the one caption shown.
+      expect(shownCaptions()).toEqual(["accuracyCustomHint"]);
+      // Typing clears it, and the standing caption comes back.
+      type("5");
+      expect(input().classList.contains("invalid")).toBe(false);
+      expect(input().hasAttribute("aria-invalid")).toBe(false);
+      expect(shownCaptions()).toEqual(["precisionHint"]);
+    }
+  );
+
+  it("an error closes an open ⓘ and owns the caption", () => {
     restoreAccuracyControl({ mode: "auto" }, 50);
     selectOption("custom");
-
-    getInput().value = "300";
-    getConfirm().click();
-    expect(getDisplayRow().style.display).toBe("flex");
-
-    sendSpy().mockClear();
-    getEditBtn().click();
-
-    expect(getEditRow().style.display).toBe("flex");
-    expect(getDisplayRow().style.display).toBe("none");
-    expect(getInput().value).toBe("300");
-    expect(sendSpy()).not.toHaveBeenCalled();
+    const info = byId<HTMLButtonElement>("preserveGeoPromptInfo");
+    info.click();
+    expect(shownCaptions()).toEqual(["preserveGeoPromptTooltip"]);
+    input().value = "0";
+    pressEnter();
+    expect(shownCaptions()).toEqual(["accuracyCustomHint"]);
+    expect(info.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("an empty/invalid entry stays in the editing row and sends nothing", () => {
-    restoreAccuracyControl({ mode: "auto" }, 50);
-    selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "";
-    getConfirm().click();
-
-    expect(sendSpy()).not.toHaveBeenCalled();
-    expect(getEditRow().style.display).toBe("flex");
-    expect(getDisplayRow().style.display).toBe("none");
-    expect(document.getElementById("accuracyCustomHint")!.style.display).toBe("block");
-  });
-
-  it("pressing Enter in the input commits the value", () => {
-    restoreAccuracyControl({ mode: "auto" }, 50);
-    selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "123";
-    getInput().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-
-    expect(sendSpy()).toHaveBeenCalledWith({
-      type: "SET_ACCURACY",
-      payload: { accuracySetting: { mode: "fixed", meters: 123 } },
-    });
-    expect(getValueLabel().textContent).toBe("±123m");
-  });
-
-  it("does NOT commit on blur", () => {
-    restoreAccuracyControl({ mode: "auto" }, 50);
-    selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "321";
-    getInput().dispatchEvent(new Event("blur"));
-
-    expect(sendSpy()).not.toHaveBeenCalled();
-  });
-
-  it("does NOT commit on every keystroke (input event)", () => {
-    restoreAccuracyControl({ mode: "auto" }, 50);
-    selectOption("custom");
-    sendSpy().mockClear();
-
-    getInput().value = "3";
-    getInput().dispatchEvent(new Event("input"));
-
-    expect(sendSpy()).not.toHaveBeenCalled();
-  });
-
-  it("applies the Realistic preset immediately on selection and hides the wrapper", () => {
-    // Start on Custom (display row visible), then switch to Realistic.
-    restoreAccuracyControl({ mode: "fixed", meters: 200 }, 200);
-    expect(getDisplayRow().style.display).toBe("flex");
-    sendSpy().mockClear();
-
+  it("Realistic hides the row and sends { mode: 'auto' }", () => {
+    restoreAccuracyControl({ mode: "fixed", meters: 25 }, 25);
     selectOption("realistic");
-
-    expect(sendSpy()).toHaveBeenCalledTimes(1);
+    expect(editRow().style.display).toBe("none");
     expect(sendSpy()).toHaveBeenCalledWith({
       type: "SET_ACCURACY",
       payload: { accuracySetting: { mode: "auto" } },
     });
-    expect(getEditRow().style.display).toBe("none");
-    expect(getDisplayRow().style.display).toBe("none");
+    expect(valueText().textContent).toBe("Realistic");
   });
 
-  it("restores a stored fixed setting directly into the display row (editor closed)", () => {
-    // For a fixed setting the resolved value equals the stored meters.
-    restoreAccuracyControl({ mode: "fixed", meters: 137 }, 137);
-
-    expect(getDisplayRow().style.display).toBe("flex");
-    expect(getEditRow().style.display).toBe("none");
-    expect(getValueLabel().textContent).toBe("±137m");
+  it("locked: Realistic, aria-disabled (not disabled), and a change sends nothing", () => {
+    restoreAccuracyControl({ mode: "fixed", meters: 25 }, 25, true);
+    expect(select().value).toBe("realistic");
+    expect(select().getAttribute("aria-disabled")).toBe("true");
+    expect(select().getAttribute("aria-describedby")).toBe("settingsProNote");
+    expect(select().disabled).toBe(false);
+    expect(select().closest(".value-row")!.classList.contains("is-locked")).toBe(true);
+    expect(editRow().style.display).toBe("none");
+    selectOption("custom");
+    expect(select().value).toBe("realistic");
+    expect(editRow().style.display).toBe("none");
     expect(sendSpy()).not.toHaveBeenCalled();
-
-    // Clicking Edit reopens editing pre-filled with the committed meters.
-    getEditBtn().click();
-    expect(getEditRow().style.display).toBe("flex");
-    expect(getInput().value).toBe("137");
+    // Unlocking restores normal interaction.
+    restoreAccuracyControl({ mode: "auto" }, 25, false);
+    expect(select().hasAttribute("aria-disabled")).toBe(false);
+    expect(select().closest(".value-row")!.classList.contains("is-locked")).toBe(false);
   });
 });

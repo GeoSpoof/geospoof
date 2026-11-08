@@ -22,6 +22,8 @@
  * and no-ops elsewhere.
  */
 
+import { revealSettingsGroup } from "./settings-rows";
+
 const USER_SCRIPTS_PERMISSION: { permissions: string[] } = { permissions: ["userScripts"] };
 
 /** Narrow access to the optional `browser.permissions` namespace. */
@@ -66,6 +68,7 @@ export async function reflectEarlyProtectionState(): Promise<void> {
   }
 
   row.style.display = "";
+  revealSettingsGroup("settingsAdvancedGroup");
   try {
     toggle.checked = await api.contains(USER_SCRIPTS_PERMISSION);
   } catch {

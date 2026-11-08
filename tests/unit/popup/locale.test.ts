@@ -1,18 +1,22 @@
 /**
  * Unit tests for the popup Reported Language control's pure helpers.
  * Feature: locale-spoofing (Task 15.4) — Requirements 3.2, 3.3, 3.4, 13.5, 13.9
- * DOM-free.
+ * The last block drives the control in jsdom against the real markup.
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import {
+  initLocaleControl,
+  restoreLocaleControl,
   optionToLocaleSpoofing,
   localeSpoofingToControlState,
   isUsableLocaleTag,
   describeTag,
   type LocaleOption,
 } from "@/popup/locale";
-import { LOCALE_SUGGESTIONS, labelForTag } from "@/popup/locale-suggestions";
+import { LOCALE_SUGGESTIONS, endonymForTag, labelForTag } from "@/popup/locale-suggestions";
+import { initSettingsRows } from "@/popup/settings-rows";
 import type { LocaleSpoofing } from "@/shared/types/settings";
 import { canonicalizeTag, engineSupportsLocale } from "@/shared/locale/resolver";
 
@@ -182,7 +186,7 @@ describe("localization wiring", () => {
       .filter((k) => k.startsWith("advanced_locale"));
 
     // Guard against the regex silently matching nothing if the markup changes.
-    expect(keys.length).toBeGreaterThanOrEqual(10);
+    expect(keys.length).toBeGreaterThanOrEqual(9);
 
     for (const key of keys) {
       expect(messages[key], `missing message key: ${key}`).toBeDefined();
@@ -201,12 +205,8 @@ describe("localization wiring", () => {
       "localeCustomInput",
       "localeSuggestions",
       "localeCustomConfirm",
-      "localeCustomDisplay",
-      "localeCustomValue",
-      "localeCustomEditBtn",
       "localeCustomHint",
       "localeWarning",
-      "localeProNote",
     ]) {
       expect(html, `missing element id: ${id}`).toContain(`id="${id}"`);
     }
@@ -216,5 +216,112 @@ describe("localization wiring", () => {
     const fs = await import("node:fs");
     const html = fs.readFileSync("assets/popup.html", "utf8");
     expect(html).toContain('list="localeSuggestions"');
+  });
+});
+
+describe("endonymForTag", () => {
+  test("a suggested tag's own name, case-insensitively", () => {
+    expect(endonymForTag("FR-fr")).toBe("Français (France)");
+  });
+  test("null for a tag that isn't a suggestion", () => {
+    expect(endonymForTag("fr-BE")).toBeNull();
+  });
+});
+
+describe("Reported Language control in the popup (jsdom)", () => {
+  const markup = (() => {
+    const html = readFileSync("assets/popup.html", "utf8");
+    const section = new DOMParser()
+      .parseFromString(html, "text/html")
+      .querySelector("#settingsSitesSee");
+    if (!section) throw new Error("#settingsSitesSee not found");
+    return section.outerHTML;
+  })();
+  const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+  const select = () => byId<HTMLSelectElement>("localeSelect");
+  const input = () => byId<HTMLInputElement>("localeCustomInput");
+  const confirm = () => byId<HTMLButtonElement>("localeCustomConfirm");
+  const valueText = () => select().closest(".value-row")!.querySelector(".value-row-text")!;
+  const shown = () =>
+    Array.from(byId("settingsLanguageCaptions").children)
+      .filter((el) => !(el as HTMLElement).hidden)
+      .map((el) => el.id);
+  const send = () => browser.runtime.sendMessage as unknown as ReturnType<typeof vi.fn>;
+  function choose(value: string): void {
+    select().value = value;
+    select().dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  function type(value: string): void {
+    input().value = value;
+    input().dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  function enter(): void {
+    input().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = `<div id="advancedContent">${markup}</div>`;
+    initSettingsRows();
+    initLocaleControl();
+  });
+
+  test("Off shows the standing hint; Match sends match and shows the warning instead", () => {
+    restoreLocaleControl({ mode: "off" });
+    expect(shown()).toEqual(["localeHint"]);
+    choose("match");
+    expect(send()).toHaveBeenCalledWith({
+      type: "SET_LOCALE_SPOOFING",
+      payload: { localeSpoofing: { mode: "match" } },
+    });
+    expect(shown()).toEqual(["localeWarning"]);
+  });
+
+  test("committing fr-FR sends it, hides Set, and shows the language's own name", () => {
+    restoreLocaleControl({ mode: "off" });
+    choose("custom");
+    expect(byId("localeCustomEdit").style.display).toBe("block");
+    expect(send()).not.toHaveBeenCalled();
+    expect(valueText().textContent).toBe("Choose language…");
+    type("fr-FR");
+    expect(confirm().hidden).toBe(false);
+    confirm().click();
+    expect(send()).toHaveBeenCalledWith({
+      type: "SET_LOCALE_SPOOFING",
+      payload: { localeSpoofing: { mode: "custom", locale: "fr-FR" } },
+    });
+    expect(confirm().hidden).toBe(true);
+    expect(valueText().textContent).toBe("Français (France)");
+    expect(shown()).toEqual(["localeWarning"]);
+  });
+
+  test("a tag that isn't a suggestion shows as the bare tag", () => {
+    restoreLocaleControl({ mode: "custom", locale: "fr-BE" });
+    expect(input().value).toBe("fr-BE");
+    expect(confirm().hidden).toBe(true);
+    expect(valueText().textContent).toBe("fr-BE");
+  });
+
+  test("an unusable tag sends nothing, and its error outranks the warning", () => {
+    restoreLocaleControl({ mode: "custom", locale: "fr-FR" });
+    expect(shown()).toEqual(["localeWarning"]);
+    type("not a tag!");
+    enter();
+    expect(send()).not.toHaveBeenCalled();
+    expect(input().getAttribute("aria-invalid")).toBe("true");
+    expect(input().classList.contains("invalid")).toBe(true);
+    expect(shown()).toEqual(["localeCustomHint"]);
+    type("ja");
+    expect(shown()).toEqual(["localeWarning"]);
+  });
+
+  test("locked: Off, aria-disabled, and a change is reverted without sending", () => {
+    restoreLocaleControl({ mode: "match" }, true);
+    expect(select().value).toBe("off");
+    expect(select().getAttribute("aria-disabled")).toBe("true");
+    expect(select().disabled).toBe(false);
+    choose("match");
+    expect(select().value).toBe("off");
+    expect(send()).not.toHaveBeenCalled();
+    expect(valueText().textContent).toBe("Off (use real)");
   });
 });

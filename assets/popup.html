@@ -1293,366 +1293,537 @@
       <!-- End Details View -->
       <!-- Settings View -->
       <div class="tab-content" id="settingsView" style="display: none">
+        <!-- While Settings is open this nav bar replaces the tab bar. The back
+             row names the tab Settings was opened from (views.ts writes the
+             label, so it carries no data-i18n). -->
+        <div class="nav-bar">
+          <button type="button" class="back-row" id="settingsBack">
+            <span aria-hidden="true">‹ </span><span id="settingsBackLabel">Main</span>
+          </button>
+          <h2 class="view-title" id="settingsTitle" tabindex="-1" data-i18n="tab_settings">
+            Settings
+          </h2>
+        </div>
         <div class="settings-content" id="advancedContent">
-          <label class="toggle-label" for="preserveGeoPromptToggle">
-            <span class="label-with-info">
-              <span data-i18n="toggle_preserveGeoPrompt">Preserve location prompts</span>
-              <button
-                type="button"
-                class="info-icon"
-                id="preserveGeoPromptInfo"
-                aria-label="More info about Preserve location prompts"
-                data-i18n-aria-label="preserveGeoPrompt_infoAriaLabel"
-              >
-                ⓘ
-              </button>
-            </span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="preserveGeoPromptToggle" />
-              <span class="toggle-slider"></span>
-            </div>
-          </label>
-          <div
-            class="info-tooltip"
-            id="preserveGeoPromptTooltip"
-            role="tooltip"
-            data-i18n="preserveGeoPrompt_tooltip"
+          <!-- WHAT SITES SEE: the settings that change what websites receive.
+               Each card is followed by one caption, chosen by precedence
+               (settings-captions.ts): an error, then an open ⓘ, then the
+               card's standing caption. -->
+          <section
+            class="settings-group"
+            id="settingsSitesSee"
+            aria-labelledby="settingsHeadingSitesSee"
           >
-            Applies only to sites GeoSpoof is spoofing (per your allow/deny list). When on, those
-            sites show the browser's normal location permission prompt and receive your spoofed
-            location only if you allow it. When off, they get it automatically, without a prompt.
-          </div>
-          <!-- Pro lock note (shown for non-Pro iOS users; toggle disabled) -->
-          <div class="pro-lock-note" id="preserveGeoPromptProNote" style="display: none">
-            🔒 Preserving location prompts is a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to
-            keep sites' permission prompts.
-          </div>
-          <label class="toggle-label" id="earlyTzRow" for="earlyTzToggle" style="display: none">
-            <span class="label-with-info">
-              <span data-i18n="advanced_earlyTz">Instant timezone protection</span>
-              <button
-                type="button"
-                class="info-icon"
-                id="earlyTzInfo"
-                aria-label="More info about Instant timezone protection"
-                data-i18n-aria-label="earlyTz_infoAriaLabel"
-              >
-                ⓘ
-              </button>
-            </span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="earlyTzToggle" />
-              <span class="toggle-slider"></span>
-            </div>
-          </label>
-          <div class="info-tooltip" id="earlyTzTooltip" role="tooltip" data-i18n="earlyTz_tooltip">
-            Firefox only. Turning this on requests the optional “userScripts” permission so GeoSpoof
-            can run at the very start of each page load, closing a brief gap where a site could read
-            your real timezone before protection kicks in. Turn it off to revoke the permission.
-          </div>
-          <label
-            class="toggle-label"
-            id="debuggerModeRow"
-            for="debuggerModeToggle"
-            style="display: none"
-          >
-            <span class="label-with-info">
-              <span data-i18n="advanced_debuggerMode">Engine-level Spoofing</span>
-              <button
-                type="button"
-                class="info-icon"
-                id="debuggerModeInfo"
-                aria-label="More info about Engine-level Spoofing"
-                data-i18n-aria-label="debuggerMode_infoAriaLabel"
-              >
-                ⓘ
-              </button>
-            </span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="debuggerModeToggle" />
-              <span class="toggle-slider"></span>
-            </div>
-          </label>
-          <div
-            class="info-tooltip"
-            id="debuggerModeTooltip"
-            role="tooltip"
-            data-i18n="debuggerMode_tooltip"
-          >
-            Chrome only. Spoofs your timezone in the browser engine, so it also covers background
-            workers and cross-site frames, and applies it as early as Chrome allows. While it's on,
-            Chrome shows a “GeoSpoof started debugging this browser” bar — that's normal. Leave it
-            off to use standard protection.
-          </div>
-          <div
-            class="setting-disclaimer debugger-banner-help"
-            id="debuggerBannerHelp"
-            style="display: none"
-          >
-            <button
-              type="button"
-              class="debugger-banner-help-close"
-              id="debuggerBannerHelpClose"
-              aria-label="Dismiss"
-              data-i18n-aria-label="debuggerBannerHelp_closeAria"
+            <h3
+              class="section-heading"
+              id="settingsHeadingSitesSee"
+              data-i18n="settings_headingSitesSee"
             >
-              ×
-            </button>
-            <span data-i18n="debuggerBannerHelp_text"
-              >While this is on, Chrome shows a “GeoSpoof started debugging this browser” bar. To
-              hide it, start Chrome with this flag:</span
+              What sites see
+            </h3>
+            <!-- The one Pro note (Safari on iOS without Pro). Locked rows point
+                 aria-describedby at it. -->
+            <p
+              class="pro-lock-note settings-pro-note"
+              id="settingsProNote"
+              data-i18n="settings_proNote"
+              hidden
             >
-            <code class="debugger-banner-help-flag">--silent-debugger-extension-api</code>
-            <a
-              href="https://geospoof.com/engine-level-spoofing?utm_source=extension&amp;utm_medium=popup&amp;utm_campaign=engine-level"
-              target="_blank"
-              rel="noopener"
-              class="debugger-banner-help-link"
-              data-i18n="debuggerBannerHelp_link"
-              >How to hide the bar →</a
-            >
-          </div>
-          <div class="accuracy-selector">
-            <label class="select-label" for="accuracySelect">
-              <span data-i18n="advanced_accuracy">Location Accuracy</span>
-              <select id="accuracySelect">
-                <option value="realistic" data-i18n="advanced_accuracy_realistic">Realistic</option>
-                <option value="custom" data-i18n="advanced_accuracy_custom">Custom</option>
-              </select>
-            </label>
-            <!-- Pro lock note (shown for non-Pro iOS users; control disabled) -->
-            <div class="pro-lock-note" id="accuracyProNote" style="display: none">
-              🔒 Custom accuracy is a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to set a
-              fixed accuracy.
-            </div>
-            <div class="accuracy-custom-edit" id="accuracyCustomEdit" style="display: none">
-              <input
-                type="number"
-                id="accuracyCustomInput"
-                min="1"
-                max="10000"
-                step="1"
-                inputmode="numeric"
-                aria-label="Accuracy (meters)"
-                data-i18n-aria-label="advanced_accuracy_customMeters"
-              />
-              <button
-                type="button"
-                id="accuracyCustomConfirm"
-                class="accuracy-custom-confirm"
-                data-i18n="advanced_accuracy_customSet"
-              >
-                Set
-              </button>
-            </div>
-            <div class="accuracy-custom-display" id="accuracyCustomDisplay" style="display: none">
-              <span id="accuracyCustomValue"></span>
-              <button
-                type="button"
-                id="accuracyCustomEditBtn"
-                class="accuracy-custom-confirm accuracy-custom-edit-btn"
-                data-i18n="advanced_accuracy_customEdit"
-              >
-                Edit
-              </button>
-            </div>
-            <div
-              class="accuracy-custom-hint"
-              id="accuracyCustomHint"
-              role="alert"
-              style="display: none"
-              data-i18n="advanced_accuracy_customHint"
-            >
-              Enter a value between 1 and 10000 meters
-            </div>
-          </div>
-          <hr class="section-divider" />
-          <div class="precision-selector">
-            <label class="select-label" for="precisionSelect">
-              <span data-i18n="advanced_precision">Location Precision</span>
-              <select id="precisionSelect">
-                <option value="exact" data-i18n="advanced_precision_exact">Exact</option>
-                <option value="street" data-i18n="advanced_precision_street">
-                  Street (~0.5 km)
-                </option>
-                <option value="neighborhood" data-i18n="advanced_precision_neighborhood">
-                  Neighborhood (~2 km)
-                </option>
-                <option value="city" data-i18n="advanced_precision_city">City (~10 km)</option>
-              </select>
-            </label>
-            <!-- Pro lock note (shown for non-Pro iOS users; control disabled) -->
-            <div
-              class="pro-lock-note"
-              id="precisionProNote"
-              style="display: none"
-              data-i18n="advanced_precision_proNote"
-            >
-              🔒 Approximate location is a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to blur
-              your exact location.
-            </div>
-            <div class="precision-hint" id="precisionHint" data-i18n="advanced_precision_hint">
-              Approximate reports a random point near your location instead of the exact spot.
-            </div>
-            <!-- How often Approximate picks a new point. Shown only for an
-               approximate option; hidden (and disabled) behind the Pro lock. -->
-            <div class="precision-cadence-row" id="precisionCadenceRow" style="display: none">
-              <label class="select-label" for="precisionCadenceSelect">
-                <span data-i18n="advanced_precisionCadence">Pick a new point</span>
-                <select id="precisionCadenceSelect">
-                  <option value="never" data-i18n="advanced_precisionCadence_never">Never</option>
-                  <option value="session" data-i18n="advanced_precisionCadence_session">
-                    Each browser session
+              🔒 The settings in this section are GeoSpoof Pro features. Upgrade in the GeoSpoof
+              app.
+            </p>
+            <div class="toggle-group" id="settingsLocationCard">
+              <label class="value-row" for="accuracySelect">
+                <span class="value-row-label" id="accuracyLabel" data-i18n="advanced_accuracy"
+                  >Location Accuracy</span
+                >
+                <span class="value-row-value" aria-hidden="true"
+                  ><span class="value-row-text"></span
+                  ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                    <path
+                      d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                  ><span class="row-lock">🔒</span></span
+                >
+                <select id="accuracySelect" aria-labelledby="accuracyLabel">
+                  <option value="realistic" data-i18n="advanced_accuracy_realistic">
+                    Realistic
                   </option>
-                  <option value="hour" data-i18n="advanced_precisionCadence_hour">
-                    Every hour
-                  </option>
-                  <option value="day" data-i18n="advanced_precisionCadence_day">Every day</option>
+                  <option value="custom" data-i18n="advanced_accuracy_custom">Custom</option>
                 </select>
               </label>
+              <div class="dependent-row" id="accuracyCustomEdit" style="display: none">
+                <div class="field-row">
+                  <label
+                    class="field-row-label"
+                    for="accuracyCustomInput"
+                    data-i18n="advanced_accuracy_meters"
+                    >Meters</label
+                  >
+                  <span class="settings-field"
+                    ><input
+                      type="number"
+                      id="accuracyCustomInput"
+                      min="1"
+                      max="10000"
+                      step="1"
+                      inputmode="numeric"
+                    /><button
+                      type="button"
+                      id="accuracyCustomConfirm"
+                      data-i18n="advanced_accuracy_customSet"
+                      hidden
+                    >
+                      Set
+                    </button></span
+                  >
+                </div>
+              </div>
+              <label class="value-row" for="precisionSelect">
+                <span class="value-row-label" id="precisionLabel" data-i18n="advanced_precision"
+                  >Location Precision</span
+                >
+                <span class="value-row-value" aria-hidden="true"
+                  ><span class="value-row-text"></span
+                  ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                    <path
+                      d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                  ><span class="row-lock">🔒</span></span
+                >
+                <select id="precisionSelect" aria-labelledby="precisionLabel">
+                  <option value="exact" data-i18n="advanced_precision_exact">Exact</option>
+                  <option value="street" data-i18n="advanced_precision_street">
+                    Street (~0.5 km)
+                  </option>
+                  <option value="neighborhood" data-i18n="advanced_precision_neighborhood">
+                    Neighborhood (~2 km)
+                  </option>
+                  <option value="city" data-i18n="advanced_precision_city">City (~10 km)</option>
+                </select>
+              </label>
+              <!-- How often Street, Neighborhood or City picks a new point. Shown
+                   only for those options; hidden (and disabled) behind the Pro lock. -->
+              <div class="dependent-row" id="precisionCadenceRow" style="display: none">
+                <label class="value-row" for="precisionCadenceSelect">
+                  <span
+                    class="value-row-label"
+                    id="precisionCadenceLabel"
+                    data-i18n="advanced_precisionCadence"
+                    >Pick a new point</span
+                  >
+                  <span class="value-row-value" aria-hidden="true"
+                    ><span class="value-row-text"></span
+                    ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                      <path
+                        d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      /></svg
+                  ></span>
+                  <select id="precisionCadenceSelect" aria-labelledby="precisionCadenceLabel">
+                    <option value="never" data-i18n="advanced_precisionCadence_never">Never</option>
+                    <option value="session" data-i18n="advanced_precisionCadence_session">
+                      Each browser session
+                    </option>
+                    <option value="hour" data-i18n="advanced_precisionCadence_hour">
+                      Every hour
+                    </option>
+                    <option value="day" data-i18n="advanced_precisionCadence_day">Every day</option>
+                  </select>
+                </label>
+              </div>
+              <div class="toggle-section">
+                <label class="toggle-label" for="preserveGeoPromptToggle">
+                  <span class="label-with-info">
+                    <span data-i18n="toggle_preserveGeoPrompt">Preserve location prompts</span>
+                    <button
+                      type="button"
+                      class="info-icon"
+                      id="preserveGeoPromptInfo"
+                      aria-label="More info about Preserve location prompts"
+                      data-i18n-aria-label="preserveGeoPrompt_infoAriaLabel"
+                      aria-expanded="false"
+                      aria-controls="preserveGeoPromptTooltip"
+                    >
+                      ⓘ
+                    </button>
+                  </span>
+                  <div class="toggle-wrapper">
+                    <input type="checkbox" id="preserveGeoPromptToggle" />
+                    <span class="toggle-slider"></span>
+                  </div>
+                </label>
+              </div>
             </div>
-          </div>
-          <hr class="section-divider" />
-          <!-- Reported Language. Named to stay clearly distinct from the
-             "Language" selector further down, which sets GeoSpoof's OWN UI
-             language; this one sets what WEBSITES see. -->
-          <div class="locale-selector">
-            <label class="select-label" for="localeSelect">
-              <span data-i18n="advanced_locale">Reported Language</span>
-              <select id="localeSelect">
-                <option value="off" data-i18n="advanced_locale_off">Off (use real)</option>
-                <option value="match" data-i18n="advanced_locale_match">Match my location</option>
-                <option value="custom" data-i18n="advanced_locale_custom">Choose language…</option>
-              </select>
-            </label>
-            <!-- Pro lock note (shown for non-Pro iOS users; control disabled) -->
-            <div
-              class="pro-lock-note"
-              id="localeProNote"
-              style="display: none"
-              data-i18n="advanced_locale_proNote"
-            >
-              🔒 Reported Language is a GeoSpoof Pro feature. Upgrade in the GeoSpoof app to change
-              the language websites see.
-            </div>
-            <!-- Editing row: free-text BCP47 entry with typeahead suggestions.
-               A text input + datalist (rather than a 200-entry <select>) is
-               what makes "any language" workable in a 350px popup: the list
-               suggests common locales while any valid tag can still be
-               typed. Options are appended at runtime from the shared
-               suggestion list. -->
-            <div class="locale-custom-edit" id="localeCustomEdit" style="display: none">
-              <input
-                type="text"
-                id="localeCustomInput"
-                list="localeSuggestions"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="fr-FR"
-                aria-label="Language tag"
-                data-i18n-aria-label="advanced_locale_customTag"
-              />
-              <datalist id="localeSuggestions"></datalist>
-              <button
-                type="button"
-                id="localeCustomConfirm"
-                class="accuracy-custom-confirm"
-                data-i18n="advanced_locale_customSet"
+            <div class="settings-captions" id="settingsLocationCaptions" data-caption-group>
+              <p
+                class="settings-caption is-error"
+                id="accuracyCustomHint"
+                data-caption="error"
+                role="alert"
+                data-i18n="advanced_accuracy_customHint"
+                hidden
               >
-                Set
-              </button>
-            </div>
-            <!-- Display row: the committed tag + a compact Edit affordance. -->
-            <div class="locale-custom-display" id="localeCustomDisplay" style="display: none">
-              <span id="localeCustomValue"></span>
-              <button
-                type="button"
-                id="localeCustomEditBtn"
-                class="accuracy-custom-confirm accuracy-custom-edit-btn"
-                data-i18n="advanced_locale_customEdit"
+                Enter a value between 1 and 10000 meters
+              </p>
+              <p
+                class="settings-caption"
+                id="preserveGeoPromptTooltip"
+                data-caption="info"
+                data-i18n="preserveGeoPrompt_tooltip"
+                hidden
               >
-                Edit
-              </button>
+                When on, the browser asks before a site GeoSpoof is on for gets your spoofed
+                location.
+              </p>
+              <p
+                class="settings-caption"
+                id="precisionHint"
+                data-caption="standing"
+                data-i18n="advanced_precision_hint"
+              >
+                Street, Neighborhood and City report a random point near your location.
+              </p>
             </div>
-            <div
-              class="accuracy-custom-hint"
-              id="localeCustomHint"
-              role="alert"
-              style="display: none"
-              data-i18n="advanced_locale_customHint"
+            <!-- Reported Language. Named to stay clearly distinct from the
+                 "Language" row under General, which sets GeoSpoof's OWN UI
+                 language; this one sets what WEBSITES see. -->
+            <div class="toggle-group" id="settingsLanguageCard">
+              <label class="value-row" for="localeSelect">
+                <span class="value-row-label" id="localeLabel" data-i18n="advanced_locale"
+                  >Reported Language</span
+                >
+                <span class="value-row-value" aria-hidden="true"
+                  ><span class="value-row-text"></span
+                  ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                    <path
+                      d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                  ><span class="row-lock">🔒</span></span
+                >
+                <select id="localeSelect" aria-labelledby="localeLabel">
+                  <option value="off" data-i18n="advanced_locale_off">Off (use real)</option>
+                  <option value="match" data-i18n="advanced_locale_match">Match my location</option>
+                  <option value="custom" data-i18n="advanced_locale_custom">
+                    Choose language…
+                  </option>
+                </select>
+              </label>
+              <!-- Free-text BCP47 entry with typeahead suggestions. A text input
+                   + datalist (rather than a 200-entry <select>) is what makes
+                   "any language" workable in a 350px popup. Options are appended
+                   at runtime from the shared suggestion list. -->
+              <div class="dependent-row" id="localeCustomEdit" style="display: none">
+                <div class="field-row">
+                  <label
+                    class="field-row-label"
+                    for="localeCustomInput"
+                    data-i18n="advanced_locale_customTag"
+                    >Language tag</label
+                  >
+                  <span class="settings-field"
+                    ><input
+                      type="text"
+                      id="localeCustomInput"
+                      class="settings-field-tag"
+                      list="localeSuggestions"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="fr-FR"
+                    /><datalist id="localeSuggestions"></datalist
+                    ><button
+                      type="button"
+                      id="localeCustomConfirm"
+                      data-i18n="advanced_locale_customSet"
+                      hidden
+                    >
+                      Set
+                    </button></span
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="settings-captions" id="settingsLanguageCaptions" data-caption-group>
+              <p
+                class="settings-caption is-error"
+                id="localeCustomHint"
+                data-caption="error"
+                role="alert"
+                data-i18n="advanced_locale_customHint"
+                hidden
+              >
+                Enter a language tag your browser supports, like fr-FR or ja
+              </p>
+              <!-- Shown only while the feature is active: enabling this visibly
+                   changes sites, so the consequence is stated up front. -->
+              <p
+                class="settings-caption"
+                id="localeWarning"
+                data-caption="standing"
+                data-active="false"
+                data-i18n="advanced_locale_warning"
+                hidden
+              >
+                ⚠️ Many sites will switch to this language, and it is sent with every request.
+              </p>
+              <p
+                class="settings-caption"
+                id="localeHint"
+                data-caption="standing"
+                data-i18n="advanced_locale_hint"
+              >
+                Sets the language, and the date and number formats, that websites see.
+              </p>
+            </div>
+          </section>
+          <!-- ADVANCED: one opt-in toggle per browser. Shown only when its row
+               is: Engine-level Spoofing on Chromium, Instant timezone protection
+               on Firefox when the permissions API exists, never on Safari. -->
+          <section
+            class="settings-group"
+            id="settingsAdvancedGroup"
+            aria-labelledby="settingsHeadingAdvanced"
+            hidden
+          >
+            <h3
+              class="section-heading"
+              id="settingsHeadingAdvanced"
+              data-i18n="settings_headingAdvanced"
             >
-              Enter a language tag your browser supports, like fr-FR or ja
+              Advanced
+            </h3>
+            <div class="toggle-group" id="settingsAdvancedCard">
+              <div class="toggle-section" id="earlyTzRow" style="display: none">
+                <label class="toggle-label" for="earlyTzToggle">
+                  <span class="label-with-info">
+                    <span data-i18n="advanced_earlyTz">Instant timezone protection</span>
+                    <button
+                      type="button"
+                      class="info-icon"
+                      id="earlyTzInfo"
+                      aria-label="More info about Instant timezone protection"
+                      data-i18n-aria-label="earlyTz_infoAriaLabel"
+                      aria-expanded="false"
+                      aria-controls="earlyTzTooltip"
+                    >
+                      ⓘ
+                    </button>
+                  </span>
+                  <div class="toggle-wrapper">
+                    <input type="checkbox" id="earlyTzToggle" />
+                    <span class="toggle-slider"></span>
+                  </div>
+                </label>
+              </div>
+              <div class="toggle-section" id="debuggerModeRow" style="display: none">
+                <label class="toggle-label" for="debuggerModeToggle">
+                  <span class="label-with-info">
+                    <span data-i18n="advanced_debuggerMode">Engine-level Spoofing</span>
+                    <button
+                      type="button"
+                      class="info-icon"
+                      id="debuggerModeInfo"
+                      aria-label="More info about Engine-level Spoofing"
+                      data-i18n-aria-label="debuggerMode_infoAriaLabel"
+                      aria-expanded="false"
+                      aria-controls="debuggerModeTooltip"
+                    >
+                      ⓘ
+                    </button>
+                  </span>
+                  <div class="toggle-wrapper">
+                    <input type="checkbox" id="debuggerModeToggle" />
+                    <span class="toggle-slider"></span>
+                  </div>
+                </label>
+              </div>
             </div>
-            <!-- Shown only while the feature is active: enabling this visibly
-               changes sites, so the consequence is stated up front. -->
-            <div
-              class="locale-warning"
-              id="localeWarning"
-              style="display: none"
-              data-i18n="advanced_locale_warning"
+            <div class="settings-captions" id="settingsAdvancedCaptions" data-caption-group>
+              <p
+                class="settings-caption"
+                id="earlyTzTooltip"
+                data-caption="info"
+                data-i18n="earlyTz_tooltip"
+                hidden
+              >
+                Runs protection at the very start of page loads, so sites have less time to read
+                your real timezone. Asks for Firefox's “userScripts” permission.
+              </p>
+              <p
+                class="settings-caption"
+                id="debuggerModeTooltip"
+                data-caption="info"
+                data-i18n="debuggerMode_tooltip"
+                hidden
+              >
+                Also sets your timezone in Chrome's engine, which reaches more of a page's workers
+                and frames than standard protection. Chrome shows a debugging bar while it's on.
+              </p>
+              <div
+                class="settings-caption"
+                id="debuggerBannerHelp"
+                data-caption="standing"
+                data-active="false"
+                hidden
+              >
+                <button
+                  type="button"
+                  id="debuggerBannerHelpClose"
+                  aria-label="Dismiss"
+                  data-i18n-aria-label="debuggerBannerHelp_closeAria"
+                >
+                  ×
+                </button>
+                <span data-i18n="debuggerBannerHelp_text"
+                  >While this is on, Chrome shows a “GeoSpoof started debugging this browser” bar.
+                  To hide it, start Chrome with this flag:</span
+                >
+                <code class="debugger-banner-help-flag">--silent-debugger-extension-api</code>
+                <a
+                  href="https://geospoof.com/engine-level-spoofing?utm_source=extension&amp;utm_medium=popup&amp;utm_campaign=engine-level"
+                  target="_blank"
+                  rel="noopener"
+                  data-i18n="debuggerBannerHelp_link"
+                  >How to hide the bar →</a
+                >
+              </div>
+            </div>
+          </section>
+          <!-- GENERAL: about the popup itself, not about websites. -->
+          <section
+            class="settings-group"
+            id="settingsGeneralGroup"
+            aria-labelledby="settingsHeadingGeneral"
+          >
+            <h3
+              class="section-heading"
+              id="settingsHeadingGeneral"
+              data-i18n="settings_headingGeneral"
             >
-              ⚠️ Many sites will switch to this language, and it is sent with every request.
+              General
+            </h3>
+            <div class="toggle-group" id="settingsGeneralCard">
+              <label class="value-row" for="themeSelect">
+                <span class="value-row-label" id="themeLabel" data-i18n="advanced_theme"
+                  >Theme</span
+                >
+                <span class="value-row-value" aria-hidden="true"
+                  ><span class="value-row-text"></span
+                  ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                    <path
+                      d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                ></span>
+                <select id="themeSelect" aria-labelledby="themeLabel">
+                  <option value="system" data-i18n="advanced_theme_system">System</option>
+                  <option value="light" data-i18n="advanced_theme_light">Light</option>
+                  <option value="dark" data-i18n="advanced_theme_dark">Dark</option>
+                </select>
+              </label>
+              <label class="value-row" for="languageSelect">
+                <span class="value-row-label" id="languageLabel" data-i18n="advanced_language"
+                  >Language</span
+                >
+                <span class="value-row-value" aria-hidden="true"
+                  ><span class="value-row-text"></span
+                  ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                    <path
+                      d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                ></span>
+                <!-- Only the "System" option ships in markup; the locale options
+                     are appended at runtime from SUPPORTED_UI_LOCALES. -->
+                <select id="languageSelect" aria-labelledby="languageLabel">
+                  <option value="" data-i18n="advanced_language_system">
+                    System (browser default)
+                  </option>
+                </select>
+              </label>
+              <div class="toggle-section">
+                <label class="toggle-label" for="debugLoggingToggle">
+                  <span data-i18n="advanced_debugLogging">Debug Logging</span>
+                  <div class="toggle-wrapper">
+                    <input type="checkbox" id="debugLoggingToggle" />
+                    <span class="toggle-slider"></span>
+                  </div>
+                </label>
+              </div>
+              <div class="dependent-row" id="verbositySelector" style="display: none">
+                <label class="value-row" for="verbosityLevel">
+                  <span
+                    class="value-row-label"
+                    id="verbosityLabel"
+                    data-i18n="advanced_verbosityLevel"
+                    >Verbosity Level</span
+                  >
+                  <span class="value-row-value" aria-hidden="true"
+                    ><span class="value-row-text"></span
+                    ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                      <path
+                        d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      /></svg
+                  ></span>
+                  <select id="verbosityLevel" aria-labelledby="verbosityLabel">
+                    <option value="ERROR" data-i18n="advanced_verbosity_error">Error</option>
+                    <option value="WARN" data-i18n="advanced_verbosity_warn">Warn</option>
+                    <option value="INFO" data-i18n="advanced_verbosity_info">Info</option>
+                    <option value="DEBUG" data-i18n="advanced_verbosity_debug">Debug</option>
+                    <option value="TRACE" data-i18n="advanced_verbosity_trace">Trace</option>
+                  </select>
+                </label>
+              </div>
             </div>
-            <div class="precision-hint" id="localeHint" data-i18n="advanced_locale_hint">
-              Sets the language websites see — navigator.language, date and number formats, and the
-              Accept-Language header.
-            </div>
-          </div>
-          <hr class="section-divider" />
-          <div class="theme-selector">
-            <label class="select-label" for="themeSelect">
-              <span data-i18n="advanced_theme">Theme</span>
-              <select id="themeSelect">
-                <option value="system" data-i18n="advanced_theme_system">System</option>
-                <option value="light" data-i18n="advanced_theme_light">Light</option>
-                <option value="dark" data-i18n="advanced_theme_dark">Dark</option>
-              </select>
-            </label>
-          </div>
-          <div class="language-selector">
-            <label class="select-label" for="languageSelect">
-              <span data-i18n="advanced_language">Language</span>
-              <!-- Only the "System" option ships in markup; the locale options
-                 are appended at runtime from SUPPORTED_UI_LOCALES. -->
-              <select id="languageSelect">
-                <option value="" data-i18n="advanced_language_system">
-                  System (browser default)
-                </option>
-              </select>
-            </label>
-          </div>
-          <label class="toggle-label">
-            <span data-i18n="advanced_debugLogging">Debug Logging</span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="debugLoggingToggle" />
-              <span class="toggle-slider"></span>
-            </div>
-          </label>
-          <div class="verbosity-selector" id="verbositySelector" style="display: none">
-            <label class="select-label" for="verbosityLevel">
-              <span data-i18n="advanced_verbosityLevel">Verbosity Level</span>
-              <select id="verbosityLevel">
-                <option value="ERROR" data-i18n="advanced_verbosity_error">Error</option>
-                <option value="WARN" data-i18n="advanced_verbosity_warn">Warn</option>
-                <option value="INFO" data-i18n="advanced_verbosity_info">Info</option>
-                <option value="DEBUG" data-i18n="advanced_verbosity_debug">Debug</option>
-                <option value="TRACE" data-i18n="advanced_verbosity_trace">Trace</option>
-              </select>
-            </label>
-          </div>
-          <div class="advanced-footer">
-            <span class="advanced-footer-coffee" id="coffeeRow">
-              <a
+          </section>
+          <!-- The version comes first because it's the one part every build
+               shows: Safari hides the coffee link (index.ts), so the version
+               sits in the same place on every browser. -->
+          <p class="settings-footer">
+            <span class="version-label" id="versionLabel"></span
+            ><span id="coffeeRow"
+              ><span class="settings-footer-sep" aria-hidden="true">·</span
+              ><a
                 href="https://buymeacoffee.com/sgro"
                 target="_blank"
                 class="coffee-link"
                 data-i18n="advanced_coffee"
                 >☕ Buy me a coffee</a
-              >
-              <span class="advanced-footer-sep" aria-hidden="true">·</span>
-            </span>
-            <span class="version-label" id="versionLabel"></span>
-          </div>
+              ></span
+            >
+          </p>
         </div>
       </div>
       <!-- End Settings View -->

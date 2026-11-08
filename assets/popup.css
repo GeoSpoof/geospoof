@@ -44,6 +44,8 @@
 
   /* Status — danger (red) */
   --danger: #d32f2f;
+  /* Danger as 12 px text (error captions): 4.57:1 on --bg. */
+  --danger-text: #d32f2f;
   --danger-bg: #fdecea;
   --danger-bg-text: #b71c1c;
 
@@ -100,6 +102,8 @@
     --border-subtle: #393941;
 
     --danger: #ef5350;
+    /* --danger is 4.07:1 on the dark --bg; this is 5.93:1. */
+    --danger-text: #f28b82;
     --danger-bg: #b71c1c;
     --danger-bg-text: #fdecea;
 
@@ -130,6 +134,8 @@ body.theme-light {
   --border-input: #ddd;
   --border-subtle: #f0f0f0;
   --danger: #d32f2f;
+  /* Danger as 12 px text (error captions): 4.57:1 on --bg. */
+  --danger-text: #d32f2f;
   --danger-bg: #fdecea;
   --danger-bg-text: #b71c1c;
   --warn-bg: #fff3cd;
@@ -157,6 +163,7 @@ body.theme-dark {
   --border-input: #393941;
   --border-subtle: #393941;
   --danger: #ef5350;
+  --danger-text: #f28b82;
   --danger-bg: #b71c1c;
   --danger-bg-text: #fdecea;
   --warn-bg: #856404;
@@ -337,6 +344,9 @@ input {
    Tab navigation
    ────────────────────────────────────────────────────────────────────── */
 
+.tab-navigation[hidden] {
+  display: none;
+}
 .tab-navigation {
   display: flex;
   gap: 8px;
@@ -1034,24 +1044,8 @@ h3.section-heading {
   height: 10px;
 }
 
-/* Meta footer: "☕ Buy me a coffee · v1.21.7" as small subtext, centered, with
-   a single divider separating it from the settings above. */
-.advanced-footer {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-subtle);
-}
-
-.advanced-footer-sep {
-  margin: 0 6px;
-  color: var(--text-faint);
-}
-
 .coffee-link {
-  color: var(--text-subtle);
+  color: var(--text-muted);
   text-decoration: none;
   transition: color 0.2s;
 }
@@ -1416,369 +1410,278 @@ h3.section-heading {
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
-   Advanced section
+   Settings screen
+   Three headed groups of 44–48 px rows, each followed by at most one caption
+   (an iOS grouped-list footer). Value rows put a native <select> over the
+   whole row; settings-rows.ts mirrors its value into the row.
    ────────────────────────────────────────────────────────────────────── */
-
-/* Settings tab content.
-   These controls previously lived behind an "Advanced" disclosure inside the
-   Details tab, which had grown too long to scan. They now own a top-level tab,
-   so the accordion styling that used to wrap them (a toggle button with a
-   rotating chevron, and a container with bottom-only corners tucked under it via
-   a negative margin) is gone: this is a standalone card with all four corners
-   rounded and no overlap to compensate for. */
+/* Several of these set `display`, which would beat the UA's `[hidden]`. */
+#settingsView [hidden] {
+  display: none !important;
+}
 .settings-content {
-  background: var(--surface);
   color: var(--text);
-  padding: 12px;
-  border-radius: 8px;
 }
-
-/* Standardize each settings row (toggles + selectors) into a uniform,
-   evenly-spaced list. The rows share a 12px gap but no longer carry dividers —
-   the grouping reads cleanly without lines between each control. */
-.settings-content > .toggle-label {
-  margin-top: 12px;
+/* A group: heading, cards, captions. 16 px between groups and between two
+   cards in one group. */
+.settings-group {
+  margin-bottom: 16px;
+}
+.settings-group > .toggle-group {
+  margin-bottom: 0;
+}
+.settings-captions + .toggle-group {
+  margin-top: 16px;
+}
+.settings-content .toggle-label {
   font-size: 14px;
+  line-height: 20px;
+}
+/* The Advanced card only ever shows one row, and the row before the visible
+   one can be hidden, so it draws no separators. */
+#settingsAdvancedCard > *::before {
+  display: none;
 }
 
-/* No spacing above the first row. The always-visible "Preserve location
-   prompts" toggle is the first child, so this applies to it. */
-.settings-content > .toggle-label:first-child {
-  margin-top: 0;
-}
-
-/* Divider separating the spoofing controls (accuracy, precision, language) from
-   the app preferences (theme, debug). Even 12px rhythm to match the rows. */
-.settings-content > .section-divider {
-  margin: 12px 0;
-}
-
-/* Verbosity selector */
-.verbosity-selector {
-  margin-top: 12px;
-}
-
-/* Per-setting inline disclaimer (e.g. advanced worker protection).
-   Small, de-emphasised text that sits under the toggle it describes.
-   Theme-invariant amber/tan tint. */
-.setting-disclaimer {
-  margin-top: 6px;
-  margin-bottom: 12px;
-  padding: 8px 10px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--disclaimer-text);
-  background: var(--disclaimer-bg);
-  border-left: 3px solid var(--disclaimer-border);
-  border-radius: 4px;
-}
-
-.setting-disclaimer strong {
-  font-weight: 600;
-  color: var(--disclaimer-strong);
-}
-
-.setting-disclaimer.unsupported {
-  background: var(--disclaimer-unsupported-bg);
-  border-left-color: var(--disclaimer-unsupported-border);
-  color: var(--disclaimer-unsupported-text);
-}
-
-.setting-disclaimer.unsupported strong {
-  color: var(--disclaimer-unsupported-strong);
-}
-
-/* Dismissible "how to hide the debugging bar" note shown when Engine-level
-   Spoofing is enabled. Reuses .setting-disclaimer's styling; adds a close
-   button (top-right) and a selectable monospace flag line. */
-.debugger-banner-help {
+/* A row with a value: the label at the leading edge, the value and its
+   up-down chevron at the trailing edge. 44 px with one line. */
+.value-row {
   position: relative;
-  padding-right: 28px;
-}
-
-.debugger-banner-help-close {
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  cursor: pointer;
-  background: transparent;
-  color: var(--disclaimer-text);
-  font-size: 18px;
-  line-height: 1;
-}
-
-.debugger-banner-help-flag {
-  display: block;
-  margin: 6px 0;
-  padding: 4px 6px;
-  font-family: monospace;
-  font-size: 11px;
-  user-select: all;
-  border-radius: 4px;
-  background: var(--disclaimer-strong);
-  color: var(--disclaimer-bg);
-  word-break: break-all;
-}
-
-.debugger-banner-help-link {
-  display: inline-block;
-  font-size: 11px;
-}
-
-/* Theme selector */
-.theme-selector {
-  margin-top: 12px;
-}
-
-/* Language selector — matches the Theme/Accuracy row spacing so it isn't
-   crammed against the Theme dropdown above it. */
-.language-selector {
-  margin-top: 12px;
-}
-
-/* Accuracy selector */
-.accuracy-selector {
-  margin-top: 12px;
-}
-
-/* The label + dropdown row reuses .select-label (flex, space-between,
-   align-items center) just like the Theme/Verbosity selectors. */
-
-/* Editing row on its own line: input grows + Set button (mirrors
-   .scope-add-row). */
-.accuracy-custom-edit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-/* Display row on its own line: committed "±Nm" value + compact Edit button. */
-.accuracy-custom-display {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
+  column-gap: 12px;
+  min-height: 44px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
 }
-
-/* The numeric input grows to fill the row (mirrors .scope-add-row input). */
-#accuracyCustomInput {
-  flex: 1;
+.value-row-label {
   min-width: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--border-input);
-  border-radius: 4px;
-  font-size: 13px;
   color: var(--text);
-  background: var(--surface-alt);
 }
-
-#accuracyCustomInput:focus {
-  outline: none;
-  border-color: var(--brand);
-}
-
-#accuracyCustomInput.invalid {
-  border-color: var(--danger, #d9534f);
-}
-
-#accuracyCustomValue {
-  font-size: 13px;
+.value-row-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  max-width: 60%;
+  min-width: 0;
   color: var(--text-muted);
+  text-align: right;
+}
+.value-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
+.value-row-chevron {
+  flex: none;
+  width: 9px;
+  height: 14px;
+}
+/* The native select, invisible, over the whole row: a click or tap anywhere
+   on the row opens its menu, and it keeps the keyboard behavior. */
+.value-row > select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  font-size: 14px;
+  cursor: pointer;
+  appearance: none;
+}
+/* The card clips its children, so the ring is drawn inside the row. */
+.value-row:has(> select:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+.row-lock {
+  display: none;
+  font-size: 12px;
+  line-height: 1;
+}
 
-/* Confirm/Edit buttons for the Custom accuracy control. Mirror the
-   brand-coloured primary buttons so the commit affordance matches the rest of
-   the popup, with light/dark parity via the shared tokens. Compact horizontal
-   padding so they fit inline on the label row. The Custom value commits only
-   when Set is clicked (or on Enter) — never on blur or keystroke. */
-.accuracy-custom-confirm {
-  flex-shrink: 0;
-  padding: 4px 10px;
-  background: var(--brand);
-  color: var(--text-on-brand);
+/* A dependent row (Pick a new point, Meters, Language tag, Verbosity Level):
+   indented 12 px under the row it belongs to, and its separator starts at its
+   own text's leading edge. */
+.dependent-row > .value-row,
+.dependent-row > .field-row {
+  padding-left: 24px;
+}
+.toggle-group > .dependent-row::before {
+  left: 24px;
+}
+
+/* A row with an inline field: numeric meters, or a language tag. */
+.field-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 12px;
+  min-height: 44px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.field-row-label {
+  min-width: 0;
+  color: var(--text);
+}
+.settings-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.settings-field input {
+  width: 84px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: right;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.settings-field input::-webkit-inner-spin-button,
+.settings-field input::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.settings-field input.settings-field-tag {
+  width: 96px;
+  text-align: left;
+}
+.settings-field input:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand);
+}
+/* An invalid custom value: the field is outlined and its hint becomes the
+   card's caption until the value is valid. */
+.settings-field input.invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
+}
+.settings-field button {
+  height: 28px;
+  padding: 0 10px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
+  background: var(--btn-secondary);
+  color: var(--btn-secondary-text);
+  font: inherit;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.3s;
 }
-
-.accuracy-custom-confirm:hover {
-  background: var(--brand-hover);
+.settings-field button:hover {
+  background: var(--btn-secondary-hover);
 }
-
-.accuracy-custom-confirm:focus-visible {
+.settings-field button:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 2px;
 }
 
-.accuracy-custom-hint {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--disclaimer-text);
-}
-
-/* Precision selector. Its option text ("Neighborhood (~2 km)", and longer in
-   other locales) is too wide to sit beside the label on one line, so — unlike
-   the short Theme/Accuracy selectors — this control STACKS: the label on its
-   own line above a full-width dropdown. That makes the layout independent of
-   option/label length in every locale (no smushing, no reliance on short
-   translations). */
-.precision-selector {
-  margin-top: 12px;
-}
-
-.precision-selector .select-label {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-
-.precision-selector .select-label select {
-  width: 100%;
-}
-
-/* Always-visible descriptive note under the precision dropdown. */
-.precision-hint {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--disclaimer-text);
-}
-
-/* "Pick a new point" cadence row, nested in .precision-selector so it inherits
-   the stacked label/select layout. */
-.precision-cadence-row {
-  margin-top: 10px;
-}
-
-/* Reported Language selector. Stacks for the same reason as .precision-selector:
-   the option text ("Match my location", "Choose language…", and longer in other
-   locales) is too wide to sit beside the label at 350px, so the label goes on
-   its own line above a full-width dropdown. Keeps the layout independent of
-   translation length. */
-.locale-selector {
-  margin-top: 12px;
-}
-
-.locale-selector .select-label {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-
-.locale-selector .select-label select {
-  width: 100%;
-}
-
-/* Editing row: free-text tag input grows, Set button stays fixed. Mirrors
-   .accuracy-custom-edit. */
-.locale-custom-edit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-/* Display row: committed tag + compact Edit button. Mirrors
-   .accuracy-custom-display. */
-.locale-custom-display {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-#localeCustomInput {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--border-input);
-  border-radius: 4px;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface-alt);
-}
-
-#localeCustomInput:focus {
-  outline: none;
-  border-color: var(--brand);
-}
-
-#localeCustomInput.invalid {
-  border-color: var(--danger, #d9534f);
-}
-
-#localeCustomValue {
-  font-size: 13px;
+/* The card's caption: under the card, at the rows' text edge, muted, 12 px.
+   --text-muted passes 4.5:1 on --bg in both themes. */
+.settings-caption {
+  margin: 8px 12px 0;
+  font-size: 12px;
+  line-height: 16px;
   color: var(--text-muted);
-  white-space: nowrap;
 }
-
-/* Consequence warning, shown only while a language is actually being reported.
-   Uses the shared disclaimer colour so it reads as a caution rather than an
-   error (nothing is broken — the user just needs to know sites will change). */
-.locale-warning {
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--disclaimer-text);
-}
-
-.select-label {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-}
-
-.select-label select {
-  padding: 4px 8px;
-  border: 1px solid var(--border-input);
-  border-radius: 4px;
-  font-size: 13px;
+/* Body colour and an underline: brand green text is 2.78:1 on white. */
+.settings-caption a {
   color: var(--text);
-  background: var(--surface-alt);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* The Engine-level flag, inline and selectable. */
+.settings-caption code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  user-select: all;
+}
+.settings-caption.is-error {
+  color: var(--danger-text);
+}
+/* The Engine-level note's dismiss ×, floated so the text wraps around it. */
+#debuggerBannerHelpClose {
+  float: right;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px 0 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 24px;
   cursor: pointer;
 }
-
-.select-label select:focus {
-  outline: none;
-  border-color: var(--brand);
-}
-
-.select-label input[type="number"] {
-  width: 90px;
-  padding: 4px 8px;
-  border: 1px solid var(--border-input);
+#debuggerBannerHelpClose:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
   border-radius: 4px;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface-alt);
 }
 
-.select-label input[type="number"]:focus {
-  outline: none;
-  border-color: var(--brand);
+/* Locked (Safari on iOS without Pro): as the Sites tab's locked row — faint
+   label, the enforced value, 🔒 in place of the chevron or a dimmed switch. */
+.value-row.is-locked,
+.value-row.is-locked > select,
+.toggle-section.is-locked .toggle-label {
+  cursor: not-allowed;
+}
+.value-row.is-locked .value-row-label,
+.value-row.is-locked .value-row-value,
+.toggle-section.is-locked .label-with-info > span:first-child {
+  color: var(--text-faint);
+}
+.value-row.is-locked .value-row-chevron {
+  display: none;
+}
+.value-row.is-locked .row-lock {
+  display: inline;
+}
+.toggle-section.is-locked .toggle-wrapper {
+  opacity: 0.55;
+}
+/* The one Pro note, under the WHAT SITES SEE heading. */
+.settings-pro-note {
+  margin: 0 12px 8px;
+  line-height: 18px;
 }
 
-.select-label input[type="number"].invalid {
-  border-color: var(--danger, #d9534f);
+/* The footer: one centred line outside the cards. */
+.settings-footer {
+  margin: 4px 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-muted);
 }
-
-/* Version label — inline within the advanced footer. */
+.settings-footer-sep {
+  margin: 0 6px;
+}
 .version-label {
-  color: var(--text-subtle);
+  color: var(--text-muted);
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -2192,10 +2095,7 @@ h3.section-heading {
   line-height: 1.4;
 }
 
-.scope-mode-btn:disabled,
-#accuracySelect:disabled,
-#accuracyCustomInput:disabled,
-.accuracy-custom-confirm:disabled {
+.scope-mode-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

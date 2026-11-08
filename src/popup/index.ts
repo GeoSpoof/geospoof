@@ -19,6 +19,9 @@ import { initLocaleControl } from "./locale";
 import { wireCoordinatePaste } from "./coord-paste";
 import { readActiveTabUrl } from "./active-tab";
 import { restoreFiltersDraft } from "./drafts";
+import { showPopupView, wireSettingsNav, renderSettingsBackLabel } from "./views";
+import { initSettingsRows } from "./settings-rows";
+import { wireInfoButtons } from "./settings-captions";
 import { SUPPORTED_UI_LOCALES, resolveUiLocale } from "@/shared/i18n/locales";
 
 // --- Location setting ---
@@ -338,56 +341,6 @@ async function deactivateVpnSyncMode(): Promise<void> {
   await loadSettings();
 }
 
-/**
- * The popup's switchable views, mapped to the element that selects each one and
- * the panel it reveals.
- *
- * Single source of truth on purpose: this previously lived in three parallel
- * lists (a trigger map, a panel map, and a literal tuple to iterate), so adding a
- * view meant editing all three and forgetting one failed silently — the view
- * would render but never hide its siblings.
- *
- * `settings` is triggered by a gear in the header rather than a tab in the bar;
- * only the trigger element differs, so it participates here like any other view.
- */
-const POPUP_VIEWS = {
-  main: { trigger: "mainTab", panel: "mainView" },
-  filters: { trigger: "filtersTab", panel: "filtersView" },
-  details: { trigger: "detailsTab", panel: "detailsView" },
-  settings: { trigger: "settingsTab", panel: "settingsView" },
-} as const;
-
-type PopupView = keyof typeof POPUP_VIEWS;
-
-/**
- * Show one view and hide the rest, keeping each trigger's `aria-current` in sync.
- *
- * `aria-current` is the state mechanism for all four triggers, and it drives both
- * the visual styling and what assistive tech announces — there is no separate
- * `.active` class to keep in step. It's the right attribute here rather than
- * `aria-pressed`: these are one-of-N view selections, not independent toggles
- * that stay depressed. It also matters most for the Settings gear, which sits
- * outside the tab bar and so has no underline to inherit; without it, opening
- * Settings would leave every tab unstyled and read as "nothing selected".
- */
-function showPopupView(view: PopupView): void {
-  for (const [key, { trigger, panel }] of Object.entries(POPUP_VIEWS)) {
-    const isCurrent = key === view;
-
-    const triggerEl = document.getElementById(trigger);
-    if (triggerEl) {
-      // Set-or-remove rather than writing "false": an absent attribute keeps the
-      // CSS selectors simple (`[aria-current]` means current) and matches how
-      // assistive tech expects a non-current item to look.
-      if (isCurrent) triggerEl.setAttribute("aria-current", "true");
-      else triggerEl.removeAttribute("aria-current");
-    }
-
-    const panelEl = document.getElementById(panel);
-    if (panelEl) panelEl.style.display = isCurrent ? "block" : "none";
-  }
-}
-
 document.getElementById("mainTab")?.addEventListener("click", () => {
   showPopupView("main");
 });
@@ -400,9 +353,9 @@ document.getElementById("detailsTab")?.addEventListener("click", () => {
   showPopupView("details");
 });
 
-document.getElementById("settingsTab")?.addEventListener("click", () => {
-  showPopupView("settings");
-});
+// The gear and the Settings back row: Settings returns to the tab it was
+// opened from (views.ts).
+wireSettingsNav();
 
 // NOTE: the old "Advanced" accordion inside the Details tab is gone. Those
 // controls now live in their own Settings tab, so collapsing them behind a
@@ -497,6 +450,8 @@ document.getElementById("languageSelect")?.addEventListener("change", (e: Event)
       resetI18nOverride();
     }
     applyI18n();
+    // The back label has no data-i18n (it names the origin tab), so re-render it.
+    renderSettingsBackLabel();
     // Keep the outbound geospoof.com links (Verify, Need help?) pointed at the
     // just-picked language's page — the effective locale mirrors the text.
     localizeWebsiteLinks(resolveUiLocale(value, browserUiLanguage()));
@@ -572,61 +527,10 @@ document.getElementById("vpnSyncInfo")?.addEventListener("click", (e: Event) => 
   tooltip?.classList.toggle("visible");
 });
 
-// Preserve-permission-prompts info tooltip
-document.getElementById("preserveGeoPromptInfo")?.addEventListener("click", (e: Event) => {
-  e.preventDefault();
-  e.stopPropagation();
-  const tooltip = document.getElementById("preserveGeoPromptTooltip");
-  tooltip?.classList.toggle("visible");
-});
-
-// Dismiss the preserve-prompt tooltip when tapping elsewhere
-document.addEventListener("click", (e: Event) => {
-  const tooltip = document.getElementById("preserveGeoPromptTooltip");
-  const infoBtn = document.getElementById("preserveGeoPromptInfo");
-  if (tooltip && e.target !== infoBtn && !infoBtn?.contains(e.target as Node)) {
-    tooltip.classList.remove("visible");
-  }
-});
-
 // Dismiss tooltip when tapping elsewhere
 document.addEventListener("click", (e: Event) => {
   const tooltip = document.getElementById("vpnSyncTooltip");
   const infoBtn = document.getElementById("vpnSyncInfo");
-  if (tooltip && e.target !== infoBtn && !infoBtn?.contains(e.target as Node)) {
-    tooltip.classList.remove("visible");
-  }
-});
-
-// Instant timezone protection info tooltip (Firefox-only row)
-document.getElementById("earlyTzInfo")?.addEventListener("click", (e: Event) => {
-  e.preventDefault();
-  e.stopPropagation();
-  const tooltip = document.getElementById("earlyTzTooltip");
-  tooltip?.classList.toggle("visible");
-});
-
-// Dismiss the early-tz tooltip when tapping elsewhere
-document.addEventListener("click", (e: Event) => {
-  const tooltip = document.getElementById("earlyTzTooltip");
-  const infoBtn = document.getElementById("earlyTzInfo");
-  if (tooltip && e.target !== infoBtn && !infoBtn?.contains(e.target as Node)) {
-    tooltip.classList.remove("visible");
-  }
-});
-
-// Browser-level spoofing info tooltip (Chrome-only row)
-document.getElementById("debuggerModeInfo")?.addEventListener("click", (e: Event) => {
-  e.preventDefault();
-  e.stopPropagation();
-  const tooltip = document.getElementById("debuggerModeTooltip");
-  tooltip?.classList.toggle("visible");
-});
-
-// Dismiss the debugger-mode tooltip when tapping elsewhere
-document.addEventListener("click", (e: Event) => {
-  const tooltip = document.getElementById("debuggerModeTooltip");
-  const infoBtn = document.getElementById("debuggerModeInfo");
   if (tooltip && e.target !== infoBtn && !infoBtn?.contains(e.target as Node)) {
     tooltip.classList.remove("visible");
   }
@@ -659,6 +563,11 @@ document.addEventListener("DOMContentLoaded", () => {
   // Wire the Chrome-only "Browser-level spoofing" (chrome.debugger) toggle.
   // Compiles out / no-ops elsewhere.
   wireDebuggerModeToggle();
+
+  // Settings rows (value rows, the Pro lock) and the one-caption-per-card ⓘ
+  // buttons, before the controls that use them.
+  initSettingsRows();
+  wireInfoButtons(document.getElementById("advancedContent"));
 
   // Wire the accuracy control (Advanced accordion). State is restored later in
   // loadSettings() from the stored accuracySetting.

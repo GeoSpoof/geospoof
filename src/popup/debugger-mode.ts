@@ -26,6 +26,9 @@
  * out and no-ops on Firefox/Safari.
  */
 
+import { setCaptionActive } from "./settings-captions";
+import { revealSettingsGroup } from "./settings-rows";
+
 const WEB_NAVIGATION_PERMISSION: { permissions: string[] } = { permissions: ["webNavigation"] };
 
 /** Narrow access to the optional `browser.permissions` namespace. */
@@ -60,8 +63,8 @@ async function isBannerDismissed(): Promise<boolean> {
 
 /** Show or hide the dismissible debugging-bar help note. */
 function showBannerHelp(visible: boolean): void {
-  const note = document.getElementById("debuggerBannerHelp");
-  if (note) note.style.display = visible ? "" : "none";
+  // The note is the Advanced card's standing caption; an open ⓘ outranks it.
+  setCaptionActive(document.getElementById("debuggerBannerHelp"), visible);
 }
 
 /**
@@ -78,6 +81,7 @@ export function reflectDebuggerModeState(enabled: boolean): void {
   if (!row || !toggle) return;
 
   row.style.display = "";
+  revealSettingsGroup("settingsAdvancedGroup");
   toggle.checked = enabled;
 
   if (!enabled) {

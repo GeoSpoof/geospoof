@@ -367,3 +367,53 @@ describe("Location precision cadence keys are present in every locale", () => {
     });
   });
 });
+
+describe("Settings screen keys are present in every locale", () => {
+  const NEW_OR_REWORDED = [
+    "settings_headingSitesSee",
+    "settings_headingAdvanced",
+    "settings_headingGeneral",
+    "settings_proNote",
+    "advanced_accuracy_meters",
+    "advanced_precision_hint",
+    "advanced_locale_hint",
+    "preserveGeoPrompt_tooltip",
+    "earlyTz_tooltip",
+    "debuggerMode_tooltip",
+  ];
+  const RETIRED = [
+    "advanced_precision_proNote",
+    "advanced_locale_proNote",
+    "advanced_accuracy_customEdit",
+    "advanced_locale_customEdit",
+    "advanced_accuracy_customMeters",
+  ];
+  /** The text after the last sentence break that isn't at the very end. */
+  const lastSentence = (text: string): string => {
+    const t = text.trim();
+    const body = t.slice(0, -1);
+    const period = body.lastIndexOf(". ");
+    const full = body.lastIndexOf("。");
+    return period > full ? t.slice(period + 2).trim() : t.slice(full + 1).trim();
+  };
+
+  describe.each(listLocales())("%s", (locale) => {
+    const file = loadLocale(locale);
+    test.each(NEW_OR_REWORDED)("has a non-empty %s", (key) => {
+      expect(typeof file[key]?.message).toBe("string");
+      expect(file[key].message.trim().length).toBeGreaterThan(0);
+    });
+    test("has none of the retired keys", () => {
+      expect(RETIRED.filter((key) => key in file)).toEqual([]);
+    });
+    test("the Pro note ends with the Sites tab Pro note's upgrade sentence", () => {
+      expect(file.settings_proNote.message.startsWith("🔒")).toBe(true);
+      expect(
+        file.settings_proNote.message.endsWith(lastSentence(file.siteLocation_proNote.message))
+      ).toBe(true);
+    });
+    test("the Advanced heading is the established Advanced word", () => {
+      expect(file.settings_headingAdvanced.message).toBe(file.advanced_button.message);
+    });
+  });
+});
