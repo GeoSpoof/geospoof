@@ -315,7 +315,11 @@ describe("Main tab: the line when a site location applies", () => {
 
   test("is a live line right under the location card, with no heading or card chrome", () => {
     const line = byId("siteLocationLine");
-    expect(byId("currentLocation").nextElementSibling).toBe(line);
+    // The location and Sync with VPN share one card (.location-group); the
+    // line follows that card.
+    const card = byId("currentLocation").parentElement;
+    expect(card?.classList.contains("location-group")).toBe(true);
+    expect(card?.nextElementSibling).toBe(line);
     expect(byId("siteLocationLineStatus").getAttribute("role")).toBe("status");
     expect(byId("siteLocationLineStatus").getAttribute("aria-live")).toBe("polite");
     expect(line.querySelector(".section-heading, h1, h2, h3, h4")).toBeNull();

@@ -141,28 +141,26 @@
       <div class="tab-content" id="mainView">
         <div class="section-heading" data-i18n="heading_protection">Protection</div>
 
-        <!-- Protection toggles: one card, one row per toggle, divided by a
-             line (the same grouped-row pattern as the Sites tab's SITE RULES). -->
-        <div class="toggle-group">
-          <div class="toggle-section">
-            <label class="toggle-label">
-              <span data-i18n="toggle_locationProtection">Location Protection</span>
-              <div class="toggle-wrapper">
-                <input type="checkbox" id="protectionToggle" />
-                <span class="toggle-slider"></span>
-              </div>
-            </label>
-          </div>
+        <!-- Protection Toggle -->
+        <div class="toggle-section">
+          <label class="toggle-label">
+            <span data-i18n="toggle_locationProtection">Location Protection</span>
+            <div class="toggle-wrapper">
+              <input type="checkbox" id="protectionToggle" />
+              <span class="toggle-slider"></span>
+            </div>
+          </label>
+        </div>
 
-          <div class="webrtc-section">
-            <label class="toggle-label">
-              <span data-i18n="toggle_webrtcProtection">WebRTC Protection</span>
-              <div class="toggle-wrapper">
-                <input type="checkbox" id="webrtcToggle" />
-                <span class="toggle-slider"></span>
-              </div>
-            </label>
-          </div>
+        <!-- WebRTC Protection -->
+        <div class="webrtc-section">
+          <label class="toggle-label">
+            <span data-i18n="toggle_webrtcProtection">WebRTC Protection</span>
+            <div class="toggle-wrapper">
+              <input type="checkbox" id="webrtcToggle" />
+              <span class="toggle-slider"></span>
+            </div>
+          </label>
         </div>
 
         <!-- Divider between protection toggles and location controls -->
@@ -170,71 +168,106 @@
 
         <div class="section-heading" data-i18n="heading_location">Location</div>
 
-        <!-- Current Location Display -->
-        <div class="current-location" id="currentLocation">
-          <div class="location-icon">📍</div>
-          <div class="location-info">
-            <div class="location-name" id="locationName" data-i18n="location_none">
-              No location set
+        <!-- The location and Sync with VPN in one card, divided by an inset line:
+             Sync with VPN sets this location. -->
+        <div class="location-group">
+          <!-- Current Location Display -->
+          <div class="current-location" id="currentLocation">
+            <div class="location-icon">📍</div>
+            <div class="location-info">
+              <div class="location-name" id="locationName" data-i18n="location_none">
+                No location set
+              </div>
+              <div class="location-coords" id="locationCoords">—</div>
             </div>
-            <div class="location-coords" id="locationCoords">—</div>
+            <button
+              class="star-favorite-btn"
+              id="starFavoriteBtn"
+              style="display: none"
+              aria-label="Save as favorite"
+              data-i18n-aria-label="favorites_starAriaLabelSave"
+            >
+              <svg
+                class="star-icon"
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <polygon
+                  points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
+                />
+              </svg>
+            </button>
+            <span
+              class="favorites-capacity-msg"
+              id="favoritesCapacityMsg"
+              style="display: none"
+              data-i18n="favorites_atCapacity"
+              >List full — remove a favorite first</span
+            >
+            <button
+              class="clear-location-btn"
+              id="clearLocationBtn"
+              style="display: none"
+              title="Clear location"
+              aria-label="Clear location"
+              data-i18n-title="location_clearTitle"
+              data-i18n-aria-label="location_clearAriaLabel"
+            >
+              <svg
+                class="clear-icon"
+                viewBox="0 0 24 24"
+                width="14"
+                height="14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <line x1="6" y1="6" x2="18" y2="18" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+              </svg>
+            </button>
           </div>
-          <button
-            class="star-favorite-btn"
-            id="starFavoriteBtn"
-            style="display: none"
-            aria-label="Save as favorite"
-            data-i18n-aria-label="favorites_starAriaLabelSave"
-          >
-            <svg
-              class="star-icon"
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+
+          <!-- VPN Sync Toggle -->
+          <div class="vpn-sync-toggle">
+            <label class="toggle-label" for="vpnSyncToggle">
+              <span class="label-with-info">
+                <span data-i18n="toggle_syncWithVpn">Sync with VPN</span>
+                <button
+                  type="button"
+                  class="info-icon"
+                  id="vpnSyncInfo"
+                  aria-label="More info about Sync with VPN"
+                  data-i18n-aria-label="vpnSync_infoAriaLabel"
+                >
+                  ⓘ
+                </button>
+              </span>
+              <div class="toggle-wrapper">
+                <input type="checkbox" id="vpnSyncToggle" />
+                <span class="toggle-slider"></span>
+              </div>
+            </label>
+            <div
+              class="info-tooltip"
+              id="vpnSyncTooltip"
+              role="tooltip"
+              data-i18n="vpnSync_tooltip"
             >
-              <polygon
-                points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"
-              />
-            </svg>
-          </button>
-          <span
-            class="favorites-capacity-msg"
-            id="favoritesCapacityMsg"
-            style="display: none"
-            data-i18n="favorites_atCapacity"
-            >List full — remove a favorite first</span
-          >
-          <button
-            class="clear-location-btn"
-            id="clearLocationBtn"
-            style="display: none"
-            title="Clear location"
-            aria-label="Clear location"
-            data-i18n-title="location_clearTitle"
-            data-i18n-aria-label="location_clearAriaLabel"
-          >
-            <svg
-              class="clear-icon"
-              viewBox="0 0 24 24"
-              width="14"
-              height="14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <line x1="6" y1="6" x2="18" y2="18" />
-              <line x1="18" y1="6" x2="6" y2="18" />
-            </svg>
-          </button>
+              This syncs your spoofed location to your current public IP. It auto-updates a few
+              seconds after your VPN changes servers — or use Re-sync to update immediately.
+            </div>
+          </div>
         </div>
 
         <!-- This tab's own location (Per-site locations, #177). Shown only when one
@@ -298,32 +331,6 @@
             role="list"
             aria-label="Saved favorites"
           ></div>
-        </div>
-
-        <!-- VPN Sync Toggle -->
-        <div class="vpn-sync-toggle">
-          <label class="toggle-label" for="vpnSyncToggle">
-            <span class="label-with-info">
-              <span data-i18n="toggle_syncWithVpn">Sync with VPN</span>
-              <button
-                type="button"
-                class="info-icon"
-                id="vpnSyncInfo"
-                aria-label="More info about Sync with VPN"
-                data-i18n-aria-label="vpnSync_infoAriaLabel"
-              >
-                ⓘ
-              </button>
-            </span>
-            <div class="toggle-wrapper">
-              <input type="checkbox" id="vpnSyncToggle" />
-              <span class="toggle-slider"></span>
-            </div>
-          </label>
-          <div class="info-tooltip" id="vpnSyncTooltip" role="tooltip" data-i18n="vpnSync_tooltip">
-            This syncs your spoofed location to your current public IP. It auto-updates a few
-            seconds after your VPN changes servers — or use Re-sync to update immediately.
-          </div>
         </div>
 
         <!-- Location Input Mode Tabs -->
