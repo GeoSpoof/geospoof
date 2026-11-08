@@ -289,6 +289,14 @@
     "message": "只有 * 是通配符——不支持正则表达式。",
     "description": "The short capability note at the bottom of the syntax reference."
   },
+  "siteLocation_syntaxSeveral": {
+    "message": "一次添加多个网站",
+    "description": "Per-site location editor, \"What can I add?\": explains typing several sites separated by commas (e.g. chatgpt.com, openai.com) in the Sites field."
+  },
+  "siteLocation_syntaxNotes": {
+    "message": "仅限整个网站，不能带 /app 这样的路径。只有 * 是通配符。",
+    "description": "Per-site location editor, \"What can I add?\": the note under the rows. A per-site location applies to whole sites, so the Sites field rejects paths (site.com/app/*) and a bare *. Keep /app and * as is."
+  },
   "filters_syntaxReference": {
     "message": "查看完整参考 →",
     "description": "Link at the bottom of the syntax reference that opens the full Site Filters documentation on GitHub."

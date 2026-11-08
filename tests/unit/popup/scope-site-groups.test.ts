@@ -564,7 +564,10 @@ describe("the Pro lock and the Safari gate", () => {
 
   test("the syntax rows for the new forms show only where they can be added", () => {
     renderScope(ALLOW);
-    const rowsOnly = Array.from(document.querySelectorAll<HTMLElement>("[data-site-groups-only]"));
+    // The Filters help's rows (the per-site editor has its own help).
+    const rowsOnly = Array.from(
+      document.querySelectorAll<HTMLElement>("#scopeSyntax [data-site-groups-only]")
+    );
     expect(rowsOnly.map((r) => r.querySelector("code")?.textContent)).toEqual([
       "=mail.example.com",
       "geosite:google",

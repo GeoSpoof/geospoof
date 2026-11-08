@@ -51,6 +51,7 @@ import {
   type FilterListArgs,
 } from "@/shared/utils/site-locations";
 import { isOwnExtensionPage } from "./active-tab";
+import { siteGroupsAvailable } from "@/shared/site-groups/availability";
 import { announce, __resetAnnounceForTest } from "./announce";
 import { clearCardUndo, getCardUndo } from "./card-undo";
 import {
@@ -786,6 +787,9 @@ function openEditor(args: {
   renderEntryChips();
   const searchInput = el<HTMLInputElement>("siteLocationSearch");
   if (searchInput) searchInput.value = "";
+  // "What can I add?" starts collapsed for each entry.
+  const syntax = el<HTMLDetailsElement>("siteLocationSyntax");
+  if (syntax) syntax.open = false;
   clearSearchResults();
   hideEditorError();
 
@@ -1334,6 +1338,10 @@ function wireEditorOnce(): void {
   const editorEl = el("siteLocationEditor");
   if (!editorEl || editorEl.dataset.wired === "1") return;
   editorEl.dataset.wired = "1";
+  // The help's rows for the forms this build can't add, as the field can't.
+  editorEl.querySelectorAll<HTMLElement>("[data-site-groups-only]").forEach((row) => {
+    row.hidden = !siteGroupsAvailable();
+  });
 
   editorControl = createEntryAddControl({
     ids: {

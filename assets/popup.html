@@ -984,6 +984,81 @@
               </div>
             </div>
 
+            <!-- What the Sites field accepts (parseSiteLocationEntry): host
+                 patterns only, no paths. The Filters help's component; each
+                 row's data-example is what's typed (tests add every one).
+                 Collapsed each time the editor opens; not part of the draft. -->
+            <details class="scope-syntax site-location-syntax" id="siteLocationSyntax">
+              <summary class="scope-syntax-summary">
+                <span class="scope-syntax-chevron" aria-hidden="true">▶</span>
+                <span data-i18n="filters_help">What can I add?</span>
+              </summary>
+              <div class="scope-syntax-body">
+                <dl class="scope-syntax-list">
+                  <div class="scope-syntax-row" data-example="example.com">
+                    <dt><code>example.com</code></dt>
+                    <dd data-i18n="filters_syntaxDomain">The site and all its subdomains</dd>
+                  </div>
+                  <div class="scope-syntax-row" data-example="*.example.com">
+                    <dt><code>*.example.com</code></dt>
+                    <dd data-i18n="filters_syntaxSubdomains">
+                      Subdomains only, not example.com itself
+                    </dd>
+                  </div>
+                  <div class="scope-syntax-row" data-example="*.ru">
+                    <dt><code>*.ru</code></dt>
+                    <dd data-i18n="filters_syntaxTld">Any site ending in .ru</dd>
+                  </div>
+                  <div class="scope-syntax-row" data-example="localhost:3000">
+                    <dt><code>localhost:3000</code></dt>
+                    <dd data-i18n="filters_syntaxPort">A host on a specific port</dd>
+                  </div>
+                  <div class="scope-syntax-row" data-example="münchen.de">
+                    <dt><code>münchen.de</code></dt>
+                    <dd data-i18n="filters_syntaxIdn">International domain names work too</dd>
+                  </div>
+                  <div class="scope-syntax-row" data-example="chatgpt.com, openai.com">
+                    <dt><code>chatgpt.com, openai.com</code></dt>
+                    <dd data-i18n="siteLocation_syntaxSeveral">Several sites at once</dd>
+                  </div>
+                  <!-- data-site-groups-only rows hide where site groups are
+                       unavailable (Safari), as the field's forms do. -->
+                  <div
+                    class="scope-syntax-row"
+                    data-site-groups-only
+                    data-example="=mail.example.com"
+                  >
+                    <dt><code>=mail.example.com</code></dt>
+                    <dd data-i18n="filters_syntaxExact">
+                      Only that exact address, not its subdomains
+                    </dd>
+                  </div>
+                  <div class="scope-syntax-row" data-site-groups-only data-example="geosite:google">
+                    <dt><code>geosite:google</code></dt>
+                    <dd data-i18n="filters_syntaxGroup">A site group: all of Google's sites</dd>
+                  </div>
+                  <div
+                    class="scope-syntax-row"
+                    data-site-groups-only
+                    data-example="geosite:google@cn"
+                  >
+                    <dt><code>geosite:google@cn</code></dt>
+                    <dd data-i18n="filters_syntaxGroupTag">Only the group's sites with that tag</dd>
+                  </div>
+                  <div
+                    class="scope-syntax-row"
+                    data-site-groups-only
+                    data-example="https://example.com/list.txt"
+                  >
+                    <dt><code>https://…/list.txt</code></dt>
+                    <dd data-i18n="filters_syntaxLink">A list from a link, updated weekly</dd>
+                  </div>
+                </dl>
+                <p class="scope-syntax-note" data-i18n="siteLocation_syntaxNotes">
+                  Whole sites only, without a path such as /app. Only * is a wildcard.
+                </p>
+              </div>
+            </details>
             <label
               class="site-location-label"
               id="siteLocationSearchLabel"

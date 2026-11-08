@@ -289,6 +289,14 @@
     "message": "Only * is a wildcard — no regular expressions.",
     "description": "The short capability note at the bottom of the syntax reference."
   },
+  "siteLocation_syntaxSeveral": {
+    "message": "Several sites at once",
+    "description": "Per-site location editor, \"What can I add?\": explains typing several sites separated by commas (e.g. chatgpt.com, openai.com) in the Sites field."
+  },
+  "siteLocation_syntaxNotes": {
+    "message": "Whole sites only, without a path such as /app. Only * is a wildcard.",
+    "description": "Per-site location editor, \"What can I add?\": the note under the rows. A per-site location applies to whole sites, so the Sites field rejects paths (site.com/app/*) and a bare *. Keep /app and * as is."
+  },
   "filters_syntaxReference": {
     "message": "See full reference →",
     "description": "Link at the bottom of the syntax reference that opens the full Site Filters documentation on GitHub."

@@ -289,6 +289,14 @@
     "message": "Endast * är ett jokertecken – reguljära uttryck stöds inte.",
     "description": "The short capability note at the bottom of the syntax reference."
   },
+  "siteLocation_syntaxSeveral": {
+    "message": "Flera webbplatser på en gång",
+    "description": "Per-site location editor, \"What can I add?\": explains typing several sites separated by commas (e.g. chatgpt.com, openai.com) in the Sites field."
+  },
+  "siteLocation_syntaxNotes": {
+    "message": "Bara hela webbplatser, utan sökväg som /app. Bara * är ett jokertecken.",
+    "description": "Per-site location editor, \"What can I add?\": the note under the rows. A per-site location applies to whole sites, so the Sites field rejects paths (site.com/app/*) and a bare *. Keep /app and * as is."
+  },
   "filters_syntaxReference": {
     "message": "Se fullständig referens →",
     "description": "Link at the bottom of the syntax reference that opens the full Site Filters documentation on GitHub."

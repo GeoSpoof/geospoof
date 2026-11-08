@@ -2534,6 +2534,14 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   margin-top: 8px;
 }
 
+/* In the editor the help sits right under the Sites field, inside the card. */
+.site-location-syntax {
+  margin: 4px 0 8px;
+}
+.site-location-syntax .scope-syntax-summary {
+  padding: 6px 0;
+}
+
 /* The root's rows that open a screen: a title over its value, with a ›
    centred on the row. */
 .drill-card {

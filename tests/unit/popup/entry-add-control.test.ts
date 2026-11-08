@@ -20,6 +20,8 @@ import {
   type EntrySubmitResult,
 } from "@/popup/entry-add-control";
 import { __resetPopupSiteGroupsForTest, describeEntry, formatCount } from "@/popup/site-groups";
+import { __resetSiteLocationsForTest, renderSiteLocations } from "@/popup/site-locations";
+import { DEFAULT_SETTINGS } from "@/shared/types/settings";
 
 const HTML = readFileSync("assets/popup.html", "utf8");
 const BODY = new DOMParser().parseFromString(HTML, "text/html").body.innerHTML;
@@ -784,6 +786,112 @@ describe("where the suggestions hang", () => {
         declares(cls, /position:\s*relative/)
       );
       expect({ row: row.className, positioned }).toEqual({ row: row.className, positioned: true });
+    }
+  });
+});
+
+describe("the per-site editor's 'What can I add?'", () => {
+  const syntax = () => byId<HTMLDetailsElement>("siteLocationSyntax");
+  const rowsOf = () =>
+    Array.from(syntax().querySelectorAll<HTMLElement>(".scope-syntax-row")).map((row) => ({
+      example: row.dataset.example ?? "",
+      shown: !row.hidden,
+    }));
+  const shownExamples = () =>
+    rowsOf()
+      .filter((r) => r.shown)
+      .map((r) => r.example);
+  const TYPED = [
+    "example.com",
+    "*.example.com",
+    "*.ru",
+    "localhost:3000",
+    "münchen.de",
+    "chatgpt.com, openai.com",
+  ];
+  const GROUPS = [
+    "=mail.example.com",
+    "geosite:google",
+    "geosite:google@cn",
+    "https://example.com/list.txt",
+  ];
+
+  function wireEditor(): void {
+    renderSiteLocations({ ...DEFAULT_SETTINGS, enabled: true }, false, "https://example.com/");
+  }
+
+  /** What the editor's Sites field makes of `text`, through its own control. */
+  function editorReads(text: string): { entries: string[]; error: string | null } | null {
+    const field = byId<HTMLInputElement>("siteLocationPatterns");
+    field.value = text;
+    const control = createEntryAddControl({
+      ids: {
+        input: "siteLocationPatterns",
+        button: "siteLocationAddEntry",
+        listbox: "siteLocationGroupListbox",
+        attribution: "siteLocationGroupAttribution",
+        error: "siteLocationError",
+      },
+      context: "siteLocation",
+      onSubmit,
+    });
+    return control?.readPending() ?? null;
+  }
+
+  test("sits under the Sites field, collapsed, with the Filters help's label", () => {
+    wireEditor();
+    const details = syntax();
+    expect(details.tagName).toBe("DETAILS");
+    expect(details.open).toBe(false);
+    expect(details.classList.contains("scope-syntax")).toBe(true);
+    expect(details.querySelector("summary [data-i18n]")?.getAttribute("data-i18n")).toBe(
+      "filters_help"
+    );
+    expect(details.querySelector("summary [data-i18n]")?.textContent).toBe("What can I add?");
+    // Right after the Sites row, before the Location label.
+    expect(details.previousElementSibling?.classList.contains("entry-add-row")).toBe(true);
+    expect(details.nextElementSibling?.id).toBe("siteLocationSearchLabel");
+    // Not on the Per-site locations list screen.
+    expect(byId("siteLocationsScreen").querySelector(".scope-syntax")).toBeNull();
+    expect(byId("siteLocationEditorScreen").contains(details)).toBe(true);
+  });
+
+  test("with site groups, it lists every form; without, only the typed ones", () => {
+    wireEditor();
+    expect(shownExamples()).toEqual([...TYPED, ...GROUPS]);
+    document.body.innerHTML = BODY;
+    gate.available = false;
+    __resetSiteLocationsForTest();
+    wireEditor();
+    expect(shownExamples()).toEqual(TYPED);
+  });
+
+  test("the editor's field accepts every example it lists, on each platform", () => {
+    wireEditor();
+    for (const example of shownExamples()) {
+      const read = editorReads(example);
+      expect({ example, error: read === null ? "empty" : read.error }).toEqual({
+        example,
+        error: null,
+      });
+      expect(read?.entries.length).toBeGreaterThan(0);
+    }
+    document.body.innerHTML = BODY;
+    gate.available = false;
+    __resetSiteLocationsForTest();
+    wireEditor();
+    for (const example of shownExamples()) {
+      const read = editorReads(example);
+      expect({ example, error: read === null ? "empty" : read.error }).toEqual({
+        example,
+        error: null,
+      });
+    }
+  });
+
+  test("the forms it leaves out are the ones the field rejects", () => {
+    for (const rejected of ["site.com/app/*", "example.com/app", "*"]) {
+      expect(editorReads(rejected)?.error).not.toBeNull();
     }
   });
 });
