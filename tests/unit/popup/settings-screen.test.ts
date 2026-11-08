@@ -30,6 +30,13 @@ describe("Settings screen structure", () => {
   test("the nav bar, then three groups, then the footer", () => {
     const view = byId("settingsView");
     expect(view.firstElementChild!.classList.contains("nav-bar")).toBe(true);
+    // The Randomize location screen follows the root, hidden.
+    expect(Array.from(view.children).map((el) => el.id)).toEqual([
+      "settingsNavBar",
+      "advancedContent",
+      "randomizeScreen",
+    ]);
+    expect(byId("randomizeScreen").hidden).toBe(true);
     const content = byId("advancedContent");
     expect(Array.from(content.children).map((el) => el.id || el.className)).toEqual([
       "settingsSitesSee",
@@ -46,15 +53,17 @@ describe("Settings screen structure", () => {
     const order = [
       "accuracySelect",
       "accuracyCustomInput",
-      "precisionSelect",
-      "precisionCadenceSelect",
+      "randomizeRow",
       "preserveGeoPromptToggle",
     ];
     const positions = order.map((id) =>
-      Array.from(location.querySelectorAll("select, input")).indexOf(byId(id) as HTMLInputElement)
+      Array.from(location.querySelectorAll("select, input, [role='button']")).indexOf(byId(id))
     );
+    expect(positions.every((i) => i >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((x, y) => x - y));
-    expect(byId("precisionCadenceRow").classList.contains("dependent-row")).toBe(true);
+    // Distance and Pick a new point live on the Randomize location screen.
+    expect(location.querySelector('input[name="randomizeDistance"]')).toBeNull();
+    expect(byId("randomizeScreen").contains(byId("precisionCadenceSelect"))).toBe(true);
     expect(byId("accuracyCustomEdit").classList.contains("dependent-row")).toBe(true);
     expect(byId("localeCustomEdit").classList.contains("dependent-row")).toBe(true);
     expect(byId("verbositySelector").classList.contains("dependent-row")).toBe(true);
@@ -67,9 +76,9 @@ describe("Settings screen structure", () => {
     expect(card.contains(byId("debuggerModeRow"))).toBe(true);
   });
 
-  test("every value row is a label over a select named by its label span", () => {
-    const rows = byId("settingsView").querySelectorAll<HTMLLabelElement>(".value-row");
-    expect(rows.length).toBe(7);
+  test("every picker value row is a label over a select named by its label span", () => {
+    const rows = byId("settingsView").querySelectorAll<HTMLLabelElement>("label.value-row");
+    expect(rows.length).toBe(6);
     rows.forEach((row) => {
       const select = row.querySelector(":scope > select")!;
       expect(row.htmlFor).toBe(select.id);
@@ -138,7 +147,7 @@ describe("Settings screen structure", () => {
   test("no row label or option text changed", () => {
     const text = (id: string) => byId(id).textContent.replace(/\s+/g, " ").trim();
     expect(text("accuracyLabel")).toBe("Location Accuracy");
-    expect(text("precisionLabel")).toBe("Location Precision");
+    expect(text("randomizeLabel")).toBe("Randomize location");
     expect(text("precisionCadenceLabel")).toBe("Pick a new point");
     expect(text("localeLabel")).toBe("Reported Language");
     expect(text("themeLabel")).toBe("Theme");

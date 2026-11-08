@@ -145,13 +145,13 @@ describe("accuracy control: Meters field, Set and validation (jsdom)", () => {
       expect(input().getAttribute("aria-invalid")).toBe("true");
       expect(input().getAttribute("aria-describedby")).toBe("accuracyCustomHint");
       expect(hint().getAttribute("role")).toBe("alert");
-      // The error outranks the precision hint: it's the one caption shown.
+      // The error is the one caption shown.
       expect(shownCaptions()).toEqual(["accuracyCustomHint"]);
-      // Typing clears it, and the standing caption comes back.
+      // Typing clears it. The Location card has no standing caption.
       type("5");
       expect(input().classList.contains("invalid")).toBe(false);
       expect(input().hasAttribute("aria-invalid")).toBe(false);
-      expect(shownCaptions()).toEqual(["precisionHint"]);
+      expect(shownCaptions()).toEqual([]);
     }
   );
 

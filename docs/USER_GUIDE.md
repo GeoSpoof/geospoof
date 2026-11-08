@@ -36,16 +36,22 @@ Prevents websites from detecting your real IP address through WebRTC, even when 
 
 Automatically adjusts your browser's timezone to match your spoofed location for consistency.
 
-### Location Precision
+<a id="location-precision"></a>
 
-In **Settings (the ⚙ gear in the popup header) → Location Precision**, choose how closely the reported point sits on your chosen location. **Exact** (the default) reports the location itself. **Street (~0.5 km)**, **Neighborhood (~2 km)**, and **City (~10 km)** report a random point inside that radius instead. The location you chose is never changed; only what sites see moves.
+### Randomize location
 
-**Pick a new point** appears under it when one of the approximate options is selected. It sets how often a new random point is drawn in the same radius:
+Sites can be given a random point near the location you chose instead of the location itself. In **Settings (the ⚙ gear in the popup header) → Randomize location**, the row shows what's set: **Off**, a distance such as **2 km**, or a distance and how often it changes, such as **2 km · Hourly**. Click it to open the **Randomize location** screen, which has two parts.
 
-- **Never** (default): the same point until you change the location or the precision.
+**Distance.** **Off (exact)** (the default) reports the location itself. **Within 0.5 km**, **Within 2 km**, and **Within 10 km** report a random point inside that radius instead. The point is drawn around the location you chose in GeoSpoof, never around your real location. The location you chose is never changed; only what sites see moves.
+
+**New point.** When Distance isn't Off, **Pick a new point** sets how often a new random point is drawn in the same radius:
+
+- **Never** (default): the same point until you change the location or the distance.
 - **Each browser session**: a new point each time a session starts.
 - **Every hour**: a new point about once an hour.
 - **Every day**: a new point about once a day.
+
+Earlier versions called this setting **Location Precision**, with the options **Exact**, **Street (~0.5 km)**, **Neighborhood (~2 km)**, and **City (~10 km)**. The settings carry over unchanged.
 
 **What a session is.** On Chrome, Edge, Brave, and Firefox, a session lasts until the browser restarts. Updating or reloading GeoSpoof, or disabling and re-enabling it in the browser's extension settings, also starts a new one. On Safari, a session is expected to last until Safari quits (on iPhone and iPad, until iOS closes Safari). This hasn't been verified yet.
 
@@ -55,7 +61,7 @@ In **Settings (the ⚙ gear in the popup header) → Location Precision**, choos
 
 **Timezone.** The timezone follows the location you chose, not the drawn point. Near a timezone border, the reported point can sit on the other side of the line.
 
-**Safari.** Approximate location and **Pick a new point** are part of GeoSpoof Pro on iPhone, iPad, and Mac. The GeoSpoof app shows **Pick a new point** next to Location Precision, and the setting stays in step between the app and Safari: a change in one shows up in the other the next time you use it. Without Pro, sites get **the exact location you chose** whatever **Pick a new point** is set to.
+**Safari.** A Distance other than Off, and **Pick a new point**, are part of GeoSpoof Pro on iPhone, iPad, and Mac. Without Pro, the **Randomize location** row shows **Off** with a 🔒 and doesn't open. The GeoSpoof app has the same settings, and they stay in step between the app and Safari: a change in one shows up in the other the next time you use it. Without Pro, sites get **the exact location you chose** whatever **Pick a new point** is set to.
 
 **Known limits.**
 

@@ -177,12 +177,12 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
       : DEFAULT_ACCURACY_M;
     restoreAccuracyControl(settings.accuracySetting, resolvedAccuracy, proLocked);
 
-    // Restore the location-precision dropdown from the stored setting.
+    // Restore Randomize location's Distance from the stored locationPrecision.
     // Approximate location is Pro-gated on iOS Safari (parity with custom
-    // accuracy); a non-Pro user sees it disabled and forced to Exact.
+    // accuracy); a non-Pro user sees the row locked on Off.
     restorePrecisionControl(settings.locationPrecision, proLocked);
-    // Restore "Pick a new point" after the precision select, since its
-    // visibility depends on it. Hidden and disabled behind the same Pro lock.
+    // Restore "Pick a new point" after Distance, since its visibility and the
+    // row's value depend on it. Hidden and disabled behind the same Pro lock.
     restorePrecisionCadenceControl(settings.precisionCadence, proLocked);
 
     // Restore the Reported Language control. Pro-gated on Safari like the two

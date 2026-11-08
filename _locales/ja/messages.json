@@ -753,29 +753,65 @@
     "message": "メートル",
     "description": "Visible label of the number field shown under Location Accuracy when Custom is selected; the field holds the accuracy in meters."
   },
-  "advanced_precision": {
-    "message": "位置情報の詳細度",
-    "description": "Label for the precision selector that controls whether the reported location is the exact point or an approximate point within a radius."
+  "randomize_title": {
+    "message": "位置をランダム化",
+    "description": "Settings row label, and the title of the screen it opens, for the feature that reports a random point near the chosen location instead of the location itself (replaces 'Location Precision'). Keep it short: it shares a 350px row with a value such as '2 km · Hourly'."
   },
-  "advanced_precision_exact": {
-    "message": "正確",
-    "description": "Precision option that reports the exact chosen coordinates (default)."
+  "randomize_headingDistance": {
+    "message": "距離",
+    "description": "Section heading on the Randomize location screen, above the list of distances (Off, Within 0.5 km, Within 2 km, Within 10 km)."
   },
-  "advanced_precision_street": {
-    "message": "通り（約0.5km）",
-    "description": "Precision option that reports an approximate point within about half a kilometer of the chosen location."
+  "randomize_headingNewPoint": {
+    "message": "新しい地点",
+    "description": "Section heading on the Randomize location screen, above the 'Pick a new point' picker. Use the same words for 'new point' as advanced_precisionCadence."
   },
-  "advanced_precision_neighborhood": {
-    "message": "周辺（約2km）",
-    "description": "Precision option that reports an approximate point within about two kilometers of the chosen location."
+  "randomize_distance_exact": {
+    "message": "オフ（正確）",
+    "description": "Distance option: no randomizing, sites get the exact chosen location (default). Use the same word for 'Off' as randomize_value_off."
   },
-  "advanced_precision_city": {
-    "message": "市（約10km）",
-    "description": "Precision option that reports an approximate point within about ten kilometers of the chosen location."
+  "randomize_distance_street": {
+    "message": "0.5 km以内",
+    "description": "Distance option: a random point within half a kilometer of the chosen location. Write the distance as randomize_value_street does."
   },
-  "advanced_precision_hint": {
-    "message": "通り、周辺、市では、現在地の近くのランダムな地点を報告します。",
-    "description": "Caption under the Location card explaining what the Street, Neighborhood and City options of Location Precision do. Name the three options with the same words as advanced_precision_street / _neighborhood / _city, without their distances."
+  "randomize_distance_neighborhood": {
+    "message": "2 km以内",
+    "description": "Distance option: a random point within two kilometers of the chosen location. Write the distance as randomize_value_neighborhood does."
+  },
+  "randomize_distance_city": {
+    "message": "10 km以内",
+    "description": "Distance option: a random point within ten kilometers of the chosen location. Write the distance as randomize_value_city does."
+  },
+  "randomize_value_off": {
+    "message": "オフ",
+    "description": "Value shown on the Settings row 'Randomize location' when Distance is Off. Short."
+  },
+  "randomize_value_street": {
+    "message": "0.5 km",
+    "description": "Value shown on the Settings row 'Randomize location' for Within 0.5 km: the distance alone, in local number format."
+  },
+  "randomize_value_neighborhood": {
+    "message": "2 km",
+    "description": "Value shown on the Settings row 'Randomize location' for Within 2 km: the distance alone."
+  },
+  "randomize_value_city": {
+    "message": "10 km",
+    "description": "Value shown on the Settings row 'Randomize location' for Within 10 km: the distance alone."
+  },
+  "randomize_value_session": {
+    "message": "セッションごと",
+    "description": "Short form of advanced_precisionCadence_session, shown after the distance on the Settings row ('2 km · Each session')."
+  },
+  "randomize_value_hour": {
+    "message": "1時間ごと",
+    "description": "Short form of advanced_precisionCadence_hour, shown after the distance on the Settings row ('2 km · Hourly')."
+  },
+  "randomize_value_day": {
+    "message": "1日ごと",
+    "description": "Short form of advanced_precisionCadence_day, shown after the distance on the Settings row ('2 km · Daily')."
+  },
+  "randomize_caption": {
+    "message": "サイトには、選んだ位置からこの距離内のランダムな地点が見えます。新しい地点は訪問をまたいで識別されにくくなりますが、サイトが平均を取るためのサンプルも増えます。",
+    "description": "Caption at the bottom of the Randomize location screen. The random point is around the location the user chose in GeoSpoof, never their real location. Second sentence: the trade-off of 'Pick a new point' (a changing point is harder to recognize across visits, but a site that collects several can average them)."
   },
   "advanced_precisionCadence": {
     "message": "新しい地点を選ぶ",

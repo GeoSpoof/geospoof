@@ -9,6 +9,7 @@
  */
 import { t } from "./i18n";
 import { fitNavBar, wireNavBarsOnce } from "./filters-nav";
+import { resetRandomizeScreen } from "./precision";
 
 /**
  * The popup's switchable views, mapped to the element that selects each one and
@@ -105,9 +106,11 @@ export function showPopupView(view: PopupView): void {
     document.getElementById("settingsTitle")?.focus();
   } else if (leaving) {
     const settingsView = document.getElementById("settingsView");
-    if (settingsView && document.activeElement && settingsView.contains(document.activeElement)) {
-      document.getElementById("settingsTab")?.focus();
-    }
+    const focusInside =
+      !!settingsView && !!document.activeElement && settingsView.contains(document.activeElement);
+    // Settings opens on its root next time, not on Randomize location.
+    resetRandomizeScreen();
+    if (focusInside) document.getElementById("settingsTab")?.focus();
   }
 
   current = view;

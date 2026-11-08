@@ -753,29 +753,65 @@
     "message": "Metros",
     "description": "Visible label of the number field shown under Location Accuracy when Custom is selected; the field holds the accuracy in meters."
   },
-  "advanced_precision": {
-    "message": "Exactitud de ubicación",
-    "description": "Label for the precision selector that controls whether the reported location is the exact point or an approximate point within a radius."
+  "randomize_title": {
+    "message": "Aleatorizar ubicación",
+    "description": "Settings row label, and the title of the screen it opens, for the feature that reports a random point near the chosen location instead of the location itself (replaces 'Location Precision'). Keep it short: it shares a 350px row with a value such as '2 km · Hourly'."
   },
-  "advanced_precision_exact": {
-    "message": "Exacta",
-    "description": "Precision option that reports the exact chosen coordinates (default)."
+  "randomize_headingDistance": {
+    "message": "Distancia",
+    "description": "Section heading on the Randomize location screen, above the list of distances (Off, Within 0.5 km, Within 2 km, Within 10 km)."
   },
-  "advanced_precision_street": {
-    "message": "Calle (~0,5 km)",
-    "description": "Precision option that reports an approximate point within about half a kilometer of the chosen location."
+  "randomize_headingNewPoint": {
+    "message": "Punto nuevo",
+    "description": "Section heading on the Randomize location screen, above the 'Pick a new point' picker. Use the same words for 'new point' as advanced_precisionCadence."
   },
-  "advanced_precision_neighborhood": {
-    "message": "Barrio (~2 km)",
-    "description": "Precision option that reports an approximate point within about two kilometers of the chosen location."
+  "randomize_distance_exact": {
+    "message": "Desactivado (exacta)",
+    "description": "Distance option: no randomizing, sites get the exact chosen location (default). Use the same word for 'Off' as randomize_value_off."
   },
-  "advanced_precision_city": {
-    "message": "Ciudad (~10 km)",
-    "description": "Precision option that reports an approximate point within about ten kilometers of the chosen location."
+  "randomize_distance_street": {
+    "message": "En un radio de 0,5 km",
+    "description": "Distance option: a random point within half a kilometer of the chosen location. Write the distance as randomize_value_street does."
   },
-  "advanced_precision_hint": {
-    "message": "Calle, Barrio y Ciudad informan de un punto aleatorio cerca de tu ubicación.",
-    "description": "Caption under the Location card explaining what the Street, Neighborhood and City options of Location Precision do. Name the three options with the same words as advanced_precision_street / _neighborhood / _city, without their distances."
+  "randomize_distance_neighborhood": {
+    "message": "En un radio de 2 km",
+    "description": "Distance option: a random point within two kilometers of the chosen location. Write the distance as randomize_value_neighborhood does."
+  },
+  "randomize_distance_city": {
+    "message": "En un radio de 10 km",
+    "description": "Distance option: a random point within ten kilometers of the chosen location. Write the distance as randomize_value_city does."
+  },
+  "randomize_value_off": {
+    "message": "Desactivado",
+    "description": "Value shown on the Settings row 'Randomize location' when Distance is Off. Short."
+  },
+  "randomize_value_street": {
+    "message": "0,5 km",
+    "description": "Value shown on the Settings row 'Randomize location' for Within 0.5 km: the distance alone, in local number format."
+  },
+  "randomize_value_neighborhood": {
+    "message": "2 km",
+    "description": "Value shown on the Settings row 'Randomize location' for Within 2 km: the distance alone."
+  },
+  "randomize_value_city": {
+    "message": "10 km",
+    "description": "Value shown on the Settings row 'Randomize location' for Within 10 km: the distance alone."
+  },
+  "randomize_value_session": {
+    "message": "Por sesión",
+    "description": "Short form of advanced_precisionCadence_session, shown after the distance on the Settings row ('2 km · Each session')."
+  },
+  "randomize_value_hour": {
+    "message": "Cada hora",
+    "description": "Short form of advanced_precisionCadence_hour, shown after the distance on the Settings row ('2 km · Hourly')."
+  },
+  "randomize_value_day": {
+    "message": "Cada día",
+    "description": "Short form of advanced_precisionCadence_day, shown after the distance on the Settings row ('2 km · Daily')."
+  },
+  "randomize_caption": {
+    "message": "Los sitios ven un punto aleatorio a esta distancia de la ubicación que elegiste. Los puntos nuevos son más difíciles de reconocer entre visitas, pero dan a los sitios más muestras para promediar.",
+    "description": "Caption at the bottom of the Randomize location screen. The random point is around the location the user chose in GeoSpoof, never their real location. Second sentence: the trade-off of 'Pick a new point' (a changing point is harder to recognize across visits, but a site that collects several can average them)."
   },
   "advanced_precisionCadence": {
     "message": "Elegir un punto nuevo",

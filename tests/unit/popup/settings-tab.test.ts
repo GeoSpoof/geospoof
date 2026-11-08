@@ -192,11 +192,15 @@ describe("every Advanced control survived the move into Settings", () => {
     "debugLoggingToggle",
     // Selects
     "accuracySelect",
-    "precisionSelect",
     "localeSelect",
     "themeSelect",
     "languageSelect",
     "verbosityLevel",
+    // Randomize location: its row, its screen, Distance and Pick a new point
+    "randomizeRow",
+    "randomizeScreen",
+    "randomizeDistanceCard",
+    "precisionCadenceSelect",
     // Reported Language sub-controls
     "localeCustomEdit",
     "localeCustomInput",
@@ -227,7 +231,14 @@ describe("every Advanced control survived the move into Settings", () => {
     expect(detailsStart).toBeGreaterThan(-1);
     // Details comes first, and the controls must land after the Settings marker.
     expect(detailsStart).toBeLessThan(settingsStart);
-    for (const id of ["localeSelect", "accuracySelect", "precisionSelect", "themeSelect"]) {
+    for (const id of [
+      "localeSelect",
+      "accuracySelect",
+      "randomizeRow",
+      "randomizeScreen",
+      "precisionCadenceSelect",
+      "themeSelect",
+    ]) {
       expect(html.indexOf(`id="${id}"`), id).toBeGreaterThan(settingsStart);
     }
   });
