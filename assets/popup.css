@@ -2727,6 +2727,23 @@ input[type="checkbox"]:checked + .toggle-slider:before {
   outline-offset: -2px;
 }
 
+/* The This site card's opening row: its highlight is a rounded inset, 4 px
+   inside the card, so hover, press and the focus ring never meet the card's
+   edges or corners. 4 px margin + 8 px padding keeps the text 12 px in, as
+   on a plain row. Plain rows (no hover) keep the plain row's box. */
+#thisSiteRow > .site-row[role="button"] {
+  margin: 4px;
+  padding: 8px;
+  border-radius: 6px;
+}
+#thisSiteRow > .site-row[role="button"]:active {
+  background: var(--surface-hover);
+}
+/* 4 px row margin + 8 px: 12 px between the highlight and the button. */
+#thisSiteRow:has(> .site-row[role="button"]) + .site-card-actions {
+  padding-top: 8px;
+}
+
 /* ───────────────────────────────────────────────────────────────────────────
    Per-site locations: the Main-tab line (only when one applies), the
    Per-site locations screen, the editor screen, and its search results. Optional and
