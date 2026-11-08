@@ -613,6 +613,31 @@ h3.section-heading {
   position: relative;
 }
 
+/* The location and Sync with VPN share one card. Each keeps its 12px
+   padding; an inset line (from the text's leading edge to the card's
+   trailing edge, as in iOS grouped lists) divides them. */
+.location-group {
+  background: var(--surface);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+.location-group > .current-location,
+.location-group > .vpn-sync-toggle {
+  background: none;
+  border-radius: 0;
+  margin-bottom: 0;
+}
+.location-group > .vpn-sync-toggle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
+
 /* Info tooltip */
 .label-with-info {
   display: flex;
