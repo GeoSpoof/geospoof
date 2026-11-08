@@ -1,18 +1,22 @@
 /**
- * Unit tests for the popup precision control: the pure mapping helpers, and
- * the "Pick a new point" cadence control, exercised in jsdom against the real
- * `#settingsSitesSee` markup from assets/popup.html.
+ * Unit tests for Randomize location: the pure mapping and summary helpers,
+ * and its Settings row, screen, Distance list and "Pick a new point" picker,
+ * exercised in jsdom against the real `#settingsView` markup from
+ * assets/popup.html.
  * Feature: location-precision (Task 8.3) and its cadence (GeoSpoof/geospoof#1).
  */
 
 import { describe, test, expect, beforeEach, type Mock } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  __resetPrecisionForTest,
   cadenceUiState,
   initPrecisionCadenceControl,
   initPrecisionControl,
   optionToLocationPrecision,
   locationPrecisionToOption,
+  randomizeSummary,
+  resetRandomizeScreen,
   restorePrecisionCadenceControl,
   restorePrecisionControl,
   type PrecisionOption,
@@ -74,6 +78,29 @@ describe("round-trip", () => {
   });
 });
 
+describe("randomizeSummary", () => {
+  test("Off for Exact, whatever the cadence", () => {
+    expect(randomizeSummary("exact", "never")).toBe("Off");
+    expect(randomizeSummary("exact", "hour")).toBe("Off");
+  });
+
+  test("the distance alone under Never", () => {
+    expect(randomizeSummary("street", "never")).toBe("0.5 km");
+    expect(randomizeSummary("neighborhood", "never")).toBe("2 km");
+    expect(randomizeSummary("city", "never")).toBe("10 km");
+  });
+
+  test("the distance and the cadence otherwise", () => {
+    expect(randomizeSummary("neighborhood", "hour")).toBe("2 km · Hourly");
+    expect(randomizeSummary("street", "session")).toBe("0.5 km · Each session");
+    expect(randomizeSummary("city", "day")).toBe("10 km · Daily");
+  });
+
+  test("Off under the Pro lock", () => {
+    expect(randomizeSummary("neighborhood", "hour", true)).toBe("Off");
+  });
+});
+
 describe("cadenceUiState", () => {
   test("row only for approximate outside the Pro lock", () => {
     expect(cadenceUiState("exact", false)).toEqual({ rowVisible: false });
@@ -85,109 +112,230 @@ describe("cadenceUiState", () => {
   });
 });
 
-/** The real WHAT SITES SEE group from the shipped popup. */
-const PRECISION_MARKUP = (() => {
+/** The real Settings view from the shipped popup. */
+const SETTINGS_MARKUP = (() => {
   const html = readFileSync("assets/popup.html", "utf8");
-  const section = new DOMParser()
-    .parseFromString(html, "text/html")
-    .querySelector("#settingsSitesSee");
-  if (!section) throw new Error("#settingsSitesSee not found in assets/popup.html");
-  return section.outerHTML;
+  const view = new DOMParser().parseFromString(html, "text/html").querySelector("#settingsView");
+  if (!view) throw new Error("#settingsView not found in assets/popup.html");
+  return view.outerHTML;
 })();
 
-describe("cadence control in the popup (AC23)", () => {
-  const byId = <T extends HTMLElement>(id: string): T => {
-    const el = document.getElementById(id);
-    if (!el) throw new Error(`#${id} missing`);
-    return el as T;
-  };
-  const row = () => byId<HTMLDivElement>("precisionCadenceRow");
-  const precision = () => byId<HTMLSelectElement>("precisionSelect");
-  const cadence = () => byId<HTMLSelectElement>("precisionCadenceSelect");
-  const sendMessage = (): Mock =>
-    (browser.runtime as unknown as Record<string, Mock>)["sendMessage"];
+const byId = <T extends HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`#${id} missing`);
+  return el as T;
+};
+const row = () => byId("randomizeRow");
+const screen = () => byId("randomizeScreen");
+const newPoint = () => byId("randomizeNewPointGroup");
+const cadence = () => byId<HTMLSelectElement>("precisionCadenceSelect");
+const radios = () =>
+  Array.from(document.querySelectorAll<HTMLInputElement>('input[name="randomizeDistance"]'));
+const radio = (value: string) => radios().find((r) => r.value === value)!;
+const checked = () => radios().find((r) => r.checked)?.value;
+const value = () => byId("randomizeValue").textContent;
+const sendMessage = (): Mock => (browser.runtime as unknown as Record<string, Mock>)["sendMessage"];
 
-  function choose(select: HTMLSelectElement, value: string): void {
-    select.value = value;
-    select.dispatchEvent(new Event("change"));
-  }
+function choose(select: HTMLSelectElement, v: string): void {
+  select.value = v;
+  select.dispatchEvent(new Event("change"));
+}
+function pick(v: string): void {
+  radio(v).click();
+}
+function key(target: HTMLElement, k: string): void {
+  target.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+}
+function restore(precision: LocationPrecision, cadenceValue: unknown, locked = false): void {
+  restorePrecisionControl(precision, locked);
+  restorePrecisionCadenceControl(cadenceValue, locked);
+}
 
-  beforeEach(() => {
-    document.body.innerHTML = PRECISION_MARKUP;
+beforeEach(() => {
+  document.body.innerHTML = SETTINGS_MARKUP;
+  byId("settingsView").style.display = "block";
+  __resetPrecisionForTest();
+  initPrecisionControl();
+  initPrecisionCadenceControl();
+});
+
+describe("the Randomize location screen's markup", () => {
+  test("Distance is a labelled radiogroup with the four options in order", () => {
+    const group = byId("randomizeDistanceCard");
+    expect(group.getAttribute("role")).toBe("radiogroup");
+    expect(group.getAttribute("aria-labelledby")).toBe("randomizeHeadingDistance");
+    expect(radios().map((r) => r.value)).toEqual(["exact", "street", "neighborhood", "city"]);
+    expect(
+      radios().map((r) => r.closest("label")!.textContent.replace(/\s+/g, " ").trim())
+    ).toEqual(["Off (exact)", "Within 0.5 km", "Within 2 km", "Within 10 km"]);
   });
 
-  test("a labelled native select with the options in order", () => {
+  test("New point holds the labelled Pick a new point picker, options unchanged", () => {
+    expect(newPoint().contains(cadence())).toBe(true);
     expect([...cadence().options].map((o) => o.value)).toEqual(["never", "session", "hour", "day"]);
+    expect([...cadence().options].map((o) => o.textContent.trim())).toEqual([
+      "Never",
+      "Each browser session",
+      "Every hour",
+      "Every day",
+    ]);
     const label = document.querySelector('label[for="precisionCadenceSelect"]');
-    expect(label).not.toBeNull();
     expect(label!.textContent).toContain("Pick a new point");
-    expect(cadence().closest("#settingsLocationCard")).not.toBeNull();
   });
 
-  test("Exact hides the row and keeps the stored cadence", () => {
-    restorePrecisionControl({ mode: "exact" });
-    restorePrecisionCadenceControl("hour");
+  test("one caption, after both sections; a nav bar back to Settings", () => {
+    const children = Array.from(screen().children);
+    expect(children.map((c) => c.id || c.className)).toEqual([
+      "nav-bar",
+      "randomizeDistanceGroup",
+      "randomizeNewPointGroup",
+      "randomizeCaption",
+    ]);
+    expect(screen().querySelectorAll(".settings-caption").length).toBe(1);
+    expect(byId("randomizeBack").textContent).toContain("Settings");
+    expect(byId("randomizeTitle").textContent.trim()).toBe("Randomize location");
+  });
 
-    expect(row().style.display).toBe("none");
+  test("the root row is a named button described by its value", () => {
+    expect(row().getAttribute("role")).toBe("button");
+    expect(row().tabIndex).toBe(0);
+    expect(row().getAttribute("aria-labelledby")).toBe("randomizeLabel");
+    expect(row().getAttribute("aria-describedby")).toBe("randomizeRowDesc");
+    expect(byId("randomizeLabel").textContent.trim()).toBe("Randomize location");
+  });
+});
+
+describe("restoring", () => {
+  test("Exact checks Off, hides New point, keeps the stored cadence; the row reads Off", () => {
+    restore({ mode: "exact" }, "hour");
+    expect(checked()).toBe("exact");
+    expect(newPoint().hidden).toBe(true);
     expect(cadence().value).toBe("hour");
+    expect(value()).toBe("Off");
   });
 
-  test("the Pro lock hides the row and disables the select", () => {
-    restorePrecisionControl({ mode: "approximate", radiusMeters: 2000 }, true);
-    restorePrecisionCadenceControl("hour", true);
-
-    expect(row().style.display).toBe("none");
-    expect(cadence().disabled).toBe(true);
+  test("an approximate setting checks its distance; the row sums up both", () => {
+    restore({ mode: "approximate", radiusMeters: 2000 }, "hour");
+    expect(checked()).toBe("neighborhood");
+    expect(newPoint().hidden).toBe(false);
+    expect(value()).toBe("2 km · Hourly");
+    expect(byId("randomizeRowDesc").textContent).toBe("2 km, Hourly");
   });
 
-  test("switching precision shows and hides the row synchronously", () => {
-    restorePrecisionControl({ mode: "exact" });
-    restorePrecisionCadenceControl("never");
-    initPrecisionControl();
-    initPrecisionCadenceControl();
-    expect(row().style.display).toBe("none");
+  test("an unknown stored cadence selects never", () => {
+    restore({ mode: "approximate", radiusMeters: 500 }, "page");
+    expect(cadence().value).toBe("never");
+    expect(value()).toBe("0.5 km");
+  });
+});
 
-    choose(precision(), "street");
-    expect(row().style.display).toBe("block");
-    expect(cadence().disabled).toBe(false);
-
-    choose(precision(), "exact");
-    expect(row().style.display).toBe("none");
+describe("the screen", () => {
+  test("a click on the row opens it, hides the Settings root and focuses the title", () => {
+    restore({ mode: "exact" }, "never");
+    row().click();
+    expect(screen().hidden).toBe(false);
+    expect(byId("advancedContent").hidden).toBe(true);
+    expect(byId("settingsNavBar").hidden).toBe(true);
+    expect(document.activeElement?.id).toBe("randomizeTitle");
   });
 
-  test("no cadence hint: the row carries only the labelled select", () => {
-    restorePrecisionControl({ mode: "approximate", radiusMeters: 2000 });
-    restorePrecisionCadenceControl("never");
-    initPrecisionControl();
-    initPrecisionCadenceControl();
-
-    expect(document.getElementById("precisionCadenceHint")).toBeNull();
-    expect(row().querySelector(".precision-hint")).toBeNull();
-
-    choose(cadence(), "hour");
-    expect(row().style.display).toBe("block");
-    expect(cadence().hasAttribute("aria-describedby")).toBe(false);
-
-    // The Location Precision hint above the row stays.
-    expect(document.getElementById("precisionHint")).not.toBeNull();
+  test.each(["Enter", " "])("%j on the row opens it", (k) => {
+    restore({ mode: "exact" }, "never");
+    row().focus();
+    key(row(), k);
+    expect(screen().hidden).toBe(false);
   });
 
-  test("a cadence change sends SET_PRECISION_CADENCE", () => {
-    restorePrecisionControl({ mode: "approximate", radiusMeters: 500 });
-    restorePrecisionCadenceControl("never");
-    initPrecisionCadenceControl();
+  test("Back returns to the root with focus on the row", () => {
+    restore({ mode: "exact" }, "never");
+    row().click();
+    byId("randomizeBack").click();
+    expect(screen().hidden).toBe(true);
+    expect(byId("advancedContent").hidden).toBe(false);
+    expect(byId("settingsNavBar").hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("randomizeRow");
+  });
 
+  test("Escape returns too", () => {
+    restore({ mode: "exact" }, "never");
+    row().click();
+    key(radio("exact"), "Escape");
+    expect(screen().hidden).toBe(true);
+    expect(document.activeElement?.id).toBe("randomizeRow");
+  });
+
+  test("resetRandomizeScreen shows the root without moving focus", () => {
+    restore({ mode: "exact" }, "never");
+    row().click();
+    resetRandomizeScreen();
+    expect(screen().hidden).toBe(true);
+    expect(byId("advancedContent").hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("randomizeTitle");
+  });
+});
+
+describe("choosing", () => {
+  test("each distance sends SET_PRECISION and updates New point and the row at once", () => {
+    restore({ mode: "exact" }, "never");
+    row().click();
+    const cases: Array<[string, LocationPrecision, string]> = [
+      ["street", { mode: "approximate", radiusMeters: 500 }, "0.5 km"],
+      ["neighborhood", { mode: "approximate", radiusMeters: 2000 }, "2 km"],
+      ["city", { mode: "approximate", radiusMeters: 10000 }, "10 km"],
+      ["exact", { mode: "exact" }, "Off"],
+    ];
+    for (const [option, precision, shown] of cases) {
+      sendMessage().mockClear();
+      pick(option);
+      expect(sendMessage()).toHaveBeenCalledWith({ type: "SET_PRECISION", payload: { precision } });
+      expect(newPoint().hidden).toBe(option === "exact");
+      expect(value()).toBe(shown);
+    }
+  });
+
+  test("a cadence change sends SET_PRECISION_CADENCE and updates the row", () => {
+    restore({ mode: "approximate", radiusMeters: 500 }, "never");
     choose(cadence(), "day");
-
     expect(sendMessage()).toHaveBeenCalledWith({
       type: "SET_PRECISION_CADENCE",
       payload: { cadence: "day" },
     });
+    expect(value()).toBe("0.5 km · Daily");
+    expect(cadence().hasAttribute("aria-describedby")).toBe(false);
+  });
+});
+
+describe("the Pro lock", () => {
+  test("the row is aria-disabled, reads Off, is described by the Pro note and doesn't open", () => {
+    restore({ mode: "approximate", radiusMeters: 2000 }, "hour", true);
+    expect(row().getAttribute("aria-disabled")).toBe("true");
+    expect(row().classList.contains("is-locked")).toBe(true);
+    expect(row().getAttribute("aria-describedby")).toBe("randomizeRowDesc settingsProNote");
+    expect(row().tabIndex).toBe(0);
+    expect(value()).toBe("Off");
+    expect(checked()).toBe("exact");
+    expect(newPoint().hidden).toBe(true);
+    expect(cadence().disabled).toBe(true);
+
+    row().click();
+    key(row(), "Enter");
+    expect(screen().hidden).toBe(true);
+    expect(sendMessage()).not.toHaveBeenCalled();
   });
 
-  test("an unknown stored cadence selects never", () => {
-    restorePrecisionControl({ mode: "approximate", radiusMeters: 500 });
-    restorePrecisionCadenceControl("page");
-    expect(cadence().value).toBe("never");
+  test("a lock that arrives while the screen is open closes it", () => {
+    restore({ mode: "approximate", radiusMeters: 2000 }, "hour");
+    row().click();
+    restore({ mode: "approximate", radiusMeters: 2000 }, "hour", true);
+    expect(screen().hidden).toBe(true);
+  });
+
+  test("unlocking restores the row", () => {
+    restore({ mode: "exact" }, "never", true);
+    restore({ mode: "approximate", radiusMeters: 10000 }, "session");
+    expect(row().hasAttribute("aria-disabled")).toBe(false);
+    expect(row().classList.contains("is-locked")).toBe(false);
+    expect(row().getAttribute("aria-describedby")).toBe("randomizeRowDesc");
+    expect(value()).toBe("10 km · Each session");
   });
 });

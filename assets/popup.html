@@ -1303,7 +1303,7 @@
         <!-- While Settings is open this nav bar replaces the tab bar. The back
              row names the tab Settings was opened from (views.ts writes the
              label, so it carries no data-i18n). -->
-        <div class="nav-bar">
+        <div class="nav-bar" id="settingsNavBar">
           <button type="button" class="back-row" id="settingsBack">
             <span aria-hidden="true">‹ </span><span id="settingsBackLabel">Main</span>
           </button>
@@ -1391,15 +1391,25 @@
                   >
                 </div>
               </div>
-              <label class="value-row" for="precisionSelect">
-                <span class="value-row-label" id="precisionLabel" data-i18n="advanced_precision"
-                  >Location Precision</span
+              <!-- Randomize location: opens its own screen (Distance and New
+                   point). The value sums up both; the description says it in
+                   words. Locked (iOS without Pro): aria-disabled, Off and 🔒. -->
+              <div
+                class="value-row"
+                id="randomizeRow"
+                role="button"
+                tabindex="0"
+                aria-labelledby="randomizeLabel"
+                aria-describedby="randomizeRowDesc"
+              >
+                <span class="value-row-label" id="randomizeLabel" data-i18n="randomize_title"
+                  >Randomize location</span
                 >
                 <span class="value-row-value" aria-hidden="true"
-                  ><span class="value-row-text"></span
+                  ><span class="value-row-text" id="randomizeValue">Off</span
                   ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
                     <path
-                      d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                      d="M2 2l5 5-5 5"
                       fill="none"
                       stroke="currentColor"
                       stroke-width="1.5"
@@ -1408,50 +1418,7 @@
                     /></svg
                   ><span class="row-lock">🔒</span></span
                 >
-                <select id="precisionSelect" aria-labelledby="precisionLabel">
-                  <option value="exact" data-i18n="advanced_precision_exact">Exact</option>
-                  <option value="street" data-i18n="advanced_precision_street">
-                    Street (~0.5 km)
-                  </option>
-                  <option value="neighborhood" data-i18n="advanced_precision_neighborhood">
-                    Neighborhood (~2 km)
-                  </option>
-                  <option value="city" data-i18n="advanced_precision_city">City (~10 km)</option>
-                </select>
-              </label>
-              <!-- How often Street, Neighborhood or City picks a new point. Shown
-                   only for those options; hidden (and disabled) behind the Pro lock. -->
-              <div class="dependent-row" id="precisionCadenceRow" style="display: none">
-                <label class="value-row" for="precisionCadenceSelect">
-                  <span
-                    class="value-row-label"
-                    id="precisionCadenceLabel"
-                    data-i18n="advanced_precisionCadence"
-                    >Pick a new point</span
-                  >
-                  <span class="value-row-value" aria-hidden="true"
-                    ><span class="value-row-text"></span
-                    ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
-                      <path
-                        d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      /></svg
-                  ></span>
-                  <select id="precisionCadenceSelect" aria-labelledby="precisionCadenceLabel">
-                    <option value="never" data-i18n="advanced_precisionCadence_never">Never</option>
-                    <option value="session" data-i18n="advanced_precisionCadence_session">
-                      Each browser session
-                    </option>
-                    <option value="hour" data-i18n="advanced_precisionCadence_hour">
-                      Every hour
-                    </option>
-                    <option value="day" data-i18n="advanced_precisionCadence_day">Every day</option>
-                  </select>
-                </label>
+                <span class="visually-hidden" id="randomizeRowDesc"></span>
               </div>
               <div class="toggle-section">
                 <label class="toggle-label" for="preserveGeoPromptToggle">
@@ -1496,14 +1463,6 @@
               >
                 When on, the browser asks before a site GeoSpoof is on for gets your spoofed
                 location.
-              </p>
-              <p
-                class="settings-caption"
-                id="precisionHint"
-                data-caption="standing"
-                data-i18n="advanced_precision_hint"
-              >
-                Street, Neighborhood and City report a random point near your location.
               </p>
             </div>
             <!-- Reported Language. Named to stay clearly distinct from the
@@ -1830,6 +1789,175 @@
                 >☕ Buy me a coffee</a
               ></span
             >
+          </p>
+        </div>
+        <!-- Randomize location: a screen inside Settings, opened from its row.
+             While it shows, the Settings nav bar and content are hidden
+             (precision.ts). -->
+        <div class="settings-subscreen" id="randomizeScreen" hidden>
+          <div class="nav-bar">
+            <button type="button" class="back-row" id="randomizeBack">
+              <span aria-hidden="true">‹ </span><span data-i18n="tab_settings">Settings</span>
+            </button>
+            <h2 class="view-title" id="randomizeTitle" tabindex="-1" data-i18n="randomize_title">
+              Randomize location
+            </h2>
+          </div>
+          <section
+            class="settings-group"
+            id="randomizeDistanceGroup"
+            aria-labelledby="randomizeHeadingDistance"
+          >
+            <h3
+              class="section-heading"
+              id="randomizeHeadingDistance"
+              data-i18n="randomize_headingDistance"
+            >
+              Distance
+            </h3>
+            <!-- A checkmark list: native radios, so arrow keys move the choice. -->
+            <div
+              class="toggle-group"
+              id="randomizeDistanceCard"
+              role="radiogroup"
+              aria-labelledby="randomizeHeadingDistance"
+            >
+              <label class="check-row">
+                <input type="radio" name="randomizeDistance" value="exact" />
+                <span class="check-row-label" data-i18n="randomize_distance_exact"
+                  >Off (exact)</span
+                >
+                <svg
+                  class="check-row-mark"
+                  viewBox="0 0 14 14"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    d="M2 7.5l3.5 3.5L12 3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </label>
+              <label class="check-row">
+                <input type="radio" name="randomizeDistance" value="street" />
+                <span class="check-row-label" data-i18n="randomize_distance_street"
+                  >Within 0.5 km</span
+                >
+                <svg
+                  class="check-row-mark"
+                  viewBox="0 0 14 14"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    d="M2 7.5l3.5 3.5L12 3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </label>
+              <label class="check-row">
+                <input type="radio" name="randomizeDistance" value="neighborhood" />
+                <span class="check-row-label" data-i18n="randomize_distance_neighborhood"
+                  >Within 2 km</span
+                >
+                <svg
+                  class="check-row-mark"
+                  viewBox="0 0 14 14"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    d="M2 7.5l3.5 3.5L12 3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </label>
+              <label class="check-row">
+                <input type="radio" name="randomizeDistance" value="city" />
+                <span class="check-row-label" data-i18n="randomize_distance_city"
+                  >Within 10 km</span
+                >
+                <svg
+                  class="check-row-mark"
+                  viewBox="0 0 14 14"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path
+                    d="M2 7.5l3.5 3.5L12 3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </label>
+            </div>
+          </section>
+          <!-- How often a new point is picked. Shown only when Distance isn't Off. -->
+          <section
+            class="settings-group"
+            id="randomizeNewPointGroup"
+            aria-labelledby="randomizeHeadingNewPoint"
+            hidden
+          >
+            <h3
+              class="section-heading"
+              id="randomizeHeadingNewPoint"
+              data-i18n="randomize_headingNewPoint"
+            >
+              New point
+            </h3>
+            <div class="toggle-group" id="randomizeNewPointCard">
+              <label class="value-row" for="precisionCadenceSelect">
+                <span
+                  class="value-row-label"
+                  id="precisionCadenceLabel"
+                  data-i18n="advanced_precisionCadence"
+                  >Pick a new point</span
+                >
+                <span class="value-row-value" aria-hidden="true"
+                  ><span class="value-row-text"></span
+                  ><svg class="value-row-chevron" viewBox="0 0 9 14" focusable="false">
+                    <path
+                      d="M1.5 5l3-3 3 3M1.5 9l3 3 3-3"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    /></svg
+                ></span>
+                <select id="precisionCadenceSelect" aria-labelledby="precisionCadenceLabel">
+                  <option value="never" data-i18n="advanced_precisionCadence_never">Never</option>
+                  <option value="session" data-i18n="advanced_precisionCadence_session">
+                    Each browser session
+                  </option>
+                  <option value="hour" data-i18n="advanced_precisionCadence_hour">
+                    Every hour
+                  </option>
+                  <option value="day" data-i18n="advanced_precisionCadence_day">Every day</option>
+                </select>
+              </label>
+            </div>
+          </section>
+          <p class="settings-caption" id="randomizeCaption" data-i18n="randomize_caption">
+            Sites see a random point within this distance of the location you chose. New points are
+            harder to recognize across visits, but give sites more samples to average.
           </p>
         </div>
       </div>

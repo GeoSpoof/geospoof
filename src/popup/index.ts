@@ -573,8 +573,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // loadSettings() from the stored accuracySetting.
   initAccuracyControl();
 
-  // Wire the location-precision control (Advanced accordion). State is restored
-  // later in loadSettings() from the stored locationPrecision.
+  // Wire Randomize location (its Settings row, its screen and Distance). State
+  // is restored later in loadSettings() from the stored locationPrecision.
   initPrecisionControl();
   // And the "Pick a new point" cadence control under it (restored from the
   // stored precisionCadence).

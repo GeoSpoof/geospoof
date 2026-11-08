@@ -1533,7 +1533,7 @@ h3.section-heading {
   line-height: 1;
 }
 
-/* A dependent row (Pick a new point, Meters, Language tag, Verbosity Level):
+/* A dependent row (Meters, Language tag, Verbosity Level):
    indented 12 px under the row it belongs to, and its separator starts at its
    own text's leading edge. */
 .dependent-row > .value-row,
@@ -1542,6 +1542,75 @@ h3.section-heading {
 }
 .toggle-group > .dependent-row::before {
   left: 24px;
+}
+
+/* A value row that opens a screen (Randomize location): a role="button" div
+   with a › in place of the up-down chevron. */
+.value-row[role="button"]:focus {
+  outline: none;
+}
+.value-row[role="button"]:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* A checkmark list row (Randomize location → Distance): the label, then a ✓
+   on the chosen one. A native radio, invisible, carries the state and the
+   arrow keys. --brand-hover passes 3:1 on --surface in both themes. */
+.check-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  column-gap: 12px;
+  min-height: 44px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text);
+  cursor: pointer;
+}
+.check-row > input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
+}
+.check-row-label {
+  min-width: 0;
+}
+.check-row-mark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--brand-hover);
+  visibility: hidden;
+}
+.check-row:has(> input:checked) .check-row-mark {
+  visibility: visible;
+}
+.check-row:has(> input:focus-visible) {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+
+/* The Randomize location screen: its two groups, then its one caption. */
+#randomizeScreen .settings-group {
+  margin-bottom: 0;
+}
+#randomizeScreen .settings-group + .settings-group {
+  margin-top: 16px;
+}
+#randomizeScreen .settings-caption {
+  margin-bottom: 8px;
+}
+/* Long cadence names ("Cada sesión del navegador") wrap rather than clip. */
+#randomizeNewPointCard .value-row-text {
+  white-space: normal;
 }
 
 /* A row with an inline field: numeric meters, or a language tag. */

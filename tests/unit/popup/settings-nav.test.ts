@@ -12,6 +12,7 @@ import {
   showPopupView,
   wireSettingsNav,
 } from "@/popup/views";
+import { initPrecisionControl } from "@/popup/precision";
 
 const BODY = new DOMParser().parseFromString(readFileSync("assets/popup.html", "utf8"), "text/html")
   .body.innerHTML;
@@ -97,5 +98,19 @@ describe("Settings nav bar", () => {
     outside.focus();
     showPopupView("main");
     expect(document.activeElement).toBe(outside);
+  });
+
+  test("the gear on the Randomize location screen leaves Settings, which reopens on its root", () => {
+    initPrecisionControl();
+    byId("settingsTab").click();
+    byId("randomizeRow").click();
+    expect(byId("randomizeScreen").hidden).toBe(false);
+    byId("settingsTab").click();
+    expect(shownView()).toEqual(["mainView"]);
+    expect(document.activeElement).toBe(byId("settingsTab"));
+    byId("settingsTab").click();
+    expect(byId("randomizeScreen").hidden).toBe(true);
+    expect(byId("advancedContent").hidden).toBe(false);
+    expect(byId("settingsNavBar").hidden).toBe(false);
   });
 });

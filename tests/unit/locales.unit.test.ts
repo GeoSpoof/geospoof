@@ -375,7 +375,6 @@ describe("Settings screen keys are present in every locale", () => {
     "settings_headingGeneral",
     "settings_proNote",
     "advanced_accuracy_meters",
-    "advanced_precision_hint",
     "advanced_locale_hint",
     "preserveGeoPrompt_tooltip",
     "earlyTz_tooltip",
@@ -387,6 +386,13 @@ describe("Settings screen keys are present in every locale", () => {
     "advanced_accuracy_customEdit",
     "advanced_locale_customEdit",
     "advanced_accuracy_customMeters",
+    // Location Precision became Randomize location.
+    "advanced_precision",
+    "advanced_precision_exact",
+    "advanced_precision_street",
+    "advanced_precision_neighborhood",
+    "advanced_precision_city",
+    "advanced_precision_hint",
   ];
   /** The text after the last sentence break that isn't at the very end. */
   const lastSentence = (text: string): string => {
@@ -414,6 +420,46 @@ describe("Settings screen keys are present in every locale", () => {
     });
     test("the Advanced heading is the established Advanced word", () => {
       expect(file.settings_headingAdvanced.message).toBe(file.advanced_button.message);
+    });
+  });
+});
+
+describe("Randomize location keys are present in every locale", () => {
+  const KEYS = [
+    "randomize_title",
+    "randomize_headingDistance",
+    "randomize_headingNewPoint",
+    "randomize_distance_exact",
+    "randomize_distance_street",
+    "randomize_distance_neighborhood",
+    "randomize_distance_city",
+    "randomize_value_off",
+    "randomize_value_street",
+    "randomize_value_neighborhood",
+    "randomize_value_city",
+    "randomize_value_session",
+    "randomize_value_hour",
+    "randomize_value_day",
+    "randomize_caption",
+  ];
+
+  describe.each(listLocales())("%s", (locale) => {
+    const file = loadLocale(locale);
+    test.each(KEYS)("has a non-empty %s", (key) => {
+      expect(typeof file[key]?.message).toBe("string");
+      expect(file[key].message.trim().length).toBeGreaterThan(0);
+    });
+    test("each Distance option names the distance the row shows", () => {
+      for (const option of ["street", "neighborhood", "city"]) {
+        expect(file[`randomize_distance_${option}`].message).toContain(
+          file[`randomize_value_${option}`].message
+        );
+      }
+    });
+    test("Off (exact) starts with the row's Off", () => {
+      expect(
+        file.randomize_distance_exact.message.startsWith(file.randomize_value_off.message)
+      ).toBe(true);
     });
   });
 });
