@@ -736,7 +736,7 @@ export async function handleSetScopeMode(payload: SetScopeModePayload): Promise<
 /**
  * True when `canonical` is an entry form this engine may create: typed
  * patterns always; exact, site group and list-link entries only where site
- * groups are available (not Safari, until geospoof-ios supports them).
+ * groups are available (`siteGroupsAvailable()`).
  */
 function isCreatableEntry(canonical: string): boolean {
   return siteGroupsAvailable() || classifyFilterEntry(canonical)?.type === "pattern";

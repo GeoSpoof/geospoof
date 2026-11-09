@@ -146,7 +146,7 @@ A site group is a ready-made list of the domains one service or category uses, s
 
 **Updates.** GeoSpoof ships with a copy of the lists. While you use at least one group or list from a link, it checks for newer lists about once a week, and **Update now** under the list checks right away. The status line shows the date of the lists in use. If an update fails, the status line says so, and the lists already on your device stay in use. If a newer release drops a group you use or leaves it empty, GeoSpoof keeps using that group's last good copy; the row doesn't point this out.
 
-**"Not available".** If a group's data is missing, the row shows **Not available** and the group matches no site. After browser storage was cleared, GeoSpoof rebuilds the data on its own at the next startup or update. On a browser where site groups aren't supported yet (Safari, for now), the entry stays **Not available** and matches no site until they are. While it matches nothing, an allowlist doesn't spoof that group's sites, and a denylist does spoof them. Your entry is never deleted.
+**"Not available".** If a group's data is missing, the row shows **Not available** and the group matches no site. After browser storage was cleared, GeoSpoof rebuilds the data on its own at the next startup or update. A list from a link that couldn't be downloaded, or that doesn't fit in the space left for site groups, also shows **Not available** until a later update stores it. While it matches nothing, an allowlist doesn't spoof that group's sites, and a denylist does spoof them. Your entry is never deleted.
 
 ## Lists from a link
 
@@ -217,14 +217,15 @@ Your filter lists **never leave your device**. GeoSpoof evaluates them entirely 
 Site groups add network requests, so here is exactly what they send:
 
 - **Site group updates** go to `cdn.geospoof.com`, the developer's own CDN, about once a week and only while you use at least one group or list from a link (or press **Update now**). GeoSpoof downloads a small pointer file and, when there's a newer release, the **whole** catalog of every group. No request names a group, so nobody can tell from them which groups you picked. Like any request, it carries your IP address. No request is made if you use no groups.
-- **Lists from a link** are downloaded from the link's own host, without cookies, when you add one and then weekly. That host sees your IP address.
+- **Lists from a link** are downloaded from the link's own host, without cookies, when you add one and then weekly. That host sees your IP address. The GeoSpoof app for iPhone, iPad, and Mac downloads the list too, the same way: when you add it there, when a Sites screen shows it and the app's copy is a week old, and when you pull to refresh or tap **Update Now**.
+- **The GeoSpoof app makes no request for site groups.** It reads them from the copy it ships with.
 - **Matching happens on your device.** No request ever names the site you're visiting.
 
 ## Availability
 
 Site Filters work on Firefox, Chrome, and Safari and require no extra permissions. On iOS/macOS, per-site filtering is a **GeoSpoof Pro** feature — without Pro, spoofing applies everywhere (**All sites**). The core one-click spoofing path is always free.
 
-Exact addresses, site groups and lists from a link are free on Firefox and Chrome. They're **not in Safari yet**: the suggestions there offer only **Site and its subdomains** and **Subdomains only** until the GeoSpoof app supports the new entries. When they arrive in Safari, they'll be part of GeoSpoof Pro, like the rest of Site Filters there.
+Exact addresses, site groups and lists from a link are free on Firefox and Chrome. On Safari for iPhone, iPad, and Mac, and in the GeoSpoof app, they're part of GeoSpoof Pro, like the rest of Site Filters there. The app offers the same forms in its Filters and Per-site locations screens, keeps its own copy of each list from a link, and downloads it itself (see [Lists from a link](#lists-from-a-link)).
 
 ## Examples
 

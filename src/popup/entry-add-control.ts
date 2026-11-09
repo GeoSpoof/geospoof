@@ -24,7 +24,7 @@
  *   - A list from a link shows "Downloading list…" and disables the control
  *     while the add runs.
  *
- * Where site groups are unavailable (Safari, until the app supports them)
+ * Where site groups are unavailable (`siteGroupsAvailable()` false)
  * nothing is auto-detected and only the two typed readings are suggested, so
  * only typed patterns can be added.
  *

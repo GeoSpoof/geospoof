@@ -38,7 +38,12 @@ import {
   reschedulePrecisionRollover,
 } from "./precision-cadence";
 import { installDebuggerWatchers, syncDebuggerSpoofing, claimTab } from "./debugger-spoof";
-import { SITE_GROUPS_REFRESH_ALARM, onSiteGroupsStartup, refreshSiteGroups } from "./site-groups";
+import {
+  SITE_GROUPS_REFRESH_ALARM,
+  onSafariBackgroundSpawn,
+  onSiteGroupsStartup,
+  refreshSiteGroups,
+} from "./site-groups";
 import {
   installWorkerRequestFilter,
   updateWorkerFilterSettings,
@@ -585,7 +590,11 @@ browser.runtime.onStartup.addListener(() => {
 // adoptPendingSettingsFromApp() dedups by timestamp, so repeated calls no-op
 // once a change has been applied.
 if (__SAFARI__) {
-  void adoptPendingSettingsFromApp();
+  // After adoption, so the site group check sees the app's latest lists.
+  // `.then(spawn, spawn)`, not `.finally`: adoption can reject, and `.finally`
+  // would pass that on as an unhandled rejection (it's logged where it happens).
+  const spawn = () => void onSafariBackgroundSpawn();
+  void adoptPendingSettingsFromApp().then(spawn, spawn);
 
   // NOTE: the VPN resync watchers are armed unconditionally at the top level
   // via installResyncWatchers() above, so they're alive on Safari too (where

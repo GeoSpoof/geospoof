@@ -32,7 +32,8 @@ export default defineConfig({
       },
     },
     include: ["tests/**/*.test.ts", "tests/**/*.test.js"],
-    exclude: ["node_modules", "dist"],
+    // tests/safari runs only under vitest.safari.config.ts (`npm run test:safari`).
+    exclude: ["node_modules", "dist", "tests/safari/**"],
   },
   resolve: {
     alias: {

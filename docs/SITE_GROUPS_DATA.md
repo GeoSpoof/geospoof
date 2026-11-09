@@ -151,8 +151,40 @@ refuse it. See [cdk/README.md](../cdk/README.md#site-groups-catalog-publishing).
   Then the background re-broadcasts to tabs, updates the badge and re-syncs
   Engine-level Spoofing. An add that builds data for a token another entry
   already references uses the same window.
-- **Safari.** `siteGroupsAvailable()` is false there, so none of this runs: no
-  alarm and no request.
+- **Space, on every browser.** The kept data stays within 5,000,000 characters
+  (`MAX_SITE_GROUP_CHARS`, the sum of every kept token's `d.length + f.length`).
+  An add that doesn't fit is refused with `STORAGE_FULL`. A refresh or repair
+  goes through `reconcileSiteGroupData`, which applies the same cap in three
+  steps: kept tokens that had data reserve their old size first, and a rebuilt
+  value replaces the old one only if it still fits (otherwise the old copy
+  stays, and data already past the cap is never deleted); kept tokens without
+  data are admitted in order while they fit, and the rest get no data and are
+  listed in `storage.local.siteGroupFull`; a token in `siteGroupFull` that this
+  pass didn't download stays there. A failed download takes a token out of
+  `siteGroupFull` with no data. Before refreshes applied the cap (it came with
+  the Safari flip), Firefox and Chrome stored a refreshed list past it; they now
+  keep the old copy. The popup shows a token without data as "Not available".
+- **`siteGroupFull`** is an array of tokens under its own key, because the refresh
+  overwrites `siteGroupStatus` whole. Every reconcile writes it when it changed
+  and removes it when empty, and a prune drops tokens that are no longer kept.
+  The startup and adoption repair doesn't download a link listed there (it
+  would be refused again, and each attempt can fetch 10 MB); only the weekly
+  refresh and "Update now" retry it.
+- **Safari.** `siteGroupsAvailable()` is true there too, so Safari works on its
+  own, exactly as Firefox and Chrome do: adds download and build their data,
+  the alarm refreshes it, and the bridge carries only settings. Because
+  `runtime.onStartup` is unreliable on iOS Safari and doesn't fire on a
+  respawn, the background's top-level Safari block calls
+  `onSafariBackgroundSpawn()` once the app's settings are adopted. When some
+  token is referenced, it creates the refresh alarm, and runs one refresh per
+  background lifetime when the last check is unknown or at least 7 days old
+  (`safariRefreshDue`).
+- **The GeoSpoof app** reads site groups from the `catalog.json` in its embedded
+  Safari extension and makes no request for them. It downloads lists from a link
+  itself, with the same limits (https only, no credentials, 30 s, 10 MB, 250,000
+  entries), keeps its own copies, and applies the same space rule to them
+  (`SiteGroupAdmission` in `geospoof-ios`). It offers the new forms only while
+  its embedded extension contains `site-groups/safari-forms.json`.
 
 ## Failure Modes
 
@@ -222,7 +254,8 @@ cmp /tmp/catalog.json assets/site-groups/catalog.json
 | `src/shared/site-groups/tokens.ts`          | `geosite:` and `list:` token grammar, link display names        |
 | `src/shared/site-groups/matcher.ts`         | Framed `d`/`f` strings and the host check                       |
 | `src/shared/site-groups/list-formats.ts`    | Parser for lists from a link                                    |
-| `src/shared/site-groups/availability.ts`    | The Safari gate                                                 |
+| `src/shared/site-groups/availability.ts`    | The gate that may hide the new entry forms (true everywhere)    |
+| `assets/site-groups/safari-forms.json`      | The app's marker: ships exactly while Safari offers the forms   |
 | `src/background/site-groups.ts`             | Bundled and CDN catalogs, refresh, links, handlers              |
 | `src/background/site-groups-store.ts`       | Stored token data and the in-memory lookup                      |
 | `tests/fixtures/site-group-vectors.json`    | Cross-language cases for the grammar, matcher and precedence    |

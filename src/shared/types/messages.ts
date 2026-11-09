@@ -474,7 +474,7 @@ export interface SiteGroupsStatus {
   updating: boolean;
 }
 
-/** GET_SITE_GROUPS response. `available` is false where site groups are hidden (Safari). */
+/** GET_SITE_GROUPS response. `available` is `siteGroupsAvailable()`. */
 export interface SiteGroupsResponse {
   available: boolean;
   status: SiteGroupsStatus;
