@@ -2,19 +2,24 @@
  * Whether this build may CREATE exact (`=host`), site group (`geosite:`) and
  * list-from-a-link (`list:`) entries.
  *
- * False on Safari until geospoof-ios parses and round-trips those forms: an
- * older Swift parser drops entries it doesn't recognize, so letting the popup
- * add them would let the app wipe them on the next sync. Stored or bridged
- * tokens still validate and round-trip unchanged, so the gate is never
- * destructive; it only hides the kinds in the popup, rejects them in the add
- * and save handlers, and keeps the refresh alarm and its network requests off.
+ * True on every browser. Safari offers the forms too, gated by
+ * `proFeaturesBlocked` like the rest of Filters, because the GeoSpoof app
+ * parses, round-trips, displays and matches them since geospoof-ios PR 1
+ * (#37): it no longer drops entries it doesn't recognize, so a token added in
+ * Safari's popup survives the app's next sync.
  *
- * Flip to `return true` in this repo only after geospoof-ios `main` supports
- * the forms: app builds take the tip of this repo's `main`, with nothing
- * pinning it.
+ * `assets/site-groups/safari-forms.json` must ship exactly while this is true
+ * on Safari: the app offers the new forms, and downloads lists from links,
+ * only when its embedded extension contains that file. Turning this off for
+ * Safari again means deleting the file in the same change.
+ *
+ * Where it's false, stored or bridged tokens still validate and round-trip
+ * unchanged, so the gate is never destructive; it only hides the kinds in the
+ * popup, rejects them in the add and save handlers, and keeps the refresh
+ * alarm and its network requests off.
  *
  * A function in its own module so tests can `vi.mock` it.
  */
 export function siteGroupsAvailable(): boolean {
-  return !__SAFARI__;
+  return true;
 }

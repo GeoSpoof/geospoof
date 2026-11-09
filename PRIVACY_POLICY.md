@@ -159,9 +159,10 @@ GeoSpoof can set your spoofed location to match your VPN.
 
 ### 4. Site groups and lists from a link (optional — only when you add one)
 
-_Extension only (Firefox and Chrome)._ These requests happen only while one of
-your Site Filters or per-site locations uses a site group or a list from a link,
-or when you press **Update now**. If you use neither, none of them is made.
+_The extension (Firefox, Chrome and Safari) and the companion app (iOS, iPadOS,
+macOS)._ These requests happen only while one of your Site Filters or per-site
+locations uses a site group or a list from a link, or when you press **Update
+now**. If you use neither, none of them is made.
 
 **Site-group updates, from `cdn.geospoof.com`:** about once a week the extension
 downloads a small pointer file and, when there's a newer release, the **whole**
@@ -173,11 +174,17 @@ uses these requests for nothing but delivering the file, and stores no personal
 data from them; Amazon, as the infrastructure operator, processes each request
 transiently and may keep its own operational logs.
 
+The companion app makes no request for site groups: it reads them from the copy
+it ships with.
+
 **Lists from a link, from the host you entered:** when you add a list from a link,
 and then about once a week, the extension downloads that file directly from the
-host in the link, without cookies. That host, which you chose, receives your IP
-address and the request for that file under its own privacy policy. The developer
-receives none of this.
+host in the link, without cookies. The companion app downloads it the same way,
+without cookies or credentials: when you add it in the app, when a Sites screen
+shows it and the app's copy is a week old, or when you pull to refresh or tap
+**Update Now**. That host, which you chose, receives your IP address and the
+request for that file under its own privacy policy. The developer receives none
+of this.
 
 Matching against these lists happens entirely on your device; your lists and the
 sites you visit are never sent anywhere.

@@ -103,7 +103,7 @@ export async function loadSettings(preloaded?: Settings): Promise<void> {
     // those controls and explains they're Pro. The background already forces
     // the safe behavior (scope "all", auto accuracy); this is UI clarity only.
     // `__SAFARI__` compiles it out on Chrome/Firefox, and proFeaturesBlocked is
-    // only ever true for a non-Pro iOS user (macOS sends false).
+    // `!isPro` from the app on both iOS and macOS.
     const proLocked = __SAFARI__ && settings.proFeaturesBlocked === true;
 
     // Site group rows, the status line and the resolver calls below read the

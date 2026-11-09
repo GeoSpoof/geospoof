@@ -20,7 +20,8 @@
     "",
     "Consumed by:",
     "  - tests/unit/shared/site-group-vectors.test.ts (TypeScript, runs under `npm test`)",
-    "  - a future geospoof-ios Swift parity test (not yet written)"
+    "  - geospoof-ios:app/GeoSpoofTests/SiteGroupVectorsParityTests.swift (Swift; runs the entries,",
+    "    siteLocationEntries, lookup and listFormats sections)"
   ],
   "entries": {
     "valid": [

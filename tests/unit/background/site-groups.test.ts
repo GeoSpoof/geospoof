@@ -19,6 +19,7 @@ import {
   SITE_GROUPS_REFRESH_ALARM,
   SITE_GROUPS_REFRESH_PERIOD_MINUTES,
   SITE_GROUP_CATALOG_KEY,
+  SITE_GROUP_FULL_KEY,
   SITE_GROUP_STATUS_KEY,
   __resetSiteGroupsForTest,
   currentCatalog,
@@ -30,6 +31,7 @@ import {
   pruneSiteGroupDataSoon,
   refreshSiteGroups,
   repairSiteGroupDataSoon,
+  safariRefreshDue,
   siteGroupRefreshDelayMinutes,
   withSiteGroupData,
 } from "@/background/site-groups";
@@ -37,6 +39,7 @@ import {
   SITE_GROUP_DATA_KEY,
   __resetSiteGroupStoreForTest,
   currentSiteGroups,
+  type StoredSiteGroup,
 } from "@/background/site-groups-store";
 import {
   BUNDLED_URL,
@@ -51,6 +54,7 @@ import {
   storedGroup,
   storedGroups,
   type LocalStore,
+  type Route,
 } from "../../helpers/site-groups";
 import { flush, installUserScriptsMock, until, type UserScriptsMock } from "../../helpers/cadence";
 import { TOKYO, TOKYO_NAME, TOKYO_TZ } from "../../helpers/site-locations";
@@ -632,6 +636,198 @@ describe("startup and repair", () => {
   });
 });
 
+describe("the space cap in reconcile (every browser)", () => {
+  // The same cases and numbers as geospoof-ios SiteGroupAdmissionTests, so the
+  // app and Safari decide space the same way.
+  const A = "list:https://a.example/a.txt";
+  const B = "list:https://b.example/b.txt";
+  const D = "list:https://d.example/d.txt";
+  const N = "list:https://n.example/n.txt";
+  const url = (token: string) => token.slice("list:".length);
+
+  /** Stored link data of exactly `size` characters (`d.length + f.length`). */
+  function copyOfSize(size: number, overrides: Partial<StoredSiteGroup> = {}): StoredSiteGroup {
+    return {
+      ...storedGroup([], { source: "link", lastError: null, fetchedAt: 1 }),
+      d: `\n${"a".repeat(size - 3)}\n`,
+      n: 1,
+      ...overrides,
+    };
+  }
+
+  /** A list body whose parsed data is exactly `size` characters (`size` ≥ 60). */
+  function listOfSize(size: number): string {
+    // Each `<20-char label>.example` entry adds 29 characters; the framing adds 2.
+    const count = Math.floor((size - 2) / 29) - 1;
+    const domains: string[] = [];
+    for (let i = 0; i < count; i++) domains.push(`${String(i).padStart(20, "d")}.example`);
+    const last = size - 2 - count * 29 - 1; // 28..56 characters
+    domains.push(`${"z".repeat(last - 8)}.example`);
+    return domains.join("\n");
+  }
+
+  function serve(sizes: Record<string, number | "fail">): Record<string, Route> {
+    const routes: Record<string, Route> = {};
+    for (const [token, size] of Object.entries(sizes)) {
+      routes[url(token)] = (u) =>
+        size === "fail" ? responseAt(u, "", { status: 500 }) : responseAt(u, listOfSize(size));
+    }
+    return routes;
+  }
+
+  function size(token: string): number | undefined {
+    const group = storedGroups(store)[token];
+    return group === undefined ? undefined : group.d.length + group.f.length;
+  }
+
+  function seed(groups: Record<string, StoredSiteGroup>, full?: string[]): void {
+    store.data[SITE_GROUP_DATA_KEY] = { v: 1, groups };
+    if (full !== undefined) store.data[SITE_GROUP_FULL_KEY] = full;
+  }
+
+  test("the test lists have the sizes they claim", async () => {
+    routeFetch(serve({ [A]: 60 }));
+    const result = await fetchLinkList(url(A));
+    expect(result.ok && result.data.d.length + result.data.f.length).toBe(60);
+  });
+
+  test("existing data is kept", async () => {
+    storeSettings({ allowlist: [A] });
+    seed({ [A]: copyOfSize(100) });
+    const fetchMock = routeFetch();
+    await repairSiteGroupDataSoon();
+    expect(size(A)).toBe(100);
+    expect(store.data[SITE_GROUP_FULL_KEY]).toBeUndefined();
+    expect(fetchedUrls(fetchMock).filter((u) => u !== BUNDLED_URL)).toEqual([]);
+  });
+
+  test("a new link that doesn't fit gets no data and is listed in siteGroupFull", async () => {
+    storeSettings({ allowlist: [A, B] });
+    seed({ [A]: copyOfSize(4_500_000) });
+    routeFetch(serve({ [B]: 600_000 }));
+    await repairSiteGroupDataSoon();
+    expect(size(A)).toBe(4_500_000);
+    expect(size(B)).toBeUndefined();
+    expect(store.data[SITE_GROUP_FULL_KEY]).toEqual([B]);
+  });
+
+  test("siteGroupFull is cleared once the link fits again, and runRefresh's status write leaves it alone", async () => {
+    storeSettings({ allowlist: [A, B] });
+    seed({ [A]: copyOfSize(4_500_000) }, [B]);
+    routeFetch({ ...(await cdnRoutes(CATALOG_A)), ...serve({ [A]: "fail", [B]: 600_000 }) });
+    await refreshSiteGroups({ manual: false });
+    // Still too big: the status write didn't wipe the list.
+    expect(store.data[SITE_GROUP_FULL_KEY]).toEqual([B]);
+    expect(store.data[SITE_GROUP_STATUS_KEY]).toMatchObject({ lastError: null });
+
+    // A is removed, so B fits on its next download.
+    storeSettings({ allowlist: [B] });
+    await refreshSiteGroups({ manual: false });
+    expect(size(B)).toBe(600_000);
+    expect(size(A)).toBeUndefined();
+    expect(SITE_GROUP_FULL_KEY in store.data).toBe(false);
+  });
+
+  test("a refreshed link that grows past the cap keeps the old copy", async () => {
+    storeSettings({ allowlist: [A, B] });
+    seed({ [A]: copyOfSize(1_000_000, { n: 1 }), [B]: copyOfSize(3_000_000) });
+    routeFetch({ ...(await cdnRoutes(CATALOG_A)), ...serve({ [A]: 2_500_000, [B]: "fail" }) });
+    await refreshSiteGroups({ manual: false });
+    expect(storedGroups(store)[A]).toMatchObject({ n: 1, fetchedAt: 1 });
+    expect(size(A)).toBe(1_000_000);
+    expect(storedGroups(store)[B]).toMatchObject({ lastError: "LINK_FAILED" });
+    expect(store.data[SITE_GROUP_FULL_KEY]).toBeUndefined();
+  });
+
+  test("a refreshed link that shrinks is taken", async () => {
+    storeSettings({ allowlist: [A, B] });
+    seed({ [A]: copyOfSize(4_000_000), [B]: copyOfSize(900_000) });
+    routeFetch({ ...(await cdnRoutes(CATALOG_A)), ...serve({ [A]: 2_000_000, [B]: "fail" }) });
+    await refreshSiteGroups({ manual: false });
+    expect(size(A)).toBe(2_000_000);
+    expect(storedGroups(store)[A].fetchedAt).not.toBe(1);
+  });
+
+  test("data already past the cap before the upgrade is kept", async () => {
+    storeSettings({ allowlist: [A] });
+    seed({ [A]: copyOfSize(6_000_000) });
+    routeFetch({ ...(await cdnRoutes(CATALOG_A)), ...serve({ [A]: "fail" }) });
+    await repairSiteGroupDataSoon();
+    expect(size(A)).toBe(6_000_000);
+    await refreshSiteGroups({ manual: false });
+    expect(size(A)).toBe(6_000_000);
+    expect(store.data[SITE_GROUP_FULL_KEY]).toBeUndefined();
+  });
+
+  test("step 1 counts kept tokens only: a dropped 4,000,000 token frees space for a new 2,000,000 one", async () => {
+    storeSettings({ allowlist: [N] });
+    seed({ [D]: copyOfSize(4_000_000) });
+    routeFetch(serve({ [N]: 2_000_000 }));
+    await repairSiteGroupDataSoon();
+    expect(size(D)).toBeUndefined();
+    expect(size(N)).toBe(2_000_000);
+    expect(store.data[SITE_GROUP_FULL_KEY]).toBeUndefined();
+  });
+
+  test("step 2: A (too big) then B (fits): A goes to full and B gets data", async () => {
+    storeSettings({ allowlist: [A, B] });
+    routeFetch(serve({ [A]: 6_000_000, [B]: 100 }));
+    await repairSiteGroupDataSoon();
+    expect(store.data[SITE_GROUP_FULL_KEY]).toEqual([A]);
+    expect(size(A)).toBeUndefined();
+    expect(size(B)).toBe(100);
+  });
+
+  test("step 3: a repair doesn't download a full link and keeps it in full", async () => {
+    storeSettings({ allowlist: [A] });
+    seed({}, [A]);
+    const fetchMock = routeFetch(serve({ [A]: 500 }));
+    await repairSiteGroupDataSoon();
+    expect(fetchedUrls(fetchMock)).not.toContain(url(A));
+    expect(store.data[SITE_GROUP_FULL_KEY]).toEqual([A]);
+    expect(size(A)).toBeUndefined();
+  });
+
+  test("step 3: a refresh whose download of a full link fails moves it out of full with no data", async () => {
+    storeSettings({ allowlist: [A] });
+    seed({}, [A]);
+    const fetchMock = routeFetch({ ...(await cdnRoutes(CATALOG_A)), ...serve({ [A]: "fail" }) });
+    await refreshSiteGroups({ manual: false });
+    expect(fetchedUrls(fetchMock)).toContain(url(A));
+    expect(SITE_GROUP_FULL_KEY in store.data).toBe(false);
+    expect(size(A)).toBeUndefined();
+  });
+
+  test("step 3: a refresh whose download of a full link fits gives it data and leaves full", async () => {
+    storeSettings({ allowlist: [A] });
+    seed({}, [A]);
+    routeFetch({ ...(await cdnRoutes(CATALOG_A)), ...serve({ [A]: 500 }) });
+    await refreshSiteGroups({ manual: false });
+    expect(size(A)).toBe(500);
+    expect(SITE_GROUP_FULL_KEY in store.data).toBe(false);
+  });
+
+  test("pruning drops tokens that are no longer kept from siteGroupFull", async () => {
+    storeSettings({ allowlist: [A] });
+    seed({}, [A, B]);
+    await pruneSiteGroupDataSoon();
+    expect(store.data[SITE_GROUP_FULL_KEY]).toEqual([A]);
+  });
+});
+
+describe("safariRefreshDue", () => {
+  const NOW = 1_800_000_000_000;
+  const HOUR = 60 * 60_000;
+
+  test.each([
+    ["never checked", null, true],
+    ["6 days 23 hours ago", NOW - (6 * 24 + 23) * HOUR, false],
+    ["exactly 7 days ago", NOW - 7 * 24 * HOUR, true],
+  ])("%s → %s", (_name, checkedAt, due) => {
+    expect(safariRefreshDue(checkedAt, NOW)).toBe(due);
+  });
+});
+
 describe("the refresh alarm", () => {
   const NOW = 1_800_000_000_000;
   const DAY = 24 * 60 * 60_000;
@@ -755,7 +951,7 @@ describe("the Firefox early scripts around a group data change", () => {
   });
 });
 
-describe("where site groups aren't available (Safari)", () => {
+describe("where site groups aren't available", () => {
   beforeEach(() => {
     gate.available = false;
   });

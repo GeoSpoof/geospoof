@@ -39,6 +39,7 @@
     "sign:xpi:amo": "bash scripts/sign-xpi.sh --channel listed --source geospoof-source-v$(node -p \"require('./package.json').version\").zip",
     "site-groups:update": "node scripts/site-groups/build-catalog.ts --download --out assets/site-groups/catalog.json",
     "test": "vitest run --silent",
+    "test:safari": "vitest run --silent --config vitest.safari.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --silent --coverage",
     "type-check": "tsc --noEmit",

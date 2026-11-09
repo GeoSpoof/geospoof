@@ -58,3 +58,7 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # The same vitest setup with the Safari build's flags (tests/safari).
+      - name: Safari unit tests
+        run: npm run test:safari

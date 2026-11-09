@@ -27,8 +27,13 @@
  * queue. Tokens being added are "pending" until their settings write settles,
  * so a prune can't drop their data in between.
  *
- * Every entry point is a no-op where site groups aren't available (Safari,
- * until geospoof-ios supports the new entry forms): no alarm, no request.
+ * Every entry point is a no-op where site groups aren't available
+ * (`siteGroupsAvailable()` false): no alarm, no request.
+ *
+ * Space: the kept data stays within MAX_SITE_GROUP_CHARS on every path. An
+ * add that doesn't fit is refused (STORAGE_FULL); a refresh or repair that
+ * doesn't fit keeps the old copy, or leaves a new token without data and
+ * lists it in `siteGroupFull`.
  *
  * Never imports `messages.ts` (it imports this module).
  */
@@ -82,6 +87,11 @@ const logger = createLogger("BG");
 export const SITE_GROUP_CATALOG_KEY = "siteGroupCatalog";
 /** `storage.local` key of `{ checkedAt, lastError }`. */
 export const SITE_GROUP_STATUS_KEY = "siteGroupStatus";
+/**
+ * `storage.local` key of the kept tokens refused for space (an array of
+ * strings). Its own key, because `writeStatus` overwrites the status whole.
+ */
+export const SITE_GROUP_FULL_KEY = "siteGroupFull";
 /** The weekly refresh alarm. */
 export const SITE_GROUPS_REFRESH_ALARM = "site-groups-refresh";
 /** The release pointer. Fetched with `cache: "no-cache"`. */
@@ -688,13 +698,111 @@ function rebuildToken(
   return old === undefined ? undefined : { ...old, missingUpstream: true };
 }
 
+function groupSize(group: StoredSiteGroup): number {
+  return group.d.length + group.f.length;
+}
+
+/** The stored `siteGroupFull` tokens, or `[]` when absent, invalid or unreadable. */
+async function readSiteGroupFull(): Promise<string[]> {
+  try {
+    const result = (await browser.storage.local.get(SITE_GROUP_FULL_KEY)) as Record<
+      string,
+      unknown
+    >;
+    const raw = result?.[SITE_GROUP_FULL_KEY];
+    return Array.isArray(raw) ? raw.filter((t): t is string => typeof t === "string") : [];
+  } catch (error) {
+    logger.warn("Couldn't read the site groups that are out of space:", error);
+    return [];
+  }
+}
+
+/** Store `next` as `siteGroupFull` when it differs from `previous`; removed when empty. */
+async function writeSiteGroupFull(
+  previous: readonly string[],
+  next: readonly string[]
+): Promise<void> {
+  if (previous.length === next.length && previous.every((t, i) => t === next[i])) return;
+  try {
+    if (next.length === 0) await browser.storage.local.remove(SITE_GROUP_FULL_KEY);
+    else await browser.storage.local.set({ [SITE_GROUP_FULL_KEY]: [...next] });
+  } catch (error) {
+    logger.warn("Couldn't store the site groups that are out of space:", error);
+  }
+}
+
+/**
+ * Apply MAX_SITE_GROUP_CHARS to rebuilt data, on every browser, with the same
+ * rule as the app's `SiteGroupAdmission` (geospoof-ios):
+ *
+ *   1. Kept tokens that had data: the total starts at their old sizes, so a
+ *      swap never pushes a later token out and old data is kept whatever its
+ *      size. A rebuilt value replaces the old one only when
+ *      `total - old + rebuilt` stays within the cap; otherwise the old value,
+ *      the last good copy, stays.
+ *   2. Kept tokens that had no data, in `keep` order: admitted when they fit,
+ *      otherwise put in `full`; a large token never blocks a smaller one after it.
+ *   3. A kept token in `previousFull` with no data and no download result in
+ *      this pass (a repair passes full links through) stays in `full`. One
+ *      whose download failed leaves `full` with no data.
+ */
+function admitSiteGroupData(
+  keep: ReadonlySet<string>,
+  data: Readonly<Record<string, StoredSiteGroup>>,
+  rebuilt: ReadonlyMap<string, StoredSiteGroup>,
+  links: ReadonlyMap<string, LinkListResult>,
+  previousFull: readonly string[]
+): { next: Record<string, StoredSiteGroup>; full: string[] } {
+  const hadData = (token: string) => Object.hasOwn(data, token);
+  const next: Record<string, StoredSiteGroup> = {};
+  let total = 0;
+  for (const token of keep) if (hadData(token)) total += groupSize(data[token]);
+
+  for (const token of keep) {
+    if (!hadData(token)) continue;
+    const old = data[token];
+    const candidate = rebuilt.get(token) ?? old;
+    if (candidate === old || sameStrings(candidate, old)) {
+      next[token] = candidate;
+    } else if (total - groupSize(old) + groupSize(candidate) <= MAX_SITE_GROUP_CHARS) {
+      next[token] = candidate;
+      total += groupSize(candidate) - groupSize(old);
+    } else {
+      logger.warn("A refreshed site group no longer fits in the space left; keeping the old copy");
+      next[token] = old;
+    }
+  }
+
+  const full = new Set<string>();
+  for (const token of keep) {
+    if (hadData(token)) continue;
+    const candidate = rebuilt.get(token);
+    if (candidate === undefined) continue;
+    if (total + groupSize(candidate) <= MAX_SITE_GROUP_CHARS) {
+      next[token] = candidate;
+      total += groupSize(candidate);
+    } else {
+      full.add(token);
+    }
+  }
+
+  const wasFull = new Set(previousFull);
+  for (const token of keep) {
+    if (hadData(token) || rebuilt.has(token)) continue;
+    if (wasFull.has(token) && links.get(token) === undefined) full.add(token);
+  }
+  if (full.size > 0) logger.warn(`${full.size} site group(s) didn't fit in the space left`);
+  return { next, full: [...keep].filter((t) => full.has(t)) };
+}
+
 /**
  * In the site-group queue: rebuild every kept token's data from the catalog
- * in use and the given link downloads, drop tokens that are neither
- * referenced nor pending, and store the result when it differs. When some
- * kept token's entries changed, the Firefox early scripts are replaced around
- * the write. Resolves true when some kept token's entries changed (pages must
- * be told), false otherwise.
+ * in use and the given link downloads, apply MAX_SITE_GROUP_CHARS
+ * (`admitSiteGroupData`), drop tokens that are neither referenced nor
+ * pending, and store the result when it differs, with the refused tokens as
+ * `siteGroupFull`. When some kept token's entries changed, the Firefox early
+ * scripts are replaced around the write. Resolves true when some kept token's
+ * entries changed (pages must be told), false otherwise.
  */
 async function reconcileSiteGroupData(
   links: ReadonlyMap<string, LinkListResult>
@@ -703,13 +811,15 @@ async function reconcileSiteGroupData(
   return runSiteGroupJob(async () => {
     const data = await loadSiteGroupCache();
     const keep = keptTokens(await loadSettings());
+    const previousFull = await readSiteGroupFull();
     const now = Date.now();
-    const next: Record<string, StoredSiteGroup> = {};
+    const rebuilt = new Map<string, StoredSiteGroup>();
     for (const token of keep) {
       const old = Object.hasOwn(data, token) ? data[token] : undefined;
       const group = rebuildToken(token, old, catalog, links.get(token), now);
-      if (group !== undefined) next[token] = group;
+      if (group !== undefined) rebuilt.set(token, group);
     }
+    const { next, full } = admitSiteGroupData(keep, data, rebuilt, links, previousFull);
 
     const oldTokens = Object.keys(data);
     const newTokens = Object.keys(next);
@@ -727,15 +837,25 @@ async function reconcileSiteGroupData(
     }
     if (entries) await writeSiteGroupDataReplacingBootstrap(next);
     else if (stored) await writeSiteGroupData(next);
+    await writeSiteGroupFull(previousFull, full);
     return entries;
   });
 }
 
-/** In the site-group queue: drop data no kept token uses. Resolves whether it wrote. */
+/**
+ * In the site-group queue: drop data no kept token uses, and drop tokens from
+ * `siteGroupFull` that are no longer kept or have data. Resolves whether it
+ * wrote group data.
+ */
 function pruneSiteGroupData(): Promise<boolean> {
   return runSiteGroupJob(async () => {
     const data = await loadSiteGroupCache();
     const keep = keptTokens(await loadSettings());
+    const previousFull = await readSiteGroupFull();
+    await writeSiteGroupFull(
+      previousFull,
+      previousFull.filter((t) => keep.has(t) && !Object.hasOwn(data, t))
+    );
     const next: Record<string, StoredSiteGroup> = {};
     for (const token of Object.keys(data)) {
       if (keep.has(token)) next[token] = data[token];
@@ -785,9 +905,11 @@ async function repairSiteGroupData(): Promise<void> {
   const tokens = referencedSiteGroupTokens(settings);
   if (tokens.length === 0 && Object.keys(currentSiteGroupData()).length === 0) return;
   const data = await loadSiteGroupCache();
+  // A full link would be refused again: only the weekly refresh retries it.
+  const full = new Set(await readSiteGroupFull());
   const links = new Map<string, LinkListResult>();
   for (const token of tokens) {
-    if (!token.startsWith(LINK_PREFIX) || Object.hasOwn(data, token)) continue;
+    if (!token.startsWith(LINK_PREFIX) || Object.hasOwn(data, token) || full.has(token)) continue;
     const link = parseLinkToken(token);
     if (link !== null) links.set(token, await fetchLinkList(link.url));
   }
@@ -937,6 +1059,42 @@ export async function onSiteGroupsStartup(settings: Settings): Promise<void> {
   await repairSiteGroupDataSoon();
 }
 
+/**
+ * Whether a Safari background spawn should run the refresh now: never checked
+ * (`null`, as `siteGroupRefreshDelayMinutes` treats unknown as due), or
+ * checked at least a week ago. Exported for tests.
+ */
+export function safariRefreshDue(checkedAt: number | null, now: number): boolean {
+  return checkedAt === null || now - checkedAt >= SITE_GROUPS_REFRESH_PERIOD_MINUTES * 60_000;
+}
+
+/** Set before the spawn's refresh runs, so one that throws runs at most once per lifetime. */
+let startupRefreshAttempted = false;
+
+/**
+ * Safari, on every background spawn (after the app's settings are adopted):
+ * `runtime.onStartup` is unreliable there and `onInstalled` doesn't fire on
+ * an ordinary respawn, so without this a Safari that's only ever respawned
+ * would never schedule the refresh. Creates the refresh alarm, then runs one
+ * due refresh per background lifetime. Nothing happens unless some token is
+ * referenced. Never rejects.
+ */
+export async function onSafariBackgroundSpawn(): Promise<void> {
+  try {
+    if (!siteGroupsAvailable()) return;
+    const settings = await loadSettings();
+    if (referencedSiteGroupTokens(settings).length === 0) return;
+    await ensureSiteGroupRefreshAlarm(settings);
+    if (startupRefreshAttempted) return;
+    const { checkedAt } = await readStatus();
+    if (!safariRefreshDue(checkedAt, Date.now())) return;
+    startupRefreshAttempted = true;
+    await refreshSiteGroups({ manual: false });
+  } catch (error) {
+    logger.warn("Site group spawn check failed:", error);
+  }
+}
+
 // ── Message handlers ─────────────────────────────────────────────────────────
 
 function summarize(token: string, group: StoredSiteGroup): SiteGroupSummary {
@@ -996,6 +1154,7 @@ export function __resetSiteGroupsForTest(): void {
   storedCatalog = null;
   indexMemo = null;
   refreshing = null;
+  startupRefreshAttempted = false;
   pendingTokens.clear();
   queue = Promise.resolve();
 }
