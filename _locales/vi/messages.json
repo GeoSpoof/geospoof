@@ -949,6 +949,10 @@
     "message": "Hãy dùng trang web như example.com, không có đường dẫn và không chỉ là *.",
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
+  "siteLocation_errorPatternLink": {
+    "message": "Hãy dùng trang web như example.com, không có đường dẫn và không chỉ là *. Với danh sách từ liên kết, hãy bắt đầu bằng list:",
+    "description": "Error when a site in the Sites field is an https link with a path, where lists from a link are available: the per-site pattern error plus how to add the link as a list. Keep example.com, *, and list: as is."
+  },
   "siteLocation_errorInUse": {
     "message": "$SITE$ đã dùng $PLACE$.",
     "placeholders": {
@@ -1204,6 +1208,10 @@
   "filters_syntaxLink": {
     "message": "Danh sách từ liên kết, cập nhật hằng tuần",
     "description": "Explains the list-from-a-link form (an https link to a list file) in the syntax reference."
+  },
+  "filters_syntaxListPrefix": {
+    "message": "Bất kỳ liên kết nào khác đến danh sách tên miền",
+    "description": "Explains the list: prefix form (list:https://… in front of any link) in the syntax reference: a list from a link whose address doesn't end in .txt, .list, .conf, .yaml or .yml. Keep list: and https://… as is."
   },
   "siteGroups_popular": {
     "message": "Phổ biến",

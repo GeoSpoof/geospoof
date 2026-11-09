@@ -154,9 +154,9 @@ describe("Filters on Safari", () => {
     expect(messagesOfType("ADD_SCOPE_SITE")).toEqual([{ list: "allowlist", pattern }]);
   });
 
-  test("'What can I add?' shows the exact, group, tag and link rows", () => {
+  test("'What can I add?' shows the exact, group, tag, link and list: rows", () => {
     open();
-    expect(siteGroupsOnlyRows("scopeListScreen")).toEqual({ shown: 4, hidden: 0 });
+    expect(siteGroupsOnlyRows("scopeListScreen")).toEqual({ shown: 5, hidden: 0 });
   });
 });
 
@@ -219,9 +219,10 @@ describe("Per-site locations on Safari", () => {
         "geosite:google",
         "geosite:google@cn",
         "https://example.com/list.txt",
+        "list:https://example.com/sites",
       ])
     );
-    expect(siteGroupsOnlyRows("siteLocationSyntax")).toEqual({ shown: 4, hidden: 0 });
+    expect(siteGroupsOnlyRows("siteLocationSyntax")).toEqual({ shown: 5, hidden: 0 });
   });
 });
 

@@ -582,6 +582,26 @@ describe("adding", () => {
     expect(errorEl().textContent).toBe("Use a site like example.com, with no path and not just *.");
   });
 
+  test("per-site: an https link with a path says how to add it as a list", () => {
+    const control = create("siteLocation");
+    const link =
+      "https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/netflix";
+    type(link);
+    addButton().click();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(errorEl().textContent).toBe(
+      "Use a site like example.com, with no path and not just *. For a list from a link, start with list:"
+    );
+    type(`list:${link}`);
+    expect(control.readPending()).toEqual({ entries: [`list:${link}`], error: null });
+  });
+  test("per-site: a path without https gets no list hint", () => {
+    const control = create("siteLocation");
+    type("http://example.com/app");
+    expect(control.readPending()?.error).toBe(
+      "Use a site like example.com, with no path and not just *."
+    );
+  });
   test("per-site: a word that isn't a site closes the suggestions with the per-site message", async () => {
     create("siteLocation");
     type("google");
@@ -762,6 +782,13 @@ describe("where site groups are unavailable (Safari)", () => {
       "Use a site like example.com, with no path and not just *."
     );
   });
+  test("per-site: an https link with a path gets no list hint where lists aren't offered", () => {
+    const control = create("siteLocation");
+    type("https://example.com/data/netflix");
+    expect(control.readPending()?.error).toBe(
+      "Use a site like example.com, with no path and not just *."
+    );
+  });
 });
 
 describe("where the suggestions hang", () => {
@@ -815,6 +842,7 @@ describe("the per-site editor's 'What can I add?'", () => {
     "geosite:google",
     "geosite:google@cn",
     "https://example.com/list.txt",
+    "list:https://example.com/sites",
   ];
 
   function wireEditor(): void {

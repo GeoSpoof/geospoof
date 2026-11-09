@@ -949,6 +949,10 @@
     "message": "Gebruik een site zoals example.com, zonder pad en niet alleen *.",
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
+  "siteLocation_errorPatternLink": {
+    "message": "Gebruik een site zoals example.com, zonder pad en niet alleen *. Voor een lijst via een link begin je met list:",
+    "description": "Error when a site in the Sites field is an https link with a path, where lists from a link are available: the per-site pattern error plus how to add the link as a list. Keep example.com, *, and list: as is."
+  },
   "siteLocation_errorInUse": {
     "message": "$SITE$ gebruikt al $PLACE$.",
     "placeholders": {
@@ -1204,6 +1208,10 @@
   "filters_syntaxLink": {
     "message": "Een lijst via een link, wekelijks bijgewerkt",
     "description": "Explains the list-from-a-link form (an https link to a list file) in the syntax reference."
+  },
+  "filters_syntaxListPrefix": {
+    "message": "Elke andere link naar een domeinlijst",
+    "description": "Explains the list: prefix form (list:https://… in front of any link) in the syntax reference: a list from a link whose address doesn't end in .txt, .list, .conf, .yaml or .yml. Keep list: and https://… as is."
   },
   "siteGroups_popular": {
     "message": "Populair",
