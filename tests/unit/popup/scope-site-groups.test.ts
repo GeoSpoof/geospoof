@@ -579,6 +579,7 @@ describe("the Pro lock and the Safari gate", () => {
       "geosite:google",
       "geosite:google@cn",
       "https://…/list.txt",
+      "list:https://…",
     ]);
     expect(rowsOnly.every((r) => !r.hidden)).toBe(true);
 

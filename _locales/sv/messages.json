@@ -949,6 +949,10 @@
     "message": "Ange en webbplats som example.com, utan sökväg och inte bara *.",
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
+  "siteLocation_errorPatternLink": {
+    "message": "Ange en webbplats som example.com, utan sökväg och inte bara *. För en lista från en länk, börja med list:",
+    "description": "Error when a site in the Sites field is an https link with a path, where lists from a link are available: the per-site pattern error plus how to add the link as a list. Keep example.com, *, and list: as is."
+  },
   "siteLocation_errorInUse": {
     "message": "$SITE$ använder redan $PLACE$.",
     "placeholders": {
@@ -1204,6 +1208,10 @@
   "filters_syntaxLink": {
     "message": "En lista från en länk, uppdateras varje vecka",
     "description": "Explains the list-from-a-link form (an https link to a list file) in the syntax reference."
+  },
+  "filters_syntaxListPrefix": {
+    "message": "Alla andra länkar till en domänlista",
+    "description": "Explains the list: prefix form (list:https://… in front of any link) in the syntax reference: a list from a link whose address doesn't end in .txt, .list, .conf, .yaml or .yml. Keep list: and https://… as is."
   },
   "siteGroups_popular": {
     "message": "Populära",

@@ -949,6 +949,10 @@
     "message": "請使用類似 example.com 的網站，不含路徑，也不能只是 *。",
     "description": "Error when a site in the Sites field isn't a valid site location pattern (paths and a bare * aren't allowed)."
   },
+  "siteLocation_errorPatternLink": {
+    "message": "請使用類似 example.com 的網站，不含路徑，也不能只是 *。如果是來自連結的清單，請以 list: 開頭。",
+    "description": "Error when a site in the Sites field is an https link with a path, where lists from a link are available: the per-site pattern error plus how to add the link as a list. Keep example.com, *, and list: as is."
+  },
   "siteLocation_errorInUse": {
     "message": "$SITE$ 已在使用 $PLACE$。",
     "placeholders": {
@@ -1204,6 +1208,10 @@
   "filters_syntaxLink": {
     "message": "來自連結的清單，每週更新",
     "description": "Explains the list-from-a-link form (an https link to a list file) in the syntax reference."
+  },
+  "filters_syntaxListPrefix": {
+    "message": "指向網域清單的其他任何連結",
+    "description": "Explains the list: prefix form (list:https://… in front of any link) in the syntax reference: a list from a link whose address doesn't end in .txt, .list, .conf, .yaml or .yml. Keep list: and https://… as is."
   },
   "siteGroups_popular": {
     "message": "熱門",

@@ -41,7 +41,7 @@ import {
   parseSiteLocationEntry,
   type EntryInputKind,
 } from "@/shared/utils/filter-entries";
-import { parsePattern } from "@/shared/utils/scope";
+import { decomposePattern, parsePattern } from "@/shared/utils/scope";
 import { parseSiteLocationPattern, siteLocationEntryKey } from "@/shared/utils/site-locations";
 import { entrySuggestions, groupSearchTerm, type EntrySuggestion } from "./entry-suggestions";
 import { t } from "./i18n";
@@ -122,6 +122,13 @@ function typedGroupAttrs(raw: string): string {
   return at === -1 ? "" : name.slice(at);
 }
 
+/** Whether `raw` is an https link that parses as a site with a path. */
+function isHttpsLinkWithPath(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!/^https:\/\//i.test(trimmed)) return false;
+  const canonical = parsePattern(trimmed);
+  return canonical !== null && decomposePattern(canonical).path !== "";
+}
 /** The inline message for an entry of `kind` that doesn't parse. */
 export function entryInvalidText(
   kind: EntryInputKind,
@@ -139,6 +146,14 @@ export function entryInvalidText(
       return t("siteGroups_errorLinkInvalid") || "Enter a link that starts with https://";
     default:
       if (context === "siteLocation") {
+        // An https link refused only for its path is most likely a list
+        // without a list file extension: say how to add it as one.
+        if (siteGroupsAvailable() && isHttpsLinkWithPath(raw)) {
+          return (
+            t("siteLocation_errorPatternLink") ||
+            "Use a site like example.com, with no path and not just *. For a list from a link, start with list:"
+          );
+        }
         return (
           t("siteLocation_errorPattern") ||
           "Use a site like example.com, with no path and not just *."
