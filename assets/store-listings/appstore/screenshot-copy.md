@@ -16,11 +16,17 @@ don't "fix" the lowercase adjectives. Three things that do matter when capping:
 Caps run ~10% wider than mixed case at the same point size, which is worth
 remembering when a line feels tight.
 
+**English runs ahead of the other locales.** The en-US images were redone in
+November 2026: SS1's artifact went to 50k+, and SS3 and SS4 got new headlines
+(routes and location instead of privacy and filters). The other locales still carry
+the earlier copy, so their SS1, SS3 and SS4 rows are not translations of the en-US
+row beside them.
+
 ## SS1
 
 | Locale  | H1                          | H2                                                        | Artifact              |
 | ------- | --------------------------- | --------------------------------------------------------- | --------------------- |
-| en-US   | Change GPS / Instantly      | System-wide GPS Simulation / driven from your Phone       | 10k+ Users            |
+| en-US   | Change GPS / Instantly      | System-wide GPS / simulation driven / from your phone     | 50k+ Users            |
 | de-DE   | GPS sofort ändern           | Systemweite GPS-Simulation, / gesteuert von deinem iPhone | 10.000+ Nutzer        |
 | es-ES   | Cambia el GPS / al instante | Simulación de GPS en todo / el sistema, desde tu iPhone   | +10.000 usuarios      |
 | fr-FR   | Changez le GPS / en un clic | Simulation GPS système, / pilotée depuis votre iPhone     | +10 000 utilisateurs  |
@@ -56,7 +62,7 @@ remembering when a line feels tight.
 
 | Locale  | Impact | H1                     |
 | ------- | ------ | ---------------------- |
-| en-US   | 100%   | PRIVATE & / LOCAL      |
+| en-US   | CREATE | ROUTES / & MAPS        |
 | de-DE   | 100 %  | PRIVAT & / LOKAL       |
 | es-ES   | 100 %  | PRIVADO Y / LOCAL      |
 | fr-FR   | 100 %  | PRIVÉ ET / LOCAL       |
@@ -72,21 +78,21 @@ remembering when a line feels tight.
 
 ## SS4
 
-| Locale  | Impact | H1                  |
-| ------- | ------ | ------------------- |
-| en-US   | SAFARI | FILTER / WEBSITES   |
-| de-DE   | SAFARI | WEBSITES / FILTERN  |
-| es-ES   | SAFARI | FILTRA / POR SITIO  |
-| fr-FR   | SAFARI | FILTREZ / LES SITES |
-| id      | SAFARI | FILTER / SITUS WEB  |
-| ja      | SAFARI | サイトごとに制御    |
-| nl-NL   | SAFARI | WEBSITES / FILTEREN |
-| pt-BR   | SAFARI | FILTRE / OS SITES   |
-| ru      | SAFARI | ФИЛЬТР / САЙТОВ     |
-| sv      | SAFARI | FILTRERA / SIDOR    |
-| vi      | SAFARI | LỌC / TRANG WEB     |
-| zh-Hans | SAFARI | 按站点筛选          |
-| zh-Hant | SAFARI | 依網站篩選          |
+| Locale  | Impact    | H1                  |
+| ------- | --------- | ------------------- |
+| en-US   | CUSTOMIZE | YOUR / LOCATION     |
+| de-DE   | SAFARI    | WEBSITES / FILTERN  |
+| es-ES   | SAFARI    | FILTRA / POR SITIO  |
+| fr-FR   | SAFARI    | FILTREZ / LES SITES |
+| id      | SAFARI    | FILTER / SITUS WEB  |
+| ja      | SAFARI    | サイトごとに制御    |
+| nl-NL   | SAFARI    | WEBSITES / FILTEREN |
+| pt-BR   | SAFARI    | FILTRE / OS SITES   |
+| ru      | SAFARI    | ФИЛЬТР / САЙТОВ     |
+| sv      | SAFARI    | FILTRERA / SIDOR    |
+| vi      | SAFARI    | LỌC / TRANG WEB     |
+| zh-Hans | SAFARI    | 按站点筛选          |
+| zh-Hant | SAFARI    | 依網站篩選          |
 
 ## SS5
 
@@ -105,3 +111,14 @@ remembering when a line feels tight.
 | vi      | DỄ DÀNG | CHỌN BẤT / CỨ ĐÂU     |
 | zh-Hans | 轻松    | 任意地点随心选        |
 | zh-Hant | 輕鬆    | 任意地點隨心選        |
+
+## iPad
+
+`appstore/ipados/` is one English set, which
+`geospoof-ios:scripts/stage-appstore-screenshots.sh` copies into every App Store
+locale. `01.png`–`05.png` carry the en-US copy of SS1–SS5 above. Only the line
+breaks differ, because the text boxes are a different width on iPad.
+
+Raw simulator captures of the iPad screens are in `ipados/assets/`, named by screen
+and theme. The staging script reads only the PNGs directly in `ipados/`, so nothing
+in that subfolder is uploaded.
