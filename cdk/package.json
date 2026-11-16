@@ -27,10 +27,10 @@
     "watch": "tsc -w"
   },
   "devDependencies": {
-    "@aws-sdk/client-secrets-manager": "3.1161.0",
+    "@aws-sdk/client-secrets-manager": "3.1164.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.19.2",
-    "@vitest/coverage-v8": "5.0.5",
+    "@vitest/coverage-v8": "5.1.0",
     "aws-cdk": "2.1147.0",
     "esbuild": "0.28.2",
     "eslint": "^10.14.0",
