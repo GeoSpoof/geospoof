@@ -51,7 +51,7 @@
     "@types/firefox-webext-browser": "^143.0.1",
     "@types/node": "^24.19.2",
     "@types/webextension-polyfill": "^0.12.6",
-    "@vitest/coverage-v8": "5.0.5",
+    "@vitest/coverage-v8": "5.1.0",
     "esbuild": "0.28.2",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
