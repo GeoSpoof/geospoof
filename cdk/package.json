@@ -27,7 +27,7 @@
     "watch": "tsc -w"
   },
   "devDependencies": {
-    "@aws-sdk/client-secrets-manager": "3.1161.0",
+    "@aws-sdk/client-secrets-manager": "3.1166.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.19.2",
     "@vitest/coverage-v8": "5.1.0",
@@ -38,7 +38,7 @@
     "prettier": "^3.9.10",
     "ts-node": "^10.9.2",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.1",
+    "typescript-eslint": "^8.72.2",
     "vitest": "5.1.0"
   },
   "dependencies": {
