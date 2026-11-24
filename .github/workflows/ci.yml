@@ -32,9 +32,10 @@ jobs:
         run: npm ci
 
       # Checks that every installed package carries a valid npm registry
-      # signature, so a tampered tarball fails CI.
+      # signature, so a tampered tarball fails CI. The script retries only when the
+      # registry fails to answer (see its header); a bad signature fails at once.
       - name: Verify registry signatures
-        run: npm audit signatures
+        run: scripts/audit-signatures.sh
 
       # The Vite build reads from .env; the example file provides safe defaults.
       - name: Set up environment file
