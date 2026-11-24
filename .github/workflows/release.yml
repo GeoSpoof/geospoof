@@ -75,7 +75,8 @@ jobs:
           echo "build-version=${BASE_VERSION}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - run: npm ci
-      - run: npm audit signatures
+      - name: Verify registry signatures
+        run: scripts/audit-signatures.sh # retries registry fetch errors only
       - run: cp .env.example .env
 
       # ── Firefox build + source archive ──
