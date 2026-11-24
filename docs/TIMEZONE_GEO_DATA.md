@@ -151,9 +151,13 @@ The version lives in places that must agree, enforced at build/synth time in
   to synth unless the installed `geo-tz` version (from `cdk/node_modules/geo-tz`)
   equals `src/shared/geo-tz-data.json`. This is what pins the uploaded data to
   the version the extension requests.
-- **Site guard** — `geospoof-site:scripts/copy-geo-tz-data.mjs` refuses to build
-  unless the installed `geo-tz`, the site literal, and (when present) the
-  extension's canonical version all match.
+- **Site guard** — two halves. `geospoof-site:scripts/copy-geo-tz-data.mjs`
+  refuses to build unless the installed `geo-tz` and the site literal match.
+  `geospoof-site:src/lib/verification/geo-tz-version.parity.test.ts` checks both
+  against this repo's `src/shared/geo-tz-data.json`, read through the site's
+  `extension` submodule, which its CI resolves to this repo's `main` on every run
+  and daily. The extension half can't run in the build: Vercel sees the submodule
+  only at its recorded commit, which drifts by design.
 
 Note the two guards now read `geo-tz` from **different** `node_modules`: the CDK
 from its own, the site from its own. That's deliberate — each project declares the
