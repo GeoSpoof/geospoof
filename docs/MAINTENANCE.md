@@ -49,6 +49,8 @@ Anything unmatched (a major outside a lockstep family, `esbuild` minors, `pretti
 
 `dependabot-auto-merge.yml` enables auto-merge only for root devDependency **patch** updates: the `dev-patch` group, or an ungrouped `direct:development` patch. It checks the PR author, not `github.actor`, which is spoofable. Auto-merge never bypasses the rules: every required check, the code-scanning gate, and signed commits still apply. Everything else needs a human: runtime deps, minors, majors, Actions bumps, and anything in `cdk/`.
 
+The merge is turned on with a token from the **GeoSpoof Auto-merge** GitHub App, not `GITHUB_TOKEN`. GitHub starts no workflows for anything `GITHUB_TOKEN` causes, including the merge itself, so a merge made that way reached `main` with no CI run, and `geospoof-ios` refuses to build an extension commit without a passing `Build & Test`. The App is installed on this repo only, with Contents and Pull requests write; it must never be added as a ruleset bypass actor. Its Client ID is the repository variable `AUTOMERGE_APP_CLIENT_ID`, and its private key is the **Dependabot** secret `AUTOMERGE_APP_PRIVATE_KEY` (a Dependabot-started run cannot read Actions secrets). To rotate the key, generate a new one on the App's settings page, store it with `gh secret set AUTOMERGE_APP_PRIVATE_KEY --app dependabot --repo GeoSpoof/geospoof < key.pem`, delete the file, then delete the old key on the App's page.
+
 ### Handling a Dependabot PR
 
 1. **Green, and a patch or minor:** read the changelog, merge.
