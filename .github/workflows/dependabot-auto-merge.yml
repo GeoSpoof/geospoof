@@ -21,10 +21,25 @@ name: Dependabot auto-merge
 # Auto-merge does NOT bypass branch protection: the PR still cannot merge until
 # the required `Build & Test` check passes. This workflow only sets the
 # "merge when checks pass" flag; GitHub enforces the checks.
+#
+# WHY A GITHUB APP TOKEN, NOT GITHUB_TOKEN. GitHub starts no workflow runs for
+# events caused by GITHUB_TOKEN, and that includes the merge GitHub performs
+# later on behalf of whoever turned auto-merge on. With GITHUB_TOKEN the merge
+# commit reached main with no CI run, and geospoof-ios's build refuses an
+# extension commit without a passing `Build & Test` (2026-11-23, #245). The
+# "GeoSpoof Auto-merge" App's token makes the merge an ordinary push to main.
+#   - AUTOMERGE_APP_CLIENT_ID is a repository variable (not secret).
+#   - AUTOMERGE_APP_PRIVATE_KEY is a DEPENDABOT secret: a run started by a
+#     Dependabot PR can read only Dependabot secrets, never Actions secrets.
+#   - The App is installed on this repo only, with Contents + Pull requests
+#     write, and must never be a ruleset bypass actor.
+#   - The token is minted only for a PR that passes the policy below, narrowed
+#     to the two permissions the merge needs, and revoked when the job ends.
 
 on: pull_request
 
-# Read-only by default; the one job escalates to the write scopes it needs.
+# Read-only throughout. The write access the merge needs comes from the App's
+# short-lived token, not from GITHUB_TOKEN.
 permissions:
   contents: read
 
@@ -37,8 +52,8 @@ jobs:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-24.04
     permissions:
-      contents: write # enable auto-merge on the PR
-      pull-requests: write # set the auto-merge flag
+      contents: read # fetch-metadata reads the PR's commits
+      pull-requests: read
     steps:
       - name: Classify the update
         id: meta
@@ -50,7 +65,8 @@ jobs:
       # "green" on a cdk/ PR wouldn't include it. Grouped PRs qualify only via
       # the patch-only `dev-patch` group; per-dependency metadata on a mixed
       # group isn't a safe signal on its own.
-      - name: Enable auto-merge for devDependency patch bumps only
+      - name: Mint an App token for devDependency patch bumps only
+        id: app-token
         if: >
           steps.meta.outputs.directory == '/' &&
           (
@@ -61,7 +77,16 @@ jobs:
               steps.meta.outputs.dependency-type == 'direct:development'
             )
           )
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+        with:
+          client-id: ${{ vars.AUTOMERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTOMERGE_APP_PRIVATE_KEY }}
+          permission-contents: write # the squash merge writes to main
+          permission-pull-requests: write # set the auto-merge flag
+
+      - name: Enable auto-merge
+        if: steps.app-token.outcome == 'success'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
