@@ -43,6 +43,7 @@ const P8 = generateKeyPairSync("ec", { namedCurve: "P-256" }).privateKey.export(
 }) as string;
 const APP_TX_JWS = "eyJhbGciOiJFUzI1NiJ9.eyJhcHBUeCI6InRlc3QifQ.YXBwLXR4LXNpZ25hdHVyZQ";
 const TX_JWS = "eyJhbGciOiJFUzI1NiJ9.eyJ0eCI6InRlc3QifQ.dHgtc2lnbmF0dXJl";
+const RENEWAL_JWS = "eyJhbGciOiJFUzI1NiJ9.eyJyZW5ld2FsIjoidGVzdCJ9.cmVuZXdhbC1zaWduYXR1cmU";
 
 const DEV_CONFIG: RelayRuntimeConfig = {
   bundleId: "com.moonloaf.geospoof",
@@ -62,6 +63,7 @@ const proVerifier: EntitlementVerifier = {
     originalApplicationVersion: "1",
   }),
   verifyTransaction: () => Promise.reject(new Error("unverifiable")),
+  verifyRenewalInfo: () => Promise.reject(new Error("unverifiable")),
 };
 const notProVerifier: EntitlementVerifier = {
   verifyAppTransaction: async () => ({
@@ -69,7 +71,25 @@ const notProVerifier: EntitlementVerifier = {
     originalApplicationVersion: "99",
   }),
   verifyTransaction: () => Promise.reject(new Error("unverifiable")),
+  verifyRenewalInfo: () => Promise.reject(new Error("unverifiable")),
 };
+/** Not a founder; one monthly subscription that expired a day ago and whose grace ends tomorrow. */
+const DAY_MS = 86_400_000;
+const inGraceVerifier = (renewal: (jws: string) => Promise<object>): EntitlementVerifier => ({
+  verifyAppTransaction: notProVerifier.verifyAppTransaction,
+  verifyTransaction: async () => ({
+    bundleId: "com.moonloaf.geospoof",
+    productId: "com.moonloaf.geospoof.pro.monthly",
+    originalTransactionId: "2000000000000001",
+    expiresDate: NOW_MS - DAY_MS,
+  }),
+  verifyRenewalInfo: renewal,
+});
+const graceRenewal = async () => ({
+  productId: "com.moonloaf.geospoof.pro.monthly",
+  originalTransactionId: "2000000000000001",
+  gracePeriodExpiresDate: NOW_MS + DAY_MS,
+});
 
 // ---------------------------------------------------------------------------
 // Output capture. Every test runs with stdout, stderr and console captured; the
@@ -81,7 +101,15 @@ let restore: (() => void)[] = [];
 
 beforeEach(() => {
   captured = { stdout: [], other: [] };
-  credentials = new Set([PUSH_TOKEN, OTHER_TOKEN, SESSION_SECRET, APP_TX_JWS, TX_JWS, P8]);
+  credentials = new Set([
+    PUSH_TOKEN,
+    OTHER_TOKEN,
+    SESSION_SECRET,
+    APP_TX_JWS,
+    TX_JWS,
+    RENEWAL_JWS,
+    P8,
+  ]);
   for (const line of P8.split("\n")) if (line.length > 20) credentials.add(line);
   const out = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
     captured.stdout.push(String(chunk));
@@ -274,6 +302,7 @@ describe("POST /v1/session", () => {
     const throwing: EntitlementVerifier = {
       verifyAppTransaction: () => Promise.reject(new Error("bad chain")),
       verifyTransaction: () => Promise.reject(new Error("bad chain")),
+      verifyRenewalInfo: () => Promise.reject(new Error("bad chain")),
     };
     const h = harness({ verifiers: [throwing, throwing] });
     const res = await h.invoke(
@@ -285,14 +314,97 @@ describe("POST /v1/session", () => {
   it("refuses a body with both proofs absent with 403", async () => {
     const verify = vi.fn();
     const h = harness({
-      verifiers: [{ verifyAppTransaction: verify, verifyTransaction: verify }],
+      verifiers: [
+        { verifyAppTransaction: verify, verifyTransaction: verify, verifyRenewalInfo: verify },
+      ],
     });
     expectError(
       await h.invoke(sessionEvent({ push_token: PUSH_TOKEN })),
       403,
       "entitlement_invalid"
     );
+    // Renewal info alone is not a proof either: it grants nothing without a transaction.
+    expectError(
+      await h.invoke(sessionEvent({ renewal_infos: [RENEWAL_JWS], push_token: PUSH_TOKEN })),
+      403,
+      "entitlement_invalid"
+    );
     expect(verify).not.toHaveBeenCalled();
+  });
+  it("issues a session to a subscriber in Billing Grace Period", async () => {
+    const renewal = vi.fn(graceRenewal);
+    const h = harness({ verifiers: [inGraceVerifier(renewal)] });
+    const res = await h.invoke(
+      sessionEvent({
+        app_transaction: APP_TX_JWS,
+        transactions: [TX_JWS],
+        renewal_infos: [RENEWAL_JWS],
+        push_token: PUSH_TOKEN,
+      })
+    );
+    expect(res.statusCode).toBe(200);
+    expect(renewal).toHaveBeenCalledWith(RENEWAL_JWS);
+  });
+  it("refuses the expired subscription without renewal info, or with renewal info that fails", async () => {
+    const expiredOnly = harness({ verifiers: [inGraceVerifier(graceRenewal)] });
+    expectError(
+      await expiredOnly.invoke(
+        sessionEvent({
+          app_transaction: APP_TX_JWS,
+          transactions: [TX_JWS],
+          push_token: PUSH_TOKEN,
+        })
+      ),
+      403,
+      "entitlement_invalid"
+    );
+    const forged = harness({
+      verifiers: [inGraceVerifier(() => Promise.reject(new Error("bad signature")))],
+    });
+    expectError(
+      await forged.invoke(
+        sessionEvent({
+          transactions: [TX_JWS],
+          renewal_infos: [RENEWAL_JWS],
+          push_token: PUSH_TOKEN,
+        })
+      ),
+      403,
+      "entitlement_invalid"
+    );
+    const otherSubscription = harness({
+      verifiers: [
+        inGraceVerifier(async () => ({
+          ...(await graceRenewal()),
+          originalTransactionId: "2000000000000002",
+        })),
+      ],
+    });
+    expectError(
+      await otherSubscription.invoke(
+        sessionEvent({
+          transactions: [TX_JWS],
+          renewal_infos: [RENEWAL_JWS],
+          push_token: PUSH_TOKEN,
+        })
+      ),
+      403,
+      "entitlement_invalid"
+    );
+  });
+  it("refuses a malformed renewal_infos with 400 schema", async () => {
+    const h = harness();
+    expectError(
+      await h.invoke(
+        sessionEvent({
+          app_transaction: APP_TX_JWS,
+          renewal_infos: ["a.b"],
+          push_token: PUSH_TOKEN,
+        })
+      ),
+      400,
+      "schema"
+    );
   });
 
   it("refuses a schema error with 400 schema", async () => {

@@ -27,6 +27,7 @@ const MAX_BEARER_LENGTH = 512;
 const JWS_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const MAX_JWS_LENGTH = 16384;
 const MAX_TRANSACTIONS = 10;
+const MAX_RENEWAL_INFOS = 10;
 
 const sha256 = (s: string): Buffer => createHash("sha256").update(s, "utf8").digest();
 
@@ -104,12 +105,15 @@ export function parseBearer(
 export interface SessionRequest {
   readonly appTransaction?: string;
   readonly transactions: string[];
+  /** Absent when the request carried none. */
+  readonly renewalInfos?: string[];
   readonly pushToken: string;
 }
 
 const SESSION_KEYS: ReadonlySet<string> = new Set([
   "app_transaction",
   "transactions",
+  "renewal_infos",
   "push_token",
 ]);
 
@@ -126,7 +130,7 @@ export function validateSessionRequest(body: unknown): Result<SessionRequest> {
   if (!Object.keys(body).every((k) => SESSION_KEYS.has(k))) {
     return schemaError("unknown field at top level");
   }
-  const { app_transaction, transactions, push_token } = body;
+  const { app_transaction, transactions, renewal_infos, push_token } = body;
   if (typeof push_token !== "string" || !PUSH_TOKEN_RE.test(push_token)) {
     return schemaError("push_token must be lowercase hex, even length, 32-512 characters");
   }
@@ -143,9 +147,21 @@ export function validateSessionRequest(body: unknown): Result<SessionRequest> {
     }
     txs = transactions;
   }
+  let renewals: string[] | undefined;
+  if (renewal_infos !== undefined) {
+    if (
+      !Array.isArray(renewal_infos) ||
+      renewal_infos.length > MAX_RENEWAL_INFOS ||
+      !renewal_infos.every(isJws)
+    ) {
+      return schemaError("renewal_infos must be an array of at most 10 compact JWS");
+    }
+    renewals = renewal_infos;
+  }
   return ok({
     ...(app_transaction !== undefined ? { appTransaction: app_transaction } : {}),
     transactions: txs,
+    ...(renewals !== undefined ? { renewalInfos: renewals } : {}),
     pushToken: push_token,
   });
 }

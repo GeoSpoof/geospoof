@@ -159,6 +159,11 @@ describe("validateSessionRequest", () => {
     ["a non-array transactions", { ...good, transactions: JWS }],
     ["more than 10 transactions", { ...good, transactions: Array<string>(11).fill(JWS) }],
     ["a malformed transaction", { ...good, transactions: [JWS, "nope"] }],
+    ["a non-array renewal_infos", { ...good, renewal_infos: JWS }],
+    ["a null renewal_infos", { ...good, renewal_infos: null }],
+    ["more than 10 renewal_infos", { ...good, renewal_infos: Array<string>(11).fill(JWS) }],
+    ["a malformed renewal info", { ...good, renewal_infos: [JWS, "a.b"] }],
+    ["an oversized renewal info", { ...good, renewal_infos: [`a.${"b".repeat(16384)}.c`] }],
     ["an oversized JWS", { ...good, app_transaction: `a.${"b".repeat(16384)}.c` }],
     ["a missing push_token", { app_transaction: JWS }],
     ["an uppercase push_token", { ...good, push_token: TOKEN.toUpperCase() }],
@@ -169,6 +174,21 @@ describe("validateSessionRequest", () => {
     if (!r.ok) expect([r.status, r.error]).toEqual([400, "schema"]);
   });
 
+  it("accepts renewal_infos beside the transactions, and omits them when absent", () => {
+    expect(validateSessionRequest({ ...good, renewal_infos: [JWS, JWS] })).toEqual({
+      ok: true,
+      value: {
+        appTransaction: JWS,
+        transactions: [JWS],
+        renewalInfos: [JWS, JWS],
+        pushToken: TOKEN,
+      },
+    });
+    expect(validateSessionRequest({ ...good, renewal_infos: [] })).toEqual({
+      ok: true,
+      value: { appTransaction: JWS, transactions: [JWS], renewalInfos: [], pushToken: TOKEN },
+    });
+  });
   it("passes the schema with both proofs absent (the relay maps that to 403)", () => {
     expect(validateSessionRequest({ push_token: TOKEN })).toEqual({
       ok: true,

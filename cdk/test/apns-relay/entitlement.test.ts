@@ -7,6 +7,7 @@ import {
 } from "../../lib/lambda/apns-relay/apple-root-ca";
 import {
   createAppleVerifiers,
+  inBillingGracePeriod,
   isFounderBuild,
   transactionGrantsPro,
   verifyPro,
@@ -45,6 +46,28 @@ const rootedAt =
 const lifetimeTx = (overrides: object = {}) => ({
   bundleId: BUNDLE,
   productId: "com.moonloaf.geospoof.pro.lifetime",
+  environment: "Sandbox",
+  signedDate: NOW - 1000,
+  ...overrides,
+});
+
+const MONTHLY = "com.moonloaf.geospoof.pro.monthly";
+const ANNUAL = "com.moonloaf.geospoof.pro.annual";
+const ORIGINAL_ID = "2000000000000001";
+
+/** A monthly subscription that expired two days ago: in grace only with a matching renewal info. */
+const expiredMonthlyTx = (overrides: object = {}) =>
+  lifetimeTx({
+    productId: MONTHLY,
+    originalTransactionId: ORIGINAL_ID,
+    expiresDate: NOW - 2 * DAY,
+    ...overrides,
+  });
+
+const graceRenewalInfo = (overrides: object = {}) => ({
+  productId: MONTHLY,
+  originalTransactionId: ORIGINAL_ID,
+  gracePeriodExpiresDate: NOW + 14 * DAY,
   environment: "Sandbox",
   signedDate: NOW - 1000,
   ...overrides,
@@ -89,6 +112,7 @@ describe("createAppleVerifiers", () => {
     const make = vi.fn<VerifierFactory>(() => ({
       verifyAndDecodeAppTransaction: vi.fn(),
       verifyAndDecodeTransaction: vi.fn(),
+      verifyAndDecodeRenewalInfo: vi.fn(),
     }));
     createAppleVerifiers(cfg(["Sandbox", "Production"]), make);
     expect(make).toHaveBeenCalledTimes(2);
@@ -101,8 +125,23 @@ describe("createAppleVerifiers", () => {
 
 describe("entitlement rejection through the real SignedDataVerifier", () => {
   const verifiers = createAppleVerifiers(cfg());
-  const reject = async (proof: { appTransaction?: string; transactions: string[] }) =>
-    expect(await verifyPro(proof, verifiers, BUNDLE, NOW)).toBe(false);
+  const reject = async (proof: {
+    appTransaction?: string;
+    transactions: string[];
+    renewalInfos?: string[];
+  }) => expect(await verifyPro(proof, verifiers, BUNDLE, NOW)).toBe(false);
+
+  it("rejects an expired subscription rescued by a renewal info not rooted in Apple", async () => {
+    const chain = createTestChain();
+    await reject({
+      transactions: [chain.signJws(expiredMonthlyTx())],
+      renewalInfos: [chain.signJws(graceRenewalInfo())],
+    });
+    await reject({
+      transactions: [chain.signJws(expiredMonthlyTx())],
+      renewalInfos: [unsignedJws({ alg: "ES256" }, graceRenewalInfo())],
+    });
+  });
 
   it("rejects garbage", async () => {
     await reject({ appTransaction: "not.a.jws", transactions: ["not.a.jws"] });
@@ -145,8 +184,102 @@ describe("entitlement rejection through the real SignedDataVerifier", () => {
 describe("entitlement through the real SignedDataVerifier with a local test root", () => {
   const chain = createTestChain();
   const verifiers = createAppleVerifiers(cfg(), rootedAt([chain.rootDer]));
-  const pro = (proof: { appTransaction?: string; transactions: string[] }) =>
-    verifyPro(proof, verifiers, BUNDLE, NOW);
+  const pro = (proof: {
+    appTransaction?: string;
+    transactions: string[];
+    renewalInfos?: string[];
+  }) => verifyPro(proof, verifiers, BUNDLE, NOW);
+
+  describe("Billing Grace Period", () => {
+    const expired = () => chain.signJws(expiredMonthlyTx());
+    const withRenewal = (renewal: string, tx: string = expired()) =>
+      pro({ transactions: [tx], renewalInfos: [renewal] });
+
+    it("grants an expired subscription with a verified renewal info in grace", async () => {
+      expect(await withRenewal(chain.signJws(graceRenewalInfo()))).toBe(true);
+    });
+
+    it("denies the expired subscription alone", async () => {
+      expect(await pro({ transactions: [expired()] })).toBe(false);
+      expect(await pro({ transactions: [expired()], renewalInfos: [] })).toBe(false);
+    });
+
+    it("denies a forged renewal info", async () => {
+      // Tampered: a genuinely signed renewal info whose payload was swapped for one in grace.
+      const [h, , s] = chain
+        .signJws(graceRenewalInfo({ gracePeriodExpiresDate: NOW - DAY }))
+        .split(".");
+      expect(await withRenewal(`${h}.${b64u(graceRenewalInfo())}.${s}`)).toBe(false);
+      // Unsigned, and from a leaf without Apple's receipt-signing marker.
+      expect(await withRenewal(unsignedJws({ alg: "ES256" }, graceRenewalInfo()))).toBe(false);
+      expect(await withRenewal(chain.unmarkedLeafJws(graceRenewalInfo()))).toBe(false);
+      expect(await withRenewal("not.a.jws")).toBe(false);
+    });
+
+    it("denies a renewal info from another environment than its transaction", async () => {
+      // The transaction verifies only as Sandbox, the renewal info only as Production.
+      expect(
+        await withRenewal(chain.signJws(graceRenewalInfo({ environment: "Production" })))
+      ).toBe(false);
+      // Signed, but in an environment the relay never verifies.
+      expect(
+        await withRenewal(chain.signJws(graceRenewalInfo({ environment: "LocalTesting" })))
+      ).toBe(false);
+    });
+
+    it("denies a renewal info for another subscription or product", async () => {
+      expect(
+        await withRenewal(chain.signJws(graceRenewalInfo({ originalTransactionId: "999" })))
+      ).toBe(false);
+      expect(await withRenewal(chain.signJws(graceRenewalInfo({ productId: ANNUAL })))).toBe(false);
+      expect(
+        await withRenewal(chain.signJws(graceRenewalInfo({ originalTransactionId: undefined })))
+      ).toBe(false);
+    });
+
+    it("denies once grace is over, or when there is no grace date", async () => {
+      expect(
+        await withRenewal(chain.signJws(graceRenewalInfo({ gracePeriodExpiresDate: NOW - 1 })))
+      ).toBe(false);
+      expect(
+        await withRenewal(chain.signJws(graceRenewalInfo({ gracePeriodExpiresDate: undefined })))
+      ).toBe(false);
+    });
+
+    it("never revives a revoked, lifetime or other-bundle transaction", async () => {
+      const renewal = chain.signJws(graceRenewalInfo());
+      expect(
+        await withRenewal(renewal, chain.signJws(expiredMonthlyTx({ revocationDate: NOW - DAY })))
+      ).toBe(false);
+      expect(
+        await withRenewal(
+          renewal,
+          chain.signJws(expiredMonthlyTx({ bundleId: "com.example.other" }))
+        )
+      ).toBe(false);
+      expect(
+        await withRenewal(
+          chain.signJws(graceRenewalInfo({ productId: "com.example.unknown" })),
+          chain.signJws(expiredMonthlyTx({ productId: "com.example.unknown" }))
+        )
+      ).toBe(false);
+    });
+
+    it("grants nothing from a renewal info without a transaction", async () => {
+      expect(
+        await pro({ transactions: [], renewalInfos: [chain.signJws(graceRenewalInfo())] })
+      ).toBe(false);
+    });
+
+    it("grants when one renewal info is forged and another matches", async () => {
+      expect(
+        await pro({
+          transactions: [expired()],
+          renewalInfos: ["not.a.jws", chain.signJws(graceRenewalInfo())],
+        })
+      ).toBe(true);
+    });
+  });
 
   it("grants a verified founder AppTransaction (positive path)", async () => {
     expect(await pro({ appTransaction: chain.signJws(founderAppTx()), transactions: [] })).toBe(
@@ -266,6 +399,31 @@ describe("Pro policy", () => {
     expect(transactionGrantsPro({}, NOW)).toBe(false);
   });
 
+  it("grace: an unrevoked monthly/annual extended by a matching renewal info until its end", () => {
+    for (const p of [monthly, annual]) {
+      const sub = tx(p, { originalTransactionId: "1", expiresDate: NOW - DAY });
+      const info = { productId: p, originalTransactionId: "1", gracePeriodExpiresDate: NOW + DAY };
+      expect(inBillingGracePeriod(sub, [info], NOW)).toBe(true);
+      expect(inBillingGracePeriod(sub, [info], NOW + DAY)).toBe(false);
+      expect(inBillingGracePeriod(sub, [], NOW)).toBe(false);
+      expect(inBillingGracePeriod(sub, [{ ...info, originalTransactionId: "2" }], NOW)).toBe(false);
+      expect(inBillingGracePeriod(sub, [{ ...info, productId: lifetime }], NOW)).toBe(false);
+      expect(
+        inBillingGracePeriod(tx(p, { expiresDate: NOW - DAY }), [{ ...info }], NOW),
+        "no originalTransactionId on the transaction"
+      ).toBe(false);
+      expect(inBillingGracePeriod({ ...sub, revocationDate: NOW - 1 }, [info], NOW)).toBe(false);
+    }
+    const life = tx(lifetime, { originalTransactionId: "1" });
+    expect(
+      inBillingGracePeriod(
+        life,
+        [{ productId: lifetime, originalTransactionId: "1", gracePeriodExpiresDate: NOW + DAY }],
+        NOW
+      )
+    ).toBe(false);
+  });
+
   it("judges expiry against the injected now, not Date.now", () => {
     const farFuture = Date.UTC(2100, 0, 1);
     const sub = tx(monthly, { expiresDate: farFuture - DAY });
@@ -278,6 +436,7 @@ describe("verifyPro with fake verifiers", () => {
   const fake = (over: Partial<EntitlementVerifier> = {}): EntitlementVerifier => ({
     verifyAppTransaction: () => Promise.reject(new Error("unverifiable")),
     verifyTransaction: () => Promise.reject(new Error("unverifiable")),
+    verifyRenewalInfo: () => Promise.reject(new Error("unverifiable")),
     ...over,
   });
 
@@ -310,6 +469,40 @@ describe("verifyPro with fake verifiers", () => {
     expect(await verifyPro({ transactions: ["a.b.c"] }, [fake(), second], BUNDLE, NOW)).toBe(true);
   });
 
+  it("verifies renewal infos with the same verifier as the transaction they extend", async () => {
+    const expiredTx = async () => ({
+      bundleId: BUNDLE,
+      productId: MONTHLY,
+      originalTransactionId: ORIGINAL_ID,
+      expiresDate: NOW - DAY,
+    });
+    // Production verifies the transaction but not the renewal info; Sandbox the reverse.
+    const production = fake({ verifyTransaction: expiredTx });
+    const sandbox = fake({ verifyRenewalInfo: async () => graceRenewalInfo() });
+    const proof = { transactions: ["a.b.c"], renewalInfos: ["d.e.f"] };
+    expect(await verifyPro(proof, [production, sandbox], BUNDLE, NOW)).toBe(false);
+    const both = fake({
+      verifyTransaction: expiredTx,
+      verifyRenewalInfo: async () => graceRenewalInfo(),
+    });
+    expect(await verifyPro(proof, [both], BUNDLE, NOW)).toBe(true);
+  });
+
+  it("does not verify renewal infos when no expired subscription needs them", async () => {
+    const verifyRenewalInfo = vi.fn(async () => graceRenewalInfo());
+    const v = fake({
+      verifyTransaction: async () => ({
+        bundleId: BUNDLE,
+        productId: "com.moonloaf.geospoof.pro.lifetime",
+      }),
+      verifyRenewalInfo,
+    });
+    expect(
+      await verifyPro({ transactions: ["a.b.c"], renewalInfos: ["d.e.f"] }, [v], BUNDLE, NOW)
+    ).toBe(true);
+    expect(verifyRenewalInfo).not.toHaveBeenCalled();
+  });
+
   it("denies when every verifier throws", async () => {
     expect(
       await verifyPro(
@@ -336,6 +529,15 @@ describe("verifyPro with fake verifiers", () => {
         NOW
       );
       await verifyPro({ appTransaction: "x.y.z", transactions: ["q.r.s"] }, real, BUNDLE, NOW);
+      await verifyPro(
+        {
+          transactions: [chain.signJws(expiredMonthlyTx())],
+          renewalInfos: ["not.a.jws", chain.unmarkedLeafJws(graceRenewalInfo())],
+        },
+        real,
+        BUNDLE,
+        NOW
+      );
       expect(out).not.toHaveBeenCalled();
       expect(err).not.toHaveBeenCalled();
       for (const c of consoles) expect(c).not.toHaveBeenCalled();

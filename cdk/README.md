@@ -342,6 +342,14 @@ None of these is visible from inside this repo, and nothing compiles both sides.
 - The Pro rule and the embedded Apple Root CA - G3 mirror the GPS agent
   (`geospoof-gps:agent/src/entitlement.rs`, `agent/assets/AppleRootCA-G3.cer`).
   The relay accepts StoreKit Production and Sandbox, never Xcode or LocalTesting.
+  That includes Billing Grace Period: an expired monthly/annual transaction
+  grants only with a verified `renewal_infos` entry for the same original
+  transaction id and product whose `gracePeriodExpiresDate` is still ahead.
+- `renewal_infos` was added to `POST /v1/session` after the first deploy, and
+  the session schema refuses unknown keys with `400 schema`. A relay without it
+  rejects any agent that sends the key, so deploy the relay before releasing an
+  agent that does. The agent sends it only when grace is the sole grant, so a
+  lagging relay costs only those sessions, which it would deny anyway.
 - The client is the GPS agent (Phase 3 of that spec).
 
 ### Key custody: CDK does not own the APNs key
