@@ -348,7 +348,9 @@ None of these is visible from inside this repo, and nothing compiles both sides.
 - `renewal_infos` was added to `POST /v1/session` after the first deploy, and
   the session schema refuses unknown keys with `400 schema`. A relay without it
   rejects any agent that sends the key, so deploy the relay before releasing an
-  agent that does. The agent sends it only when grace is the sole grant, so a
+  agent that does. The agent never sends it first: it retries once with
+  `renewal_infos` only after this relay answers `403 entitlement_invalid` to
+  the body without them, so expiry is judged on the relay's clock alone and a
   lagging relay costs only those sessions, which it would deny anyway.
 - The client is the GPS agent (Phase 3 of that spec).
 
