@@ -9,8 +9,9 @@
  * - NEVER Xcode or LocalTesting: the library skips signature verification for
  *   those environments entirely. The agent accepts them only in DEBUG builds;
  *   the relay has no DEBUG.
- * - Pro = founder (signed AppTransaction whose originalApplicationVersion's
- *   leading digits are below build 40) OR a verified, unrevoked lifetime
+ * - Pro = founder (a signed AppTransaction verified in the PRODUCTION
+ *   environment whose originalApplicationVersion's leading digits are below
+ *   build 40; see `appTransactionGrantsFounder`) OR a verified, unrevoked lifetime
  *   transaction OR a verified, unrevoked monthly/annual transaction whose
  *   expiresDate is after the RELAY's now, or that is in Apple's Billing Grace
  *   Period per a verified renewal info (`inBillingGracePeriod`). One artifact
@@ -33,15 +34,34 @@ const PRODUCT_LIFETIME = "com.moonloaf.geospoof.pro.lifetime";
 export const FOUNDER_CUTOFF_BUILD = 40;
 
 /**
- * Founder iff the leading run of ASCII digits parses below the cutoff. "1.0"
- * (what sandbox/TestFlight often reports) reads as 1, so founder; absent or
- * unparseable is not founder.
+ * The build-number half of the founder rule: the leading run of ASCII digits
+ * parses below the cutoff; absent or unparseable is not founder. On its own it
+ * would call "1.0" a founder, which is what Sandbox (TestFlight, sandbox
+ * accounts) reports for every install, so it is only ever applied to a
+ * Production AppTransaction. See `appTransactionGrantsFounder`.
  */
 export function isFounderBuild(originalApplicationVersion?: string): boolean {
   if (typeof originalApplicationVersion !== "string") return false;
   const digits = /^[0-9]+/.exec(originalApplicationVersion)?.[0];
   if (digits === undefined) return false;
   return Number(digits) < FOUNDER_CUTOFF_BUILD;
+}
+
+/**
+ * Founder iff the AppTransaction was verified in the PRODUCTION environment
+ * and its build is below the cutoff, per the agent's
+ * `app_transaction_grants_founder`. A Sandbox AppTransaction never grants
+ * founder: Apple reports originalApplicationVersion "1.0" there, so every
+ * TestFlight or sandbox install would otherwise read as a founder. This is the
+ * iOS app's rule too (`ProStore` resolves the founder grant only from a
+ * production AppTransaction). Sandbox purchases still grant through their
+ * transactions.
+ */
+export function appTransactionGrantsFounder(
+  environment: Environment,
+  appTx: DecodedAppTransaction
+): boolean {
+  return environment === Environment.PRODUCTION && isFounderBuild(appTx.originalApplicationVersion);
 }
 
 export interface DecodedTransaction {
@@ -122,6 +142,8 @@ export function inBillingGracePeriod(
 
 /** One StoreKit environment's verifier. Every method throws on anything unverifiable. */
 export interface EntitlementVerifier {
+  /** The environment this verifier checks artifacts against. Only Production can grant founder. */
+  readonly environment: Environment;
   verifyAppTransaction(jws: string): Promise<DecodedAppTransaction>;
   verifyTransaction(jws: string): Promise<DecodedTransaction>;
   verifyRenewalInfo(jws: string): Promise<DecodedRenewalInfo>;
@@ -177,6 +199,7 @@ export function createAppleVerifiers(
         env === Environment.PRODUCTION ? cfg.appAppleId : undefined
       );
       return {
+        environment: env,
         verifyAppTransaction: (jws) => v.verifyAndDecodeAppTransaction(jws),
         verifyTransaction: (jws) => v.verifyAndDecodeTransaction(jws),
         verifyRenewalInfo: (jws) => v.verifyAndDecodeRenewalInfo(jws),
@@ -209,7 +232,8 @@ async function verifiedRenewalInfos(
 }
 
 /**
- * The agent's loop: per environment, the AppTransaction (founder) and then each
+ * The agent's loop: per environment, the AppTransaction (founder, Production
+ * only) and then each
  * transaction. True on the first artifact that verifies AND grants. Renewal
  * infos are verified lazily, with the same environment's verifier, only once
  * an expired subscription needs them. Every exception is swallowed -
@@ -225,7 +249,10 @@ export async function verifyPro(
     if (proof.appTransaction !== undefined) {
       try {
         const appTx = await verifier.verifyAppTransaction(proof.appTransaction);
-        if (appTx.bundleId === bundleId && isFounderBuild(appTx.originalApplicationVersion)) {
+        if (
+          appTx.bundleId === bundleId &&
+          appTransactionGrantsFounder(verifier.environment, appTx)
+        ) {
           return true;
         }
       } catch {

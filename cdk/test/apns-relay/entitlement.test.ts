@@ -6,6 +6,7 @@ import {
   appleRootCertificates,
 } from "../../lib/lambda/apns-relay/apple-root-ca";
 import {
+  appTransactionGrantsFounder,
   createAppleVerifiers,
   inBillingGracePeriod,
   isFounderBuild,
@@ -281,17 +282,25 @@ describe("entitlement through the real SignedDataVerifier with a local test root
     });
   });
 
-  it("grants a verified founder AppTransaction (positive path)", async () => {
-    expect(await pro({ appTransaction: chain.signJws(founderAppTx()), transactions: [] })).toBe(
-      true
-    );
+  it("does not grant founder from a Sandbox AppTransaction reporting 1.0", async () => {
+    // What every sandbox or TestFlight install sends with nothing bought.
+    const appTx = founderAppTx({ originalApplicationVersion: "1.0" });
+    expect(await pro({ appTransaction: chain.signJws(appTx), transactions: [] })).toBe(false);
+  });
+
+  it("grants a Sandbox AppTransaction alongside a verified Sandbox subscription", async () => {
+    const appTx = founderAppTx({ originalApplicationVersion: "1.0" });
+    const sub = lifetimeTx({ productId: MONTHLY, expiresDate: NOW + 30 * DAY });
+    expect(
+      await pro({ appTransaction: chain.signJws(appTx), transactions: [chain.signJws(sub)] })
+    ).toBe(true);
   });
 
   it("grants a verified lifetime transaction (positive path)", async () => {
     expect(await pro({ transactions: [chain.signJws(lifetimeTx())] })).toBe(true);
   });
 
-  it("grants a verified Production AppTransaction carrying our appAppleId", async () => {
+  it("grants founder from a verified Production AppTransaction carrying our appAppleId", async () => {
     const appTx = founderAppTx({ receiptType: "Production", appAppleId: APP_APPLE_ID });
     expect(await pro({ appTransaction: chain.signJws(appTx), transactions: [] })).toBe(true);
   });
@@ -302,8 +311,11 @@ describe("entitlement through the real SignedDataVerifier with a local test root
   });
 
   it("rejects a tampered payload (signature no longer matches)", async () => {
-    const [h, , s] = chain.signJws(founderAppTx({ originalApplicationVersion: "99" })).split(".");
-    const forged = `${h}.${b64u(founderAppTx({ originalApplicationVersion: "1" }))}.${s}`;
+    const prod = { receiptType: "Production", appAppleId: APP_APPLE_ID };
+    const [h, , s] = chain
+      .signJws(founderAppTx({ ...prod, originalApplicationVersion: "99" }))
+      .split(".");
+    const forged = `${h}.${b64u(founderAppTx({ ...prod, originalApplicationVersion: "1" }))}.${s}`;
     expect(await pro({ appTransaction: forged, transactions: [] })).toBe(false);
   });
 
@@ -370,6 +382,20 @@ describe("Pro policy", () => {
     expect(isFounderBuild(" 1")).toBe(false);
   });
 
+  it("founder: only from a Production AppTransaction", () => {
+    const at = (originalApplicationVersion?: string) => ({ originalApplicationVersion });
+    expect(appTransactionGrantsFounder(Environment.PRODUCTION, at("39"))).toBe(true);
+    expect(appTransactionGrantsFounder(Environment.PRODUCTION, at("40"))).toBe(false);
+    for (const env of [
+      Environment.SANDBOX,
+      Environment.XCODE,
+      Environment.LOCAL_TESTING,
+    ] as const) {
+      expect(appTransactionGrantsFounder(env, at("1.0"))).toBe(false);
+      expect(appTransactionGrantsFounder(env, at("39"))).toBe(false);
+    }
+  });
+
   const tx = (productId: string, extra: object = {}) => ({ productId, ...extra });
   const monthly = "com.moonloaf.geospoof.pro.monthly";
   const annual = "com.moonloaf.geospoof.pro.annual";
@@ -434,6 +460,7 @@ describe("Pro policy", () => {
 
 describe("verifyPro with fake verifiers", () => {
   const fake = (over: Partial<EntitlementVerifier> = {}): EntitlementVerifier => ({
+    environment: Environment.PRODUCTION,
     verifyAppTransaction: () => Promise.reject(new Error("unverifiable")),
     verifyTransaction: () => Promise.reject(new Error("unverifiable")),
     verifyRenewalInfo: () => Promise.reject(new Error("unverifiable")),
@@ -446,6 +473,16 @@ describe("verifyPro with fake verifiers", () => {
     });
     expect(await verifyPro({ appTransaction: "a.b.c", transactions: [] }, [v], BUNDLE, NOW)).toBe(
       true
+    );
+  });
+
+  it("does not grant founder from a Sandbox verifier's AppTransaction", async () => {
+    const v = fake({
+      environment: Environment.SANDBOX,
+      verifyAppTransaction: async () => ({ bundleId: BUNDLE, originalApplicationVersion: "1.0" }),
+    });
+    expect(await verifyPro({ appTransaction: "a.b.c", transactions: [] }, [v], BUNDLE, NOW)).toBe(
+      false
     );
   });
 

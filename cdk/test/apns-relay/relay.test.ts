@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { Environment } from "@apple/app-store-server-library";
 import { createRelay, type RelayDeps } from "../../lib/lambda/apns-relay/relay";
 import type { ApnsSendRequest, ApnsSendResult } from "../../lib/lambda/apns-relay/apns-client";
 import type { EntitlementVerifier } from "../../lib/lambda/apns-relay/entitlement";
@@ -58,6 +59,7 @@ const apnsSecret = (over: Record<string, string> = {}) =>
   JSON.stringify({ keyId: "A3TWAYM427", teamId: "9445Q654K8", p8: P8, ...over });
 
 const proVerifier: EntitlementVerifier = {
+  environment: Environment.PRODUCTION,
   verifyAppTransaction: async () => ({
     bundleId: "com.moonloaf.geospoof",
     originalApplicationVersion: "1",
@@ -66,6 +68,7 @@ const proVerifier: EntitlementVerifier = {
   verifyRenewalInfo: () => Promise.reject(new Error("unverifiable")),
 };
 const notProVerifier: EntitlementVerifier = {
+  environment: Environment.PRODUCTION,
   verifyAppTransaction: async () => ({
     bundleId: "com.moonloaf.geospoof",
     originalApplicationVersion: "99",
@@ -76,6 +79,7 @@ const notProVerifier: EntitlementVerifier = {
 /** Not a founder; one monthly subscription that expired a day ago and whose grace ends tomorrow. */
 const DAY_MS = 86_400_000;
 const inGraceVerifier = (renewal: (jws: string) => Promise<object>): EntitlementVerifier => ({
+  environment: Environment.PRODUCTION,
   verifyAppTransaction: notProVerifier.verifyAppTransaction,
   verifyTransaction: async () => ({
     bundleId: "com.moonloaf.geospoof",
@@ -300,6 +304,7 @@ describe("POST /v1/session", () => {
 
   it("refuses unverifiable material with 403 entitlement_invalid", async () => {
     const throwing: EntitlementVerifier = {
+      environment: Environment.PRODUCTION,
       verifyAppTransaction: () => Promise.reject(new Error("bad chain")),
       verifyTransaction: () => Promise.reject(new Error("bad chain")),
       verifyRenewalInfo: () => Promise.reject(new Error("bad chain")),
@@ -315,7 +320,12 @@ describe("POST /v1/session", () => {
     const verify = vi.fn();
     const h = harness({
       verifiers: [
-        { verifyAppTransaction: verify, verifyTransaction: verify, verifyRenewalInfo: verify },
+        {
+          environment: Environment.PRODUCTION,
+          verifyAppTransaction: verify,
+          verifyTransaction: verify,
+          verifyRenewalInfo: verify,
+        },
       ],
     });
     expectError(

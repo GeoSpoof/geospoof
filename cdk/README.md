@@ -342,8 +342,12 @@ None of these is visible from inside this repo, and nothing compiles both sides.
 - The Pro rule and the embedded Apple Root CA - G3 mirror the GPS agent
   (`geospoof-gps:agent/src/entitlement.rs`, `agent/assets/AppleRootCA-G3.cer`).
   The relay accepts StoreKit Production and Sandbox, never Xcode or LocalTesting.
-  That includes Billing Grace Period: an expired monthly/annual transaction
-  grants only with a verified `renewal_infos` entry for the same original
+  Founder status comes only from a Production `AppTransaction`: Sandbox
+  (TestFlight, sandbox accounts) reports `originalApplicationVersion` "1.0",
+  which would otherwise read as a founder build, so a Sandbox `AppTransaction`
+  grants nothing and Sandbox Pro comes from its transactions. The agent and the
+  iOS app apply the same rule. The transaction rule includes Billing Grace
+  Period: an expired monthly/annual transaction grants only with a verified `renewal_infos` entry for the same original
   transaction id and product whose `gracePeriodExpiresDate` is still ahead.
 - `renewal_infos` was added to `POST /v1/session` after the first deploy, and
   the session schema refuses unknown keys with `400 schema`. A relay without it
