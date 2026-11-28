@@ -94,6 +94,57 @@ aws sts get-caller-identity --profile geospoof-prod
 # Account should be 682844365870 (prod) / 898565151814 (dev)
 ```
 
+### 4. Read-only profiles for queries
+
+Queries (stack status and events, logs, alarms, metrics, S3 listings) use a
+read-only profile, so a mistyped command or a coding agent can't change
+anything. The admin profiles above are for deploys and other changes.
+
+| Profile                  | Account        | Permission set   |
+| ------------------------ | -------------- | ---------------- |
+| `geospoof-dev-readonly`  | `898565151814` | `ReadOnlyAccess` |
+| `geospoof-prod-readonly` | `682844365870` | `ReadOnlyAccess` |
+
+`ReadOnlyAccess` is the AWS managed policy: it can't write anything, read a
+secret's value (so not the APNs key) or decrypt with KMS. It can read S3
+objects and CloudWatch Logs, which in prod can hold device tokens and IP
+addresses, so treat what it returns as user data.
+
+Set up 2026-11-28. To repeat it:
+
+1. **Create the permission set once**, in the management account: IAM Identity
+   Center → Permission sets → Create → Predefined → `ReadOnlyAccess`, session
+   duration 8 hours.
+2. **Assign it:** AWS accounts → select the account → Assign users or groups →
+   your user → `ReadOnlyAccess`.
+3. **Add the profiles** to `~/.aws/config`, on the same SSO session:
+
+   ```ini
+   [profile geospoof-dev-readonly]
+   sso_session = geospoof
+   sso_account_id = 898565151814
+   sso_role_name = ReadOnlyAccess
+   region = us-east-1
+
+   [profile geospoof-prod-readonly]
+   sso_session = geospoof
+   sso_account_id = 682844365870
+   sso_role_name = ReadOnlyAccess
+   region = us-east-1
+   ```
+
+4. **Check one reads and can't write:**
+
+   ```sh
+   aws cloudformation list-stacks --profile geospoof-prod-readonly \
+     --query "StackSummaries[].StackName" --output text
+   aws s3api create-bucket --bucket readonly-check-$RANDOM \
+     --profile geospoof-prod-readonly   # expect AccessDenied
+   ```
+
+One `aws sso login` covers both kinds of profile. For coding agents, the AWS
+MCP server (`mcp-proxy-for-aws-cli`) can be given only the read-only profiles.
+
 ## Environments
 
 | Env  | Account        | Profile         | Region      | Domain                 | Stacks                                            |
@@ -146,12 +197,14 @@ npx cdk deploy GeoSpoofGeoTzCdn-prod --exclusively --context env=prod --profile 
 
 ## Querying the deployed environments
 
+These use the read-only profile (step 4 above).
+
 Read stack outputs (role ARN, bucket, distribution id, data version, base URL):
 
 ```sh
 aws cloudformation describe-stacks \
   --stack-name GeoSpoofGeoTzCdn-prod \
-  --profile geospoof-prod \
+  --profile geospoof-prod-readonly \
   --query "Stacks[0].Outputs" --output table
 ```
 
@@ -159,15 +212,15 @@ Inspect the CDN bucket and objects:
 
 ```sh
 # Bucket name comes from the BucketName / GpsCdnBucket output above.
-aws s3 ls "s3://<bucket>/gps/"            --profile geospoof-prod
-aws s3 ls "s3://<bucket>/geo-tz/"         --profile geospoof-prod
+aws s3 ls "s3://<bucket>/gps/"            --profile geospoof-prod-readonly
+aws s3 ls "s3://<bucket>/geo-tz/"         --profile geospoof-prod-readonly
 ```
 
 List CloudFront distributions / check invalidations:
 
 ```sh
 aws cloudfront list-distributions \
-  --profile geospoof-prod \
+  --profile geospoof-prod-readonly \
   --query "DistributionList.Items[].{Id:Id,Domain:DomainName,Aliases:Aliases.Items}" \
   --output table
 ```
